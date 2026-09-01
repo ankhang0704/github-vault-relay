@@ -1,0 +1,23 @@
+# Node dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+main.js
+main.js.map
+dist/
+
+# Test / Coverage
+coverage/
+.nyc_output/
+
+# Obsidian local config & cache
+.obsidian/
+_vault-relay/
+_fit/
+
+# OS metadata
+.DS_Store
+Thumbs.db

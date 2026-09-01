@@ -1,0 +1,10 @@
+{
+  "id": "vault-relay",
+  "name": "Vault Relay",
+  "version": "0.1.0",
+  "minAppVersion": "0.15.0",
+  "description": "Conservative GitHub-backed vault sync designed primarily for Obsidian on iPhone via GitHub REST API.",
+  "author": "Vault Relay",
+  "authorUrl": "https://github.com",
+  "isDesktopOnly": false
+}
