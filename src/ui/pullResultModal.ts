@@ -25,7 +25,7 @@ export class PullResultModal extends Modal {
 
     // Header
     const headerEl = contentEl.createDiv({ attr: { style: "margin-bottom: 16px;" } });
-    headerEl.createEl("h2", { text: "Vault Relay - Safe Pull Report", attr: { style: "margin: 0 0 6px 0;" } });
+    headerEl.createEl("h2", { text: "GitHub Vault Relay - Safe Pull Report", attr: { style: "margin: 0 0 6px 0;" } });
 
     // Status Banner
     const counts = this.report.counts;

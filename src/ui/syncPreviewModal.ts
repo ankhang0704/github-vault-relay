@@ -45,7 +45,7 @@ export class SyncPreviewModal extends Modal {
       const token = await getStoredPat(this.app, this.plugin.settings.owner, this.plugin.settings.repo);
       if (!token || !this.plugin.settings.owner || !this.plugin.settings.repo) {
         this.renderError(
-          "Vault Relay is not fully configured. Please configure your GitHub repository and save your PAT in SecretStorage."
+          "GitHub Vault Relay is not fully configured. Please configure your repository and save your PAT in Settings."
         );
         this.isLoading = false;
         return;
@@ -96,7 +96,7 @@ export class SyncPreviewModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
 
-    contentEl.createEl("h2", { text: "Vault Relay - Sync Preview" });
+    contentEl.createEl("h2", { text: "GitHub Vault Relay - Sync Preview" });
 
     const errBox = contentEl.createDiv({
       attr: {
@@ -139,7 +139,7 @@ export class SyncPreviewModal extends Modal {
     });
 
     const titleArea = headerEl.createDiv();
-    titleArea.createEl("h2", { text: "Vault Relay - Sync Preview", attr: { style: "margin: 0 0 4px 0;" } });
+    titleArea.createEl("h2", { text: "GitHub Vault Relay - Sync Preview", attr: { style: "margin: 0 0 4px 0;" } });
     titleArea.createEl("div", {
       text: `Repository: ${this.plugin.settings.owner}/${this.plugin.settings.repo} | Branch: ${this.report.branch} (${
         this.report.remoteCommitSha ? this.report.remoteCommitSha.substring(0, 7) : "HEAD"

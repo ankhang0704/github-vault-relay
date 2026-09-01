@@ -1,4 +1,4 @@
-# Vault Relay
+# GitHub Vault Relay
 
 > A conservative GitHub bridge for Obsidian Mobile — without running Git on the phone.
 
@@ -14,13 +14,13 @@ A conservative, mobile-compatible GitHub-backed vault sync plugin designed prima
 
 ## 💡 Design Philosophy
 
-Vault Relay prioritizes data integrity over the appearance of successful synchronization. When state is ambiguous, it stops or preserves both versions rather than guessing or silently overwriting data. GitHub remains compatible with external native Git workflows; Vault Relay does not assume exclusive ownership of the repository.
+GitHub Vault Relay prioritizes data integrity over the appearance of successful synchronization. When state is ambiguous, it stops or preserves both versions rather than guessing or silently overwriting data. GitHub remains compatible with external native Git workflows; GitHub Vault Relay does not assume exclusive ownership of the repository.
 
 ---
 
 ## 🏛️ Architecture & Workflow
 
-Vault Relay is architected around an asymmetric sync model designed for users who work with their notes across desktop and mobile devices.
+GitHub Vault Relay is architected around an asymmetric sync model designed for users who work with their notes across desktop and mobile devices.
 
 ```
 +-------------------------------------------------------------+
@@ -34,29 +34,29 @@ Vault Relay is architected around an asymmetric sync model designed for users wh
 |        Windows / macOS       |  |          iPhone           |
 |      (Obsidian Desktop)      |  |     (Obsidian Mobile)     |
 |                              |  |                           |
-| • Native Git CLI / GUI       |  | • Vault Relay Plugin      |
+| • Native Git CLI / GUI       |  | • GitHub Vault Relay      |
 | • Standard Git branch/merge  |  | • Direct REST to GitHub   |
 | • Full local Git history     |  | • Zero Node.js / CLI req  |
-| • No Vault Relay needed      |  | • Conservative Safe Pull  |
+| • No plugin needed on PC     |  | • Conservative Safe Pull  |
 +------------------------------+  +---------------------------+
 ```
 
 ### Windows / Desktop Workflow
 - Your existing Obsidian vault continues using standard native Git (Git CLI, Obsidian Git, or your favorite Git GUI).
-- No Vault Relay plugin is required on Windows or desktop platforms.
+- No GitHub Vault Relay plugin is required on Windows or desktop platforms.
 
 ### iPhone / Mobile Workflow
 - Obsidian on iOS runs in a sandboxed mobile environment where native Git CLI, `child_process`, and Node filesystem APIs (`fs`) do not exist.
-- Vault Relay communicates directly with GitHub's REST and Git Data APIs over HTTPS using Obsidian's native `requestUrl()` API.
-- In Checkpoint 2, Vault Relay downloads remote notes locally with pre-write safety and conflict preservation.
+- GitHub Vault Relay communicates directly with GitHub's REST and Git Data APIs over HTTPS using Obsidian's native `requestUrl()` API.
+- In Checkpoint 2, GitHub Vault Relay downloads remote notes locally with pre-write safety and conflict preservation.
 
 ---
 
 ## 🔒 Threat Model & Security Decisions
 
-1. **Mandatory Obsidian SecretStorage**:
-   - Vault Relay requires **Obsidian SecretStorage** (`app.secretStorage`) introduced in Obsidian v1.11.4+.
-   - Personal Access Tokens (PAT) are stored exclusively in **Obsidian SecretStorage** and **never written to plugin `data.json`**.
+1. **Secure Device Token Storage**:
+   - GitHub Vault Relay stores Personal Access Tokens (PAT) exclusively in device secure storage (Obsidian SecretStorage when available, and app-isolated local secure storage).
+   - **PATs are NEVER written to plugin `data.json`**.
    - `data.json` contains only non-sensitive configuration (owner, repo, branch, exclusions).
 2. **Zero Leaks & Automatic Redaction**:
    - Tokens are never printed in debug logs, error toasts, console logs, or UI notices.
@@ -72,7 +72,7 @@ Vault Relay is architected around an asymmetric sync model designed for users wh
 
 - **Mobile Sandbox Constraints**: iOS prohibits spawning subprocesses or executing shell binaries (e.g. `git status`, `git commit`).
 - **Heavyweight Bundle Avoidance**: Full Git implementations like `isomorphic-git` require emulated file systems, large polyfills, and complex packfile decoders, introducing memory overhead and stability concerns on mobile (such as Jetsam OOM terminations).
-- **Auditable & Conservative**: Vault Relay directly calls GitHub's Git Data API. Every operation (tree fetch, blob hash calculation, ref check) is explicit, transparent, and easy to audit.
+- **Auditable & Conservative**: GitHub Vault Relay directly calls GitHub's Git Data API. Every operation (tree fetch, blob hash calculation, ref check) is explicit, transparent, and easy to audit.
 
 ---
 
@@ -82,18 +82,18 @@ To create a GitHub Fine-Grained Personal Access Token:
 
 1. Navigate to **GitHub** -> **Settings** -> **Developer Settings** -> **Personal Access Tokens** -> **Fine-grained tokens**.
 2. Click **Generate new token**.
-3. Set **Token name** (e.g., `Obsidian iPhone Vault Relay`).
+3. Set **Token name** (e.g., `Obsidian iPhone GitHub Vault Relay`).
 4. Set **Expiration** as desired.
 5. Under **Repository access**, select **Only select repositories** and pick your vault repository.
 6. Under **Repository permissions**, configure:
    - **Contents**: `Access: Read and write` (Metadata access is automatically granted).
-7. Generate and copy the token (`github_pat_...`), then paste it into the Vault Relay plugin settings in Obsidian and click **Save Token**.
+7. Generate and copy the token (`github_pat_...`), then paste it into the GitHub Vault Relay plugin settings in Obsidian and click **Save Token**.
 
 ---
 
 ## 📊 Sync Preview Categories & Safe Pull
 
-When you open the **Sync Preview Modal** or run **Safe Pull**, Vault Relay classifies each note into one of 6 states:
+When you open the **Sync Preview Modal** or run **Safe Pull**, GitHub Vault Relay classifies each note into one of 6 states:
 
 | Category | Description | Safe Pull Action |
 | :--- | :--- | :--- |
@@ -105,11 +105,11 @@ When you open the **Sync Preview Modal** or run **Safe Pull**, Vault Relay class
 | **`UNCHANGED`** | Local Git blob SHA matches remote Git blob SHA identically. | No operation needed; baseline verified. |
 
 ### Default Exclusions
-Vault Relay automatically ignores internal system files and folders:
+GitHub Vault Relay automatically ignores internal system files and folders:
 - `.obsidian/` (Theme, workspace cache, and plugin settings)
 - `.git/` (Native Git repository metadata)
 - `_fit/` (Mobile Fit history / sync folders)
-- `_vault-relay/` (Vault Relay internal sync state & conflicts)
+- `_vault-relay/` (GitHub Vault Relay internal sync state & conflicts)
 
 ---
 
@@ -126,49 +126,33 @@ Vault Relay automatically ignores internal system files and folders:
 
 ---
 
-## 🛠️ Development & Testing
+## 🛠️ Installation & Testing in Real Obsidian
 
-### Requirements
-- Node.js 20+
-- Obsidian v1.11.4+
-
-### Installation & Build
+### 1. Build the Plugin
 ```bash
-# Install dependencies
-npm install
-
-# Run automated tests (Vitest - 59 tests)
-npm run test
-
-# Run strict verification (lint + typecheck + test + build)
-npm run verify
-
-# Build production bundle
 npm run build
 ```
 
----
+### 2. Install into Obsidian Vault
+Copy `main.js` and `manifest.json` into:
+```text
+<YourVault>/.obsidian/plugins/github-vault-relay/
+```
 
-## 🧪 Smoke Testing in Obsidian Desktop
+> [!CAUTION]
+> If you previously installed an older build under `.obsidian/plugins/vault-relay/`, delete that directory before enabling `github-vault-relay`.
 
-To test Checkpoint 2 in your Obsidian desktop app:
-
-1. In this repository, run:
-   ```bash
-   npm run build
-   ```
-2. Copy `main.js` and `manifest.json` into your test vault:
-   `<TestVault>/.obsidian/plugins/vault-relay/`
-3. Open **Obsidian** -> **Settings** -> **Community Plugins** -> Enable **Vault Relay**.
-4. In **Vault Relay Settings**:
-   - Enter your GitHub Fine-Grained PAT (`github_pat_...`) and click **Save Token** (stored in `SecretStorage`).
-   - Enter your repository owner, repository name, and branch.
-5. Click **Test Connection** to verify read access.
-6. Open **Sync Preview** to inspect differences.
-7. Click **Pull Safe Remote Changes** (or run command `Vault Relay: Pull safe remote changes (GitHub -> Local)`) to execute Safe Pull.
+### 3. Enable and Configure
+1. Open Obsidian -> **Settings** -> **Community Plugins** -> Click **Reload plugins** -> Enable **GitHub Vault Relay**.
+2. Go to **GitHub Vault Relay Settings**:
+   - Paste your GitHub PAT and click **Save Token**.
+   - Set **Repository Owner**, **Repository Name**, and **Branch** (`main`).
+3. Click **Test GitHub Connection**.
+4. Run command `GitHub Vault Relay: Preview sync status (Read-Only)` or click the ribbon icon.
+5. Click **Pull Safe Remote Changes** to test Safe Pull.
 
 ---
 
 ## 📄 License
 
-MIT License - Copyright (c) 2026 Vault Relay Contributors.
+MIT License - Copyright (c) 2026 GitHub Vault Relay Contributors.

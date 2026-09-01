@@ -1,6 +1,6 @@
 /**
- * Vault Relay - Conservative GitHub-backed Obsidian Vault Sync Plugin
- * Main Plugin Entry Point (Checkpoint 2: Safe Pull)
+ * GitHub Vault Relay - Conservative GitHub-backed Obsidian Vault Sync Plugin
+ * Main Plugin Entry Point
  */
 
 import { Notice, Plugin } from "obsidian";
@@ -21,13 +21,13 @@ export default class VaultRelayPlugin extends Plugin {
     this.addSettingTab(new VaultRelaySettingTab(this.app, this));
 
     // Register Ribbon Icon to open Sync Preview Modal
-    this.addRibbonIcon("git-compare", "Vault Relay: Preview Sync Status", () => {
+    this.addRibbonIcon("git-compare", "GitHub Vault Relay: Preview Sync Status", () => {
       new SyncPreviewModal(this.app, this).open();
     });
 
     // Register Command: Preview Sync Status (Read-Only)
     this.addCommand({
-      id: "vault-relay-preview-sync",
+      id: "github-vault-relay-preview-sync",
       name: "Preview sync status (Read-Only)",
       callback: () => {
         new SyncPreviewModal(this.app, this).open();
@@ -36,7 +36,7 @@ export default class VaultRelayPlugin extends Plugin {
 
     // Register Command: Pull Safe Remote Changes
     this.addCommand({
-      id: "vault-relay-pull-safe-changes",
+      id: "github-vault-relay-pull-safe-changes",
       name: "Pull safe remote changes (GitHub -> Local)",
       callback: () => {
         new PullConfirmModal(this.app, this).open();
@@ -45,20 +45,20 @@ export default class VaultRelayPlugin extends Plugin {
 
     // Register Command: Test GitHub Connection
     this.addCommand({
-      id: "vault-relay-test-connection",
+      id: "github-vault-relay-test-connection",
       name: "Test GitHub connection",
       callback: async () => {
         if (!this.settings.owner || !this.settings.repo) {
-          new Notice("Vault Relay: Please configure your repository owner and name in settings.");
+          new Notice("GitHub Vault Relay: Please configure your repository owner and name in settings.");
           return;
         }
 
-        const notice = new Notice("Vault Relay: Testing GitHub connection...", 0);
+        const notice = new Notice("GitHub Vault Relay: Testing GitHub connection...", 0);
         try {
           const token = await getStoredPat(this.app, this.settings.owner, this.settings.repo);
           if (!token) {
             notice.hide();
-            new Notice("Vault Relay: No PAT found in SecretStorage. Please save a token in settings.", 6000);
+            new Notice("GitHub Vault Relay: No PAT found in secure storage. Please save a token in settings.", 6000);
             return;
           }
 
@@ -73,21 +73,21 @@ export default class VaultRelayPlugin extends Plugin {
 
           if (result.success) {
             new Notice(
-              `Vault Relay: Connected to ${result.repoFullName} on branch '${result.targetBranch}' (Read: ${
+              `GitHub Vault Relay: Connected to ${result.repoFullName} on branch '${result.targetBranch}' (Read: ${
                 result.canPull ? "OK" : "No"
               }, Write: ${result.canPush ? "OK" : "No"})`,
               6000
             );
           } else {
             new Notice(
-              `Vault Relay: Connection failed: ${result.errorMessage || "Unknown error"}`,
+              `GitHub Vault Relay: Connection failed: ${result.errorMessage || "Unknown error"}`,
               8000
             );
           }
         } catch (err) {
           notice.hide();
           const safe = sanitizeErrorMessage(err);
-          new Notice(`Vault Relay: Connection error: ${safe}`, 8000);
+          new Notice(`GitHub Vault Relay: Connection error: ${safe}`, 8000);
         }
       },
     });

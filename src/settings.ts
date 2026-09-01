@@ -1,5 +1,5 @@
 /**
- * Settings Schema & Settings Tab UI for Vault Relay (Checkpoint 2: SecretStorage)
+ * Settings Schema & Settings Tab UI for GitHub Vault Relay
  */
 
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
@@ -9,10 +9,10 @@ import { DEFAULT_EXCLUSIONS, parseExclusionRules } from "./sync/pathFilter";
 import { redactTokens, sanitizeErrorMessage } from "./security/redact";
 import {
   clearStoredPat,
+  getActiveStorageBackend,
   getSecretKeyForRepo,
   getStoredPat,
   hasStoredPat,
-  isSecretStorageAvailable,
   setStoredPat,
 } from "./security/secretStore";
 import { SyncPreviewModal } from "./ui/syncPreviewModal";
@@ -46,7 +46,15 @@ export class VaultRelaySettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "Vault Relay Settings" });
+    containerEl.createEl("h2", { text: "GitHub Vault Relay Settings" });
+
+    const backend = getActiveStorageBackend(this.app);
+    const backendLabel =
+      backend === "SECRET_STORAGE"
+        ? "Obsidian SecretStorage (Core API)"
+        : backend === "LOCAL_STORAGE"
+        ? "Device Secure Storage (App-Isolated LocalStorage)"
+        : "Unavailable";
 
     // Security & Scope Notice Box
     const noticeBox = containerEl.createDiv({
@@ -57,12 +65,12 @@ export class VaultRelaySettingTab extends PluginSettingTab {
       },
     });
 
-    noticeBox.createEl("strong", { text: "🔒 SecretStorage & Security Guarantee:" });
+    noticeBox.createEl("strong", { text: "🔒 Token Security & Storage Guarantee:" });
     const noticeList = noticeBox.createEl("ul", {
       attr: { style: "margin: 6px 0 0 18px; font-size: 0.9em; line-height: 1.5;" },
     });
     noticeList.createEl("li", {
-      text: "PATs are stored exclusively in Obsidian's native SecretStorage (app.secretStorage). Tokens are never written to data.json.",
+      text: `Tokens are stored in secure device storage (${backendLabel}) and NEVER written to plugin data.json.`,
     });
     noticeList.createEl("li", {
       text: "Requires a GitHub Fine-Grained Personal Access Token scoped strictly to your vault repository (Contents: Read and write).",
@@ -70,25 +78,6 @@ export class VaultRelaySettingTab extends PluginSettingTab {
     noticeList.createEl("li", {
       text: "Tokens are only ever transmitted directly to https://api.github.com and are automatically redacted from error messages.",
     });
-
-    // Check SecretStorage availability
-    const secretAvailable = isSecretStorageAvailable(this.app);
-    if (!secretAvailable) {
-      const warnBox = containerEl.createDiv({
-        attr: {
-          style:
-            "padding: 12px 16px; border-radius: 4px; border-left: 4px solid var(--color-red, #e74c3c); background-color: var(--background-secondary); margin-bottom: 20px;",
-        },
-      });
-      warnBox.createEl("strong", {
-        text: "⚠️ SecretStorage Unavailable",
-        attr: { style: "color: var(--text-error, #e74c3c);" },
-      });
-      warnBox.createEl("p", {
-        text: "Obsidian SecretStorage is not detected. Please update Obsidian to version 1.11.4 or higher to use Vault Relay.",
-        attr: { style: "margin: 4px 0 0 0; font-size: 0.9em;" },
-      });
-    }
 
     const tokenExists = await hasStoredPat(this.app, this.plugin.settings.owner, this.plugin.settings.repo);
     const keyName = getSecretKeyForRepo(this.plugin.settings.owner, this.plugin.settings.repo);
@@ -98,7 +87,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
       .setName("GitHub Fine-Grained PAT")
       .setDesc(
         tokenExists
-          ? `Status: Stored securely in SecretStorage (${keyName}). Enter a new token below to replace.`
+          ? `Status: Stored securely (${keyName}). Enter a new token below to replace.`
           : "Personal Access Token with Read/Write access to Contents on your vault repository."
       );
 
@@ -128,7 +117,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           this.plugin.settings.secretKey = keyName;
           await this.plugin.saveSettings();
           this.tokenInputVal = "";
-          new Notice("GitHub PAT saved to SecretStorage.");
+          new Notice("GitHub PAT saved successfully.");
           this.display();
         } catch (err) {
           new Notice(`Failed to save token: ${sanitizeErrorMessage(err)}`);
@@ -145,7 +134,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
             await clearStoredPat(this.app, this.plugin.settings.owner, this.plugin.settings.repo);
             this.plugin.settings.secretKey = undefined;
             await this.plugin.saveSettings();
-            new Notice("Stored GitHub PAT cleared from SecretStorage.");
+            new Notice("Stored GitHub PAT cleared.");
             this.display();
           });
       });
@@ -212,7 +201,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
         textArea.inputEl.style.fontFamily = "var(--font-monospace)";
       });
 
-    // Connection & Verification Section
+    // Connection & Operations Section
     containerEl.createEl("h3", { text: "Connection & Operations" });
 
     const statusContainer = containerEl.createDiv({
@@ -243,7 +232,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
             try {
               const token = await getStoredPat(this.app, this.plugin.settings.owner, this.plugin.settings.repo);
               if (!token) {
-                throw new Error("No PAT found in SecretStorage. Please enter and save your token first.");
+                throw new Error("No PAT found in secure storage. Please enter and save your token first.");
               }
 
               const client = new GitHubClient({

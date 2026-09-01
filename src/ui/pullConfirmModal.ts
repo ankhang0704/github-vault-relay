@@ -44,7 +44,7 @@ export class PullConfirmModal extends Modal {
     try {
       const token = await getStoredPat(this.app, this.plugin.settings.owner, this.plugin.settings.repo);
       if (!token) {
-        this.renderError("No GitHub PAT found in SecretStorage. Please configure settings first.");
+        this.renderError("No GitHub PAT found in secure storage. Please configure settings first.");
         return;
       }
 
@@ -92,7 +92,7 @@ export class PullConfirmModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
 
-    contentEl.createEl("h2", { text: "Vault Relay - Safe Pull" });
+    contentEl.createEl("h2", { text: "GitHub Vault Relay - Safe Pull" });
 
     const errBox = contentEl.createDiv({
       attr: {

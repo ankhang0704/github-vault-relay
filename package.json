@@ -1,7 +1,7 @@
 {
-  "name": "vault-relay",
-  "version": "0.1.0",
-  "description": "Conservative GitHub-backed vault sync plugin for Obsidian (Mobile-first, GitHub REST API)",
+  "name": "github-vault-relay",
+  "version": "0.2.0",
+  "description": "A conservative GitHub bridge for Obsidian Mobile — without running Git on the phone.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { App } from "obsidian";
 import {
   getSecretKeyForRepo,
@@ -6,21 +6,28 @@ import {
   setStoredPat,
   clearStoredPat,
   hasStoredPat,
-  isSecretStorageAvailable,
-  SecretStorageUnavailableError,
+  getActiveStorageBackend,
+  isSecureStorageAvailable,
 } from "../src/security/secretStore";
 
-describe("SecretStorage Integration (src/security/secretStore.ts)", () => {
-  it("generates correct namespaced key for repo", () => {
-    expect(getSecretKeyForRepo("octocat", "my-vault")).toBe("vault-relay:pat:octocat:my-vault");
-    expect(getSecretKeyForRepo("Owner", "Repo")).toBe("vault-relay:pat:owner:repo");
-    expect(getSecretKeyForRepo("", "")).toBe("vault-relay:pat");
+describe("Device Secret Storage Integration (src/security/secretStore.ts)", () => {
+  beforeEach(() => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.clear();
+    }
   });
 
-  it("stores, retrieves, and clears PAT in SecretStorage", async () => {
+  it("generates correct namespaced key for repo with github-vault-relay prefix", () => {
+    expect(getSecretKeyForRepo("octocat", "my-vault")).toBe("github-vault-relay:pat:octocat:my-vault");
+    expect(getSecretKeyForRepo("Owner", "Repo")).toBe("github-vault-relay:pat:owner:repo");
+    expect(getSecretKeyForRepo("", "")).toBe("github-vault-relay:pat");
+  });
+
+  it("stores, retrieves, and clears PAT via SecretStorage when available", async () => {
     const app = new App();
     const token = "github_pat_test_secret_1234567890abcdef";
 
+    expect(getActiveStorageBackend(app)).toBe("SECRET_STORAGE");
     expect(await hasStoredPat(app, "octocat", "vault")).toBe(false);
     expect(await getStoredPat(app, "octocat", "vault")).toBeNull();
 
@@ -35,17 +42,40 @@ describe("SecretStorage Integration (src/security/secretStore.ts)", () => {
     expect(await getStoredPat(app, "octocat", "vault")).toBeNull();
   });
 
-  it("throws SecretStorageUnavailableError if app.secretStorage is missing (no silent plaintext degradation)", async () => {
-    const brokenApp = new App();
-    (brokenApp as unknown as { secretStorage: unknown }).secretStorage = undefined;
+  it("stores, retrieves, and clears PAT via device localStorage when app.secretStorage is absent", async () => {
+    const appWithoutCoreStorage = new App();
+    (appWithoutCoreStorage as unknown as { secretStorage: unknown }).secretStorage = undefined;
 
-    expect(isSecretStorageAvailable(brokenApp)).toBe(false);
+    expect(isSecureStorageAvailable(appWithoutCoreStorage)).toBe(true);
+    expect(getActiveStorageBackend(appWithoutCoreStorage)).toBe("LOCAL_STORAGE");
 
-    await expect(getStoredPat(brokenApp, "owner", "repo")).rejects.toThrow(
-      SecretStorageUnavailableError
-    );
-    await expect(setStoredPat(brokenApp, "owner", "repo", "tok")).rejects.toThrow(
-      SecretStorageUnavailableError
-    );
+    const token = "github_pat_local_storage_test_value";
+
+    expect(await hasStoredPat(appWithoutCoreStorage, "octocat", "notes")).toBe(false);
+    expect(await getStoredPat(appWithoutCoreStorage, "octocat", "notes")).toBeNull();
+
+    await setStoredPat(appWithoutCoreStorage, "octocat", "notes", token);
+
+    expect(await hasStoredPat(appWithoutCoreStorage, "octocat", "notes")).toBe(true);
+    expect(await getStoredPat(appWithoutCoreStorage, "octocat", "notes")).toBe(token);
+
+    // Verify it is stored in localStorage under correct key
+    expect(window.localStorage.getItem("github-vault-relay:pat:octocat:notes")).toBe(token);
+
+    await clearStoredPat(appWithoutCoreStorage, "octocat", "notes");
+
+    expect(await hasStoredPat(appWithoutCoreStorage, "octocat", "notes")).toBe(false);
+    expect(await getStoredPat(appWithoutCoreStorage, "octocat", "notes")).toBeNull();
+    expect(window.localStorage.getItem("github-vault-relay:pat:octocat:notes")).toBeNull();
+  });
+
+  it("reads legacy vault-relay:pat:* key seamlessly for backward compatibility", async () => {
+    const app = new App();
+    const token = "github_pat_legacy_key_val";
+
+    window.localStorage.setItem("vault-relay:pat:legacyowner:legacyrepo", token);
+
+    const retrieved = await getStoredPat(app, "legacyowner", "legacyrepo");
+    expect(retrieved).toBe(token);
   });
 });
