@@ -5,6 +5,6 @@
   "minAppVersion": "0.15.0",
   "description": "A conservative GitHub bridge for Obsidian Mobile — without running Git on the phone.",
   "author": "Vault Relay Contributors",
-  "authorUrl": "https://github.com/ankhang0704/vault-relay",
+  "authorUrl": "https://github.com/ankhang0704/github-vault-relay",
   "isDesktopOnly": false
 }

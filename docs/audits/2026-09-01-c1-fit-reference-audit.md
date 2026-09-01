@@ -2,7 +2,7 @@
 
 **Audit Date**: September 1, 2026  
 **Audited Commit**: `d0a640089df3edadcd3d99101eb59120d63ef56e`  
-**Target Repository**: [ankhang0704/vault-relay](https://github.com/ankhang0704/vault-relay)  
+**Target Repository**: [ankhang0704/github-vault-relay](https://github.com/ankhang0704/github-vault-relay)  
 **Reference Project**: [joshuakto/fit](https://github.com/joshuakto/fit)  
 
 ---
