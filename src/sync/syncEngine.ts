@@ -1,19 +1,18 @@
 /**
- * Sync Engine for Vault Relay (Checkpoint 1: Read-Only Preview)
+ * Sync Engine for Vault Relay
  *
  * Scans local Obsidian vault, fetches remote GitHub Git tree,
- * and produces a read-only sync classification report.
- *
- * Strictly NO file creation, modification, deletion, git commits, or uploads.
+ * and produces a read-only sync classification report with case collision checks.
  */
 
 import { App, TFile } from "obsidian";
 import { GitHubClient } from "../github/githubClient";
 import { VaultRelaySettings } from "../settings";
-import { calculateGitBlobSha } from "./hashUtils";
+import { calculateCanonicalGitBlobSha } from "./hashUtils";
 import { isPathExcluded } from "./pathFilter";
 import { classifySyncState } from "./syncClassifier";
 import { deserializeState, STATE_FILE_PATH } from "./syncState";
+import { detectCaseCollisions } from "./pathSafety";
 import {
   LocalFileEntry,
   RemoteBlobEntry,
@@ -32,7 +31,7 @@ export class SyncEngine {
     this.githubClient =
       githubClient ||
       new GitHubClient({
-        token: settings.token,
+        token: "",
         owner: settings.owner,
         repo: settings.repo,
         branch: settings.branch,
@@ -40,7 +39,7 @@ export class SyncEngine {
   }
 
   /**
-   * Scans local files in the Obsidian vault, filtering out excluded directories.
+   * Scans local files in the Obsidian vault, computing canonical Git hashes.
    */
   public async scanLocalVault(): Promise<Map<string, LocalFileEntry>> {
     const localFiles = new Map<string, LocalFileEntry>();
@@ -53,7 +52,7 @@ export class SyncEngine {
 
       try {
         const binaryContent = await this.app.vault.readBinary(file);
-        const sha = await calculateGitBlobSha(binaryContent);
+        const sha = await calculateCanonicalGitBlobSha(binaryContent, file.path);
 
         localFiles.set(file.path, {
           path: file.path,
@@ -80,7 +79,7 @@ export class SyncEngine {
         return deserializeState(content);
       }
     } catch {
-      // If state does not exist or cannot be read, return undefined
+      // Return undefined if state file does not exist
     }
     return undefined;
   }
@@ -91,7 +90,7 @@ export class SyncEngine {
   public async generatePreview(): Promise<SyncPreviewReport> {
     const branchName = this.settings.branch || "main";
 
-    // 1. Fetch remote branch HEAD
+    // 1. Fetch fresh remote branch HEAD
     const branchInfo = await this.githubClient.getBranch(branchName);
     const remoteCommitSha = branchInfo.commit.sha;
     const treeSha = branchInfo.commit.commit?.tree?.sha || branchInfo.commit.sha;
@@ -101,6 +100,8 @@ export class SyncEngine {
 
     // 3. Filter remote blobs
     const remoteBlobs = new Map<string, RemoteBlobEntry>();
+    const remotePaths: string[] = [];
+
     for (const item of treeResponse.tree) {
       if (item.type !== "blob") continue;
       if (isPathExcluded(item.path, this.settings.excludedPaths)) continue;
@@ -111,19 +112,29 @@ export class SyncEngine {
         size: item.size,
         mode: item.mode,
       });
+      remotePaths.push(item.path);
     }
 
     // 4. Scan local vault
     const localFiles = await this.scanLocalVault();
 
-    // 5. Load state (if available)
+    // 5. Detect case collisions
+    const allScannedPaths = Array.from(new Set([...localFiles.keys(), ...remotePaths]));
+    const collisionMap = detectCaseCollisions(allScannedPaths);
+    const caseCollisions: Array<{ key: string; paths: string[] }> = [];
+    for (const [key, paths] of collisionMap.entries()) {
+      caseCollisions.push({ key, paths });
+    }
+
+    // 6. Load state
     const state = await this.loadLocalState();
 
-    // 6. Run pure classification
+    // 7. Run pure classification
     const { items, counts } = classifySyncState({
       localFiles,
       remoteBlobs,
       state,
+      excludedPaths: this.settings.excludedPaths,
     });
 
     return {
@@ -136,6 +147,7 @@ export class SyncEngine {
       totalScannedLocal: localFiles.size,
       totalScannedRemote: remoteBlobs.size,
       truncatedRemoteTree: !!treeResponse.truncated,
+      caseCollisions,
     };
   }
 }

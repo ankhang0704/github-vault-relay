@@ -1,18 +1,22 @@
 /**
  * GitHub API Client for Vault Relay
  *
+ * Strictly READ-ONLY in Checkpoint 2.
  * Uses Obsidian requestUrl() (or injectable request function)
  * to communicate directly with api.github.com without Node dependencies.
  */
 
 import { requestUrl, RequestUrlParam, RequestUrlResponse } from "obsidian";
 import {
+  GitHubBlobResponse,
   GitHubBranchResponse,
   GitHubConnectionTestResult,
   GitHubRepoResponse,
   GitHubTreeResponse,
 } from "./githubTypes";
 import { sanitizeErrorMessage, redactTokens } from "../security/redact";
+import { calculateRawGitBlobSha } from "../sync/hashUtils";
+import { isOversized } from "../sync/fileSizePolicy";
 
 export type GitHubRequestFn = (params: RequestUrlParam) => Promise<RequestUrlResponse>;
 
@@ -36,6 +40,26 @@ export interface GitHubClientConfig {
   requestFn?: GitHubRequestFn;
 }
 
+/**
+ * Decodes a base64 string into a Uint8Array using standard Web APIs.
+ */
+export function base64ToUint8Array(base64: string): Uint8Array {
+  const clean = base64.replace(/\s+/g, "");
+  const binaryString = atob(clean);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Helper to pause execution for a given number of milliseconds.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export class GitHubClient {
   private token: string;
   private owner: string;
@@ -53,9 +77,19 @@ export class GitHubClient {
   }
 
   /**
-   * Helper to perform authenticated HTTP requests to GitHub REST API.
+   * Helper to perform authenticated GET HTTP requests to GitHub REST API with retries.
    */
-  private async request<T>(endpoint: string, options: Partial<RequestUrlParam> = {}): Promise<T> {
+  private async request<T>(endpoint: string): Promise<T> {
+    // Offline preflight check
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      throw new GitHubError(
+        "Device is offline (network disconnected or airplane mode).",
+        0,
+        undefined,
+        this.token
+      );
+    }
+
     if (!this.token) {
       throw new GitHubError(
         "GitHub token is missing. Please configure your Fine-Grained Personal Access Token in settings.",
@@ -81,19 +115,48 @@ export class GitHubClient {
       Authorization: `Bearer ${this.token}`,
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "VaultRelay-Obsidian-Plugin",
-      ...(options.headers || {}),
     };
 
-    try {
-      const response = await this.requestFn({
-        url,
-        method: options.method || "GET",
-        headers,
-        body: options.body,
-        throw: false,
-      });
+    let attempt = 0;
+    const maxAttempts = 3;
 
-      if (response.status < 200 || response.status >= 300) {
+    while (attempt < maxAttempts) {
+      attempt++;
+
+      try {
+        const response = await this.requestFn({
+          url,
+          method: "GET",
+          headers,
+          throw: false,
+        });
+
+        if (response.status >= 200 && response.status < 300) {
+          return response.json as T;
+        }
+
+        // Handle Rate Limit (HTTP 429)
+        if (response.status === 429 && attempt < maxAttempts) {
+          const retryAfterHeader = response.headers?.["retry-after"] || response.headers?.["Retry-After"];
+          let waitSec = 2 * attempt;
+          if (retryAfterHeader) {
+            const parsed = parseInt(retryAfterHeader, 10);
+            if (!isNaN(parsed) && parsed > 0) {
+              waitSec = Math.min(parsed, 10);
+            }
+          }
+          await sleep(waitSec * 1000);
+          continue;
+        }
+
+        // Handle Server Unavailable (HTTP 503 / 504)
+        if ((response.status === 503 || response.status === 504) && attempt < maxAttempts) {
+          const backoffMs = Math.pow(2, attempt - 1) * 1000;
+          await sleep(backoffMs);
+          continue;
+        }
+
+        // Fail-fast on other status codes (401, 403, 404, 422, etc.)
         let errorMsg = `GitHub API request failed: HTTP ${response.status}`;
         try {
           const jsonBody = response.json;
@@ -106,23 +169,29 @@ export class GitHubClient {
           }
         }
         throw new GitHubError(errorMsg, response.status, undefined, this.token);
+      } catch (err) {
+        if (err instanceof GitHubError) {
+          throw err;
+        }
+        if (attempt < maxAttempts) {
+          await sleep(1000 * attempt);
+          continue;
+        }
+        const sanitized = sanitizeErrorMessage(err, this.token);
+        throw new GitHubError(`GitHub request error: ${sanitized}`, undefined, undefined, this.token);
       }
-
-      return response.json as T;
-    } catch (err) {
-      if (err instanceof GitHubError) {
-        throw err;
-      }
-      const sanitized = sanitizeErrorMessage(err, this.token);
-      throw new GitHubError(`GitHub request error: ${sanitized}`, undefined, undefined, this.token);
     }
+
+    throw new GitHubError("GitHub request failed after maximum retry attempts.", undefined, undefined, this.token);
   }
 
   /**
    * Fetches repository metadata.
    */
   public async getRepo(): Promise<GitHubRepoResponse> {
-    return this.request<GitHubRepoResponse>(`/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}`);
+    return this.request<GitHubRepoResponse>(
+      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}`
+    );
   }
 
   /**
@@ -145,6 +214,49 @@ export class GitHubClient {
   }
 
   /**
+   * Fetches a raw blob object from GitHub Git Data API.
+   */
+  public async getBlob(blobSha: string): Promise<GitHubBlobResponse> {
+    return this.request<GitHubBlobResponse>(
+      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/blobs/${encodeURIComponent(blobSha)}`
+    );
+  }
+
+  /**
+   * Fetches raw bytes for a blob and strictly validates cryptographic integrity against expected blob SHA.
+   */
+  public async getRawBlobBytes(blobSha: string, expectedSize?: number): Promise<Uint8Array> {
+    if (isOversized(expectedSize)) {
+      throw new GitHubError(`Blob size exceeds Vault Relay 25 MiB safety policy: ${expectedSize} bytes`);
+    }
+
+    const blobResponse = await this.getBlob(blobSha);
+
+    if (isOversized(blobResponse.size)) {
+      throw new GitHubError(`Blob payload exceeds Vault Relay 25 MiB safety policy: ${blobResponse.size} bytes`);
+    }
+
+    let bytes: Uint8Array;
+    if (blobResponse.encoding === "base64") {
+      bytes = base64ToUint8Array(blobResponse.content);
+    } else if (blobResponse.encoding === "utf-8") {
+      bytes = new TextEncoder().encode(blobResponse.content);
+    } else {
+      throw new GitHubError(`Unsupported blob encoding: ${blobResponse.encoding}`);
+    }
+
+    // Cryptographic integrity check
+    const computedRawSha = await calculateRawGitBlobSha(bytes);
+    if (computedRawSha.toLowerCase() !== blobSha.toLowerCase()) {
+      throw new GitHubError(
+        `Integrity verification failed for remote blob ${blobSha}. Computed raw SHA was ${computedRawSha}.`
+      );
+    }
+
+    return bytes;
+  }
+
+  /**
    * Tests the connection to the configured GitHub repository.
    */
   public async testConnection(): Promise<GitHubConnectionTestResult> {
@@ -164,7 +276,10 @@ export class GitHubClient {
           canPush: !!repo.permissions?.push,
           canPull: !!repo.permissions?.pull,
           isPrivate: repo.private,
-          errorMessage: `Repository found, but branch '${this.branch}' was not found or could not be accessed: ${sanitizeErrorMessage(branchErr, this.token)}`,
+          errorMessage: `Repository found, but branch '${this.branch}' was not found or could not be accessed: ${sanitizeErrorMessage(
+            branchErr,
+            this.token
+          )}`,
         };
       }
 

@@ -2,14 +2,17 @@
  * Read-Only Sync Preview Modal for Vault Relay
  *
  * Inspects differences between local Obsidian vault and remote GitHub repository.
- * Checkpoint 1: READ-ONLY ONLY. No sync/write actions.
+ * Shows classified changes, case collisions, and provides a trigger for Safe Pull.
  */
 
 import { App, Modal, Notice, setIcon } from "obsidian";
 import type VaultRelayPlugin from "../main";
+import { GitHubClient } from "../github/githubClient";
 import { SyncEngine } from "../sync/syncEngine";
 import { SyncCategory, SyncPreviewItem, SyncPreviewReport } from "../sync/syncTypes";
+import { getStoredPat } from "../security/secretStore";
 import { sanitizeErrorMessage } from "../security/redact";
+import { PullConfirmModal } from "./pullConfirmModal";
 
 export class SyncPreviewModal extends Modal {
   private plugin: VaultRelayPlugin;
@@ -39,21 +42,29 @@ export class SyncPreviewModal extends Modal {
     this.renderLoading();
 
     try {
-      if (!this.plugin.settings.token || !this.plugin.settings.owner || !this.plugin.settings.repo) {
+      const token = await getStoredPat(this.app, this.plugin.settings.owner, this.plugin.settings.repo);
+      if (!token || !this.plugin.settings.owner || !this.plugin.settings.repo) {
         this.renderError(
-          "Vault Relay is not fully configured. Please provide your GitHub PAT, owner, and repository in plugin settings."
+          "Vault Relay is not fully configured. Please configure your GitHub repository and save your PAT in SecretStorage."
         );
         this.isLoading = false;
         return;
       }
 
-      const engine = new SyncEngine(this.app, this.plugin.settings);
+      const client = new GitHubClient({
+        token,
+        owner: this.plugin.settings.owner,
+        repo: this.plugin.settings.repo,
+        branch: this.plugin.settings.branch,
+      });
+
+      const engine = new SyncEngine(this.app, this.plugin.settings, client);
       this.report = await engine.generatePreview();
       this.isLoading = false;
       this.renderReport();
     } catch (err) {
       this.isLoading = false;
-      const safeMsg = sanitizeErrorMessage(err, this.plugin.settings.token);
+      const safeMsg = sanitizeErrorMessage(err);
       this.renderError(safeMsg);
       new Notice(`Vault Relay scan error: ${safeMsg}`);
     }
@@ -65,7 +76,8 @@ export class SyncPreviewModal extends Modal {
 
     const container = contentEl.createDiv({
       attr: {
-        style: "display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px;",
+        style:
+          "display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px;",
       },
     });
 
@@ -75,7 +87,7 @@ export class SyncPreviewModal extends Modal {
 
     container.createEl("h3", { text: "Scanning Vault & GitHub Repository..." });
     container.createEl("p", {
-      text: "Calculating local Git blob hashes and fetching remote tree from api.github.com...",
+      text: "Calculating canonical Git blob hashes and fetching remote tree from api.github.com...",
       attr: { style: "color: var(--text-muted); font-size: 0.9em;" },
     });
   }
@@ -89,7 +101,7 @@ export class SyncPreviewModal extends Modal {
     const errBox = contentEl.createDiv({
       attr: {
         style:
-          "padding: 16px; border-radius: 6px; border-left: 4px solid var(--color-red, #e74c3c); background-color: var(--background-secondary); margin: 20px 0;"
+          "padding: 16px; border-radius: 6px; border-left: 4px solid var(--color-red, #e74c3c); background-color: var(--background-secondary); margin: 20px 0;",
       },
     });
 
@@ -97,7 +109,10 @@ export class SyncPreviewModal extends Modal {
       text: "Failed to load sync preview",
       attr: { style: "margin: 0 0 8px 0; color: var(--text-error, #e74c3c);" },
     });
-    errBox.createEl("p", { text: message, attr: { style: "margin: 0; color: var(--text-muted); font-size: 0.95em;" } });
+    errBox.createEl("p", {
+      text: message,
+      attr: { style: "margin: 0; color: var(--text-muted); font-size: 0.95em;" },
+    });
 
     const actions = contentEl.createDiv({
       attr: { style: "display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;" },
@@ -133,20 +148,45 @@ export class SyncPreviewModal extends Modal {
     });
 
     const actionArea = headerEl.createDiv({ attr: { style: "display: flex; gap: 8px;" } });
+
+    const pullBtn = actionArea.createEl("button", { text: "Pull Safe Changes", cls: "mod-cta" });
+    pullBtn.onclick = () => {
+      new PullConfirmModal(this.app, this.plugin).open();
+    };
+
     const refreshBtn = actionArea.createEl("button", { text: "Refresh" });
     refreshBtn.onclick = () => this.runScanAndRender();
 
-    // Read-only Checkpoint 1 Notice
-    const noticeEl = contentEl.createDiv({
-      attr: {
-        style:
-          "background-color: var(--background-secondary-alt, var(--background-secondary)); border: 1px solid var(--background-modifier-border); border-left: 4px solid var(--interactive-accent); padding: 8px 12px; border-radius: 4px; margin-bottom: 16px; font-size: 0.85em;",
-      },
-    });
-    noticeEl.createEl("strong", { text: "ℹ️ Read-Only Preview Mode: " });
-    noticeEl.createSpan({
-      text: "Checkpoint 1 inspects repository and local vault differences without creating commits, modifying files, or pushing/pulling data.",
-    });
+    // Truncated tree warning banner (TRUNCATED_TREE_POLICY)
+    if (this.report.truncatedRemoteTree) {
+      const truncBox = contentEl.createDiv({
+        attr: {
+          style:
+            "padding: 10px 14px; border-radius: 4px; border-left: 4px solid var(--color-red, #e74c3c); background-color: var(--background-secondary); margin-bottom: 12px; font-size: 0.88em;",
+        },
+      });
+      truncBox.createEl("strong", {
+        text: "⚠️ Remote Tree Truncated (>100,000 objects): ",
+        attr: { style: "color: var(--text-error, #e74c3c);" },
+      });
+      truncBox.createSpan({
+        text: "GitHub API truncated the remote tree. Safe Pull is blocked to prevent partial synchronization.",
+      });
+    }
+
+    // Case collisions alert banner
+    if (this.report.caseCollisions && this.report.caseCollisions.length > 0) {
+      const caseBox = contentEl.createDiv({
+        attr: {
+          style:
+            "padding: 10px 14px; border-radius: 4px; border-left: 4px solid var(--color-orange, #e67e22); background-color: var(--background-secondary); margin-bottom: 12px; font-size: 0.88em;",
+        },
+      });
+      caseBox.createEl("strong", { text: "⚠️ Case Collisions Detected: " });
+      caseBox.createSpan({
+        text: `Found ${this.report.caseCollisions.length} case-insensitive collisions. Affected files will be blocked during pull for safety.`,
+      });
+    }
 
     // Summary Badges Grid
     const counts = this.report.counts;
@@ -273,6 +313,20 @@ export class SyncPreviewModal extends Modal {
       left.createDiv({
         text: item.details,
         attr: { style: "font-size: 0.8em; color: var(--text-muted); margin-top: 2px;" },
+      });
+    }
+
+    if (item.isOversized) {
+      left.createDiv({
+        text: "⚠️ Oversized (>25 MiB mobile safety ceiling). Will be skipped during pull.",
+        attr: { style: "font-size: 0.78em; color: var(--color-orange, #e67e22); margin-top: 2px;" },
+      });
+    }
+
+    if (item.unsafeReason) {
+      left.createDiv({
+        text: `🚫 Path unsafe: ${item.unsafeReason}`,
+        attr: { style: "font-size: 0.78em; color: var(--color-red, #e74c3c); margin-top: 2px;" },
       });
     }
 

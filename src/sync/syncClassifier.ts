@@ -8,8 +8,12 @@
  * - REMOTE_CHANGED
  * - POTENTIAL_CONFLICT
  * - UNCHANGED
+ *
+ * Also identifies oversized files (>25 MiB) and unsafe path segments.
  */
 
+import { isOversized } from "./fileSizePolicy";
+import { validatePathSafety } from "./pathSafety";
 import {
   LocalFileEntry,
   RemoteBlobEntry,
@@ -23,6 +27,7 @@ export interface ClassificationInputs {
   localFiles: Map<string, LocalFileEntry>;
   remoteBlobs: Map<string, RemoteBlobEntry>;
   state?: SyncStateData;
+  excludedPaths?: string[];
 }
 
 export interface ClassificationResult {
@@ -34,7 +39,7 @@ export interface ClassificationResult {
  * Pure function that classifies all files across local vault, remote tree, and sync state.
  */
 export function classifySyncState(inputs: ClassificationInputs): ClassificationResult {
-  const { localFiles, remoteBlobs, state } = inputs;
+  const { localFiles, remoteBlobs, state, excludedPaths } = inputs;
   const allPaths = new Set<string>();
 
   for (const path of localFiles.keys()) {
@@ -52,6 +57,8 @@ export function classifySyncState(inputs: ClassificationInputs): ClassificationR
     REMOTE_CHANGED: 0,
     POTENTIAL_CONFLICT: 0,
     UNCHANGED: 0,
+    OVERSIZED: 0,
+    UNSAFE: 0,
   };
 
   const sortedPaths = Array.from(allPaths).sort((a, b) => a.localeCompare(b));
@@ -60,6 +67,18 @@ export function classifySyncState(inputs: ClassificationInputs): ClassificationR
     const local = localFiles.get(path);
     const remote = remoteBlobs.get(path);
     const fileState = state?.files ? state.files[path] : undefined;
+
+    // Validate path safety
+    const pathCheck = validatePathSafety(path, excludedPaths);
+    const isUnsafe = !pathCheck.valid;
+    const oversized = isOversized(remote?.size || local?.size);
+
+    if (isUnsafe) {
+      counts.UNSAFE++;
+    }
+    if (oversized) {
+      counts.OVERSIZED++;
+    }
 
     let category: SyncCategory;
     let details: string | undefined;
@@ -80,7 +99,6 @@ export function classifySyncState(inputs: ClassificationInputs): ClassificationR
       } else {
         // Hashes differ
         if (!fileState) {
-          // No sync history between local and remote
           category = "POTENTIAL_CONFLICT";
           details = "File exists both locally and remotely with differing content and no common sync base.";
         } else {
@@ -94,14 +112,12 @@ export function classifySyncState(inputs: ClassificationInputs): ClassificationR
             category = "REMOTE_CHANGED";
             details = "Modified remotely on GitHub since last sync. Local is unchanged.";
           } else {
-            // Both modified or neither matches state but they differ
             category = "POTENTIAL_CONFLICT";
             details = "Both local and remote versions have diverged since last sync.";
           }
         }
       }
     } else {
-      // Should not occur, but handle gracefully
       continue;
     }
 
@@ -112,8 +128,10 @@ export function classifySyncState(inputs: ClassificationInputs): ClassificationR
       localSha: local?.sha,
       remoteSha: remote?.sha,
       baseSha: fileState?.remoteSha || fileState?.localSha,
-      size: local?.size || remote?.size,
+      size: remote?.size || local?.size,
       details,
+      isOversized: oversized,
+      unsafeReason: pathCheck.reason,
     });
   }
 

@@ -54,6 +54,15 @@ export interface GitHubTreeResponse {
   truncated: boolean;
 }
 
+export interface GitHubBlobResponse {
+  sha: string;
+  node_id?: string;
+  size: number;
+  url: string;
+  content: string;
+  encoding: "base64" | "utf-8";
+}
+
 export interface GitHubConnectionTestResult {
   success: boolean;
   repoFullName: string;

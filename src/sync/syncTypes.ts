@@ -18,6 +18,8 @@ export interface SyncPreviewItem {
   baseSha?: string;
   size?: number;
   details?: string;
+  isOversized?: boolean;
+  unsafeReason?: string;
 }
 
 export interface SyncCategoryCounts {
@@ -27,6 +29,8 @@ export interface SyncCategoryCounts {
   REMOTE_CHANGED: number;
   POTENTIAL_CONFLICT: number;
   UNCHANGED: number;
+  OVERSIZED: number;
+  UNSAFE: number;
 }
 
 export interface SyncPreviewReport {
@@ -39,6 +43,7 @@ export interface SyncPreviewReport {
   totalScannedLocal: number;
   totalScannedRemote: number;
   truncatedRemoteTree: boolean;
+  caseCollisions: Array<{ key: string; paths: string[] }>;
 }
 
 export interface LocalFileEntry {
@@ -66,4 +71,51 @@ export interface SyncStateData {
   lastSyncedCommitSha?: string;
   lastSyncedAt?: number;
   files: Record<string, FileSyncStateEntry>;
+}
+
+export type PullActionType =
+  | "PULL_CREATE"
+  | "PULL_UPDATE"
+  | "PRESERVE_CONFLICT"
+  | "ESTABLISH_BASELINE"
+  | "SKIP_UNCHANGED"
+  | "SKIP_LOCAL_ONLY"
+  | "SKIP_LOCAL_CHANGED"
+  | "SKIP_OVERSIZED"
+  | "SKIP_UNSAFE";
+
+export type PullItemStatus =
+  | "SUCCESS"
+  | "CONFLICT_PRESERVED"
+  | "SKIPPED"
+  | "FAILED";
+
+export interface PullFileResult {
+  path: string;
+  action: PullActionType;
+  status: PullItemStatus;
+  localSha?: string;
+  remoteSha?: string;
+  conflictPath?: string;
+  message?: string;
+}
+
+export interface PullExecutionReport {
+  timestamp: number;
+  branch: string;
+  remoteCommitSha?: string;
+  status: "PASS" | "PASS_WITH_WARNINGS" | "FAIL" | "ABORTED";
+  results: PullFileResult[];
+  counts: {
+    pulledCreated: number;
+    pulledUpdated: number;
+    conflictsPreserved: number;
+    unchanged: number;
+    skippedLocalOnly: number;
+    skippedLocalChanged: number;
+    skippedOversized: number;
+    skippedUnsafe: number;
+    failed: number;
+  };
+  summaryMessage: string;
 }
