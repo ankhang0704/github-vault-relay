@@ -152,7 +152,7 @@ This multi-reference reconnaissance investigates real-world failure modes, mobil
 | **`REG-008`** | SyncGit / Offline | User triggers sync while device is in Airplane Mode (`navigator.onLine === false`). | Immediate clean abort with "Device is offline" notice; zero timeout delays. | C2 |
 | **`REG-009`** | Docs Sync / Mid-Sync Drop | Network disconnects after blobs are uploaded but before ref update. | Remote ref untouched; local state unchanged; subsequent sync resumes safely without duplicate commits. | C2 |
 | **`REG-010`** | Obsidian-Git / Case Rename | User renames `summary.md` $\rightarrow$ `Summary.md` on iOS/Windows. | Scanner detects case collision and prevents creating duplicate dual-cased tree entries on GitHub. | C2 |
-| **`REG-011`** | Docs Sync / SecretStorage | Token retrieval and persistence in `app.secretStorage`. | Token successfully retrieved from keychain; `data.json` contains zero token strings. | C2 |
+| **`REG-011`** | Docs Sync / SecretStorage | Token retrieval and persistence in `app.secretStorage`. | Token successfully retrieved from Obsidian SecretStorage; `data.json` contains zero token strings. | C2 |
 
 ---
 

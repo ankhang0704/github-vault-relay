@@ -56,7 +56,7 @@ Vault Relay is architected around an asymmetric sync model designed for users wh
 
 1. **Mandatory Obsidian SecretStorage**:
    - Vault Relay requires **Obsidian SecretStorage** (`app.secretStorage`) introduced in Obsidian v1.11.4+.
-   - Personal Access Tokens (PAT) are stored exclusively in the secure device keychain and **never written to plugin `data.json`**.
+   - Personal Access Tokens (PAT) are stored exclusively in **Obsidian SecretStorage** and **never written to plugin `data.json`**.
    - `data.json` contains only non-sensitive configuration (owner, repo, branch, exclusions).
 2. **Zero Leaks & Automatic Redaction**:
    - Tokens are never printed in debug logs, error toasts, console logs, or UI notices.
