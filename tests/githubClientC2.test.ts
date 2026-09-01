@@ -16,9 +16,25 @@ describe("GitHub Client C2 Hardening & Safety (src/github/githubClient.ts)", () 
   });
 
   it("aborts immediately when device is offline without network timeouts (REG-008)", async () => {
-    const originalOnline = navigator.onLine;
+    const hasNavigator = typeof globalThis.navigator !== "undefined";
+    const originalDescriptor = hasNavigator
+      ? Object.getOwnPropertyDescriptor(globalThis.navigator, "onLine") ||
+        Object.getOwnPropertyDescriptor(Object.getPrototypeOf(globalThis.navigator), "onLine")
+      : undefined;
+
     try {
-      Object.defineProperty(navigator, "onLine", { value: false, configurable: true });
+      if (!hasNavigator) {
+        Object.defineProperty(globalThis, "navigator", {
+          value: { onLine: false },
+          configurable: true,
+          writable: true,
+        });
+      } else {
+        Object.defineProperty(globalThis.navigator, "onLine", {
+          value: false,
+          configurable: true,
+        });
+      }
 
       const client = new GitHubClient({
         token: "github_pat_test",
@@ -29,7 +45,13 @@ describe("GitHub Client C2 Hardening & Safety (src/github/githubClient.ts)", () 
 
       await expect(client.getRepo()).rejects.toThrow(/Device is offline/i);
     } finally {
-      Object.defineProperty(navigator, "onLine", { value: originalOnline, configurable: true });
+      if (!hasNavigator) {
+        delete (globalThis as unknown as { navigator?: unknown }).navigator;
+      } else if (originalDescriptor) {
+        Object.defineProperty(globalThis.navigator, "onLine", originalDescriptor);
+      } else {
+        delete (globalThis.navigator as unknown as { onLine?: boolean }).onLine;
+      }
     }
   });
 
