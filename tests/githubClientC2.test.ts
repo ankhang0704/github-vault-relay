@@ -1,9 +1,28 @@
 import { describe, it, expect, vi } from "vitest";
-import { GitHubClient } from "../src/github/githubClient";
+import { GitHubClient, normalizeRepoConfig } from "../src/github/githubClient";
 import { RequestUrlParam, RequestUrlResponse } from "obsidian";
 import { calculateRawGitBlobSha } from "../src/sync/hashUtils";
 
 describe("GitHub Client C2 Hardening & Safety (src/github/githubClient.ts)", () => {
+  it("normalizes various repo input formats correctly (slug, full url, .git)", () => {
+    expect(normalizeRepoConfig("ankhang0704", "github-vault-relay")).toEqual({
+      owner: "ankhang0704",
+      repo: "github-vault-relay",
+    });
+    expect(normalizeRepoConfig("", "ankhang0704/github-vault-relay")).toEqual({
+      owner: "ankhang0704",
+      repo: "github-vault-relay",
+    });
+    expect(normalizeRepoConfig("", "https://github.com/ankhang0704/github-vault-relay.git")).toEqual({
+      owner: "ankhang0704",
+      repo: "github-vault-relay",
+    });
+    expect(normalizeRepoConfig("ankhang0704", "github-vault-relay.git")).toEqual({
+      owner: "ankhang0704",
+      repo: "github-vault-relay",
+    });
+  });
+
   it("proves C2 GitHubClient contains ZERO remote write methods (Phase 18 / C2-017)", () => {
     const proto = GitHubClient.prototype as unknown as Record<string, unknown>;
     expect(proto.createBlob).toBeUndefined();

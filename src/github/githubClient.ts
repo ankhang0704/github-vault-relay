@@ -32,6 +32,51 @@ export class GitHubError extends Error {
   }
 }
 
+
+/**
+ * Normalizes user-entered owner and repository strings, handling full URLs,
+ * owner/repo slugs, .git suffixes, and stray slashes.
+ */
+export function normalizeRepoConfig(owner: string, repo: string): { owner: string; repo: string } {
+  let cleanOwner = (owner || '').trim();
+  let cleanRepo = (repo || '').trim();
+
+  if (cleanRepo.startsWith('http://') || cleanRepo.startsWith('https://') || cleanRepo.startsWith('git@')) {
+    const urlPattern = /(?:github\.com[/:])([^/]+)\/?([^/.]+)?(?:\.git)?/i;
+    const match = cleanRepo.match(urlPattern);
+    if (match) {
+      cleanOwner = match[1] || cleanOwner;
+      cleanRepo = match[2] || '';
+    }
+  }
+
+  if (cleanRepo.includes('/')) {
+    const parts = cleanRepo.split('/').filter(Boolean);
+    if (parts.length >= 2) {
+      cleanOwner = parts[0];
+      cleanRepo = parts[1];
+    } else if (parts.length === 1) {
+      cleanRepo = parts[0];
+    }
+  }
+
+  if (cleanOwner.startsWith('http://') || cleanOwner.startsWith('https://')) {
+    const match = cleanOwner.match(/github\.com\/([^/]+)/i);
+    if (match) {
+      cleanOwner = match[1];
+    }
+  }
+
+  if (cleanRepo.endsWith('.git')) {
+    cleanRepo = cleanRepo.slice(0, -4);
+  }
+
+  cleanOwner = cleanOwner.replace(/^\/+|\/+$/g, '');
+  cleanRepo = cleanRepo.replace(/^\/+|\/+$/g, '');
+
+  return { owner: cleanOwner, repo: cleanRepo };
+}
+
 export interface GitHubClientConfig {
   token: string;
   owner: string;
@@ -70,8 +115,9 @@ export class GitHubClient {
 
   constructor(config: GitHubClientConfig) {
     this.token = config.token ? config.token.trim() : "";
-    this.owner = config.owner ? config.owner.trim() : "";
-    this.repo = config.repo ? config.repo.trim() : "";
+    const normalized = normalizeRepoConfig(config.owner, config.repo);
+    this.owner = normalized.owner;
+    this.repo = normalized.repo;
     this.branch = config.branch ? config.branch.trim() : "main";
     this.requestFn = config.requestFn || requestUrl;
   }

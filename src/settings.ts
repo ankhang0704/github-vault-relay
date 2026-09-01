@@ -4,7 +4,7 @@
 
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type VaultRelayPlugin from "./main";
-import { GitHubClient } from "./github/githubClient";
+import { GitHubClient, normalizeRepoConfig } from "./github/githubClient";
 import { DEFAULT_EXCLUSIONS, parseExclusionRules } from "./sync/pathFilter";
 import { redactTokens, sanitizeErrorMessage } from "./security/redact";
 import {
@@ -149,7 +149,9 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           .setPlaceholder("octocat")
           .setValue(this.plugin.settings.owner)
           .onChange(async (value) => {
-            this.plugin.settings.owner = value.trim();
+            const norm = normalizeRepoConfig(value, this.plugin.settings.repo);
+            this.plugin.settings.owner = norm.owner;
+            this.plugin.settings.repo = norm.repo;
             await this.plugin.saveSettings();
           })
       );
@@ -163,7 +165,9 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           .setPlaceholder("my-notes")
           .setValue(this.plugin.settings.repo)
           .onChange(async (value) => {
-            this.plugin.settings.repo = value.trim();
+            const norm = normalizeRepoConfig(this.plugin.settings.owner, value);
+            this.plugin.settings.owner = norm.owner;
+            this.plugin.settings.repo = norm.repo;
             await this.plugin.saveSettings();
           })
       );
