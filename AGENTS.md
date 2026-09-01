@@ -4,6 +4,9 @@
 Vault Relay is a conservative mobile GitHub-backed Obsidian vault sync plugin.
 Data integrity and explicit failure are more important than convenience.
 
+## Design Philosophy
+Vault Relay prioritizes data integrity over the appearance of successful synchronization. When state is ambiguous, it stops or preserves both versions rather than guessing or silently overwriting data. GitHub remains compatible with external native Git workflows; Vault Relay does not assume exclusive ownership of the repository.
+
 ## Quality Gates
 A task/checkpoint is NOT complete unless:
 - `npm run lint` => PASS, 0 warnings

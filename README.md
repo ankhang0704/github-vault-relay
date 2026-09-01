@@ -1,11 +1,19 @@
 # Vault Relay
 
+> A conservative GitHub bridge for Obsidian Mobile — without running Git on the phone.
+
 A conservative, mobile-compatible GitHub-backed vault sync plugin designed primarily for **Obsidian on iOS (iPhone)**.
 
 > [!IMPORTANT]
 > **Current Status: Checkpoint 1 (Bootstrap & Read-Only Connectivity)**
 > This checkpoint provides plugin bootstrap, settings configuration, GitHub REST connection testing, local vault scanning, and a **read-only sync preview modal**.
 > **Strictly NO file creation, modification, deletion, git commits, or uploads are performed.**
+
+---
+
+## 💡 Design Philosophy
+
+Vault Relay prioritizes data integrity over the appearance of successful synchronization. When state is ambiguous, it stops or preserves both versions rather than guessing or silently overwriting data. GitHub remains compatible with external native Git workflows; Vault Relay does not assume exclusive ownership of the repository.
 
 ---
 
@@ -46,7 +54,7 @@ Vault Relay is architected around an asymmetric sync model designed for users wh
 
 1. **Token Hygiene & Storage**:
    - Vault Relay uses GitHub **Fine-Grained Personal Access Tokens (PAT)**.
-   - Tokens are stored locally on your device via Obsidian's plugin storage (`saveData` in `.obsidian/plugins/vault-relay/data.json`).
+   - Tokens are stored locally on your device via Obsidian's plugin storage (`saveData` in `.obsidian/plugins/vault-relay/data.json`) with future migration to native Obsidian `SecretStorage`.
    - Plugin settings and internal state files (`_vault-relay/`) are **strictly excluded** from sync and never committed to GitHub.
 2. **Zero Leaks & Automatic Redaction**:
    - Tokens are never printed in debug logs, error toasts, console logs, or UI notices.
@@ -61,7 +69,7 @@ Vault Relay is architected around an asymmetric sync model designed for users wh
 ## ❓ Why Native Git / isomorphic-git is Not Used
 
 - **Mobile Sandbox Constraints**: iOS prohibits spawning subprocesses or executing shell binaries (e.g. `git status`, `git commit`).
-- **Heavyweight Bundle Avoidance**: Full Git implementations like `isomorphic-git` require emulated file systems, large polyfills, and complex packfile decoders, introducing memory overhead and stability concerns on mobile.
+- **Heavyweight Bundle Avoidance**: Full Git implementations like `isomorphic-git` require emulated file systems, large polyfills, and complex packfile decoders, introducing memory overhead and stability concerns on mobile (such as Jetsam OOM terminations).
 - **Auditable & Conservative**: Vault Relay directly calls GitHub's Git Data API. Every operation (tree fetch, blob hash calculation, ref check) is explicit, transparent, and easy to audit.
 
 ---
