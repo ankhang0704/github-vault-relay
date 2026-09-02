@@ -1,20 +1,12 @@
-# GitHub Vault Relay
+﻿# GitHub Vault Relay
 
-> A conservative GitHub bridge for Obsidian Mobile — without running Git on the phone.
+> **A conservative, mobile-first GitHub bridge for Obsidian — without running Git on your phone.**
 
-A conservative, mobile-compatible GitHub-backed vault sync plugin designed primarily for **Obsidian on iOS (iPhone)**.
+[![CI](https://github.com/ankhang0704/github-vault-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/ankhang0704/github-vault-relay/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](https://github.com/ankhang0704/github-vault-relay/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> [!IMPORTANT]
-> **Current Status: Checkpoint 2 (Safe Pull: GitHub → Obsidian Local)**
-> - **Supported**: GitHub → Obsidian Safe Pull with pre-write local safety, cryptographic integrity verification, and conflict preservation.
-> - **Not Yet Supported**: Obsidian → GitHub Push (Checkpoint 3), bidirectional auto-sync, deletion propagation.
-> - **Remote State**: Strictly **READ-ONLY** on GitHub (zero GitHub commits, blob creations, tree creations, or ref updates).
-
----
-
-## 💡 Design Philosophy
-
-GitHub Vault Relay prioritizes data integrity over the appearance of successful synchronization. When state is ambiguous, it stops or preserves both versions rather than guessing or silently overwriting data. GitHub remains compatible with external native Git workflows; GitHub Vault Relay does not assume exclusive ownership of the repository.
+GitHub Vault Relay connects your **Obsidian Mobile (iPhone / iPad)** vault directly to your GitHub repository using GitHub's REST and Git Data APIs over HTTPS. It requires **no native Git installation, no command line tools, no isomorphic-git polyfills, and zero background daemons**.
 
 ---
 
@@ -27,8 +19,8 @@ GitHub Vault Relay is architected around an asymmetric sync model designed for u
 |                     GitHub Repository                       |
 |          (Central Git Remote / Vault Source of Truth)       |
 +-------------------------------------------------------------+
-               ^                               |
-               | (Native Git: clone/push/pull) | (GitHub REST / Git Data API: GET only)
+               ^                               ^
+               | (Native Git: clone/push/pull) | (GitHub REST / Git Data API: GET / POST / PATCH)
                |                               v
 +------------------------------+  +---------------------------+
 |        Windows / macOS       |  |          iPhone           |
@@ -37,25 +29,26 @@ GitHub Vault Relay is architected around an asymmetric sync model designed for u
 | • Native Git CLI / GUI       |  | • GitHub Vault Relay      |
 | • Standard Git branch/merge  |  | • Direct REST to GitHub   |
 | • Full local Git history     |  | • Zero Node.js / CLI req  |
-| • No plugin needed on PC     |  | • Conservative Safe Pull  |
+| • Compatible with PC sync    |  | • Safe Pull & Safe Push   |
 +------------------------------+  +---------------------------+
 ```
 
 ### Windows / Desktop Workflow
 - Your existing Obsidian vault continues using standard native Git (Git CLI, Obsidian Git, or your favorite Git GUI).
-- No GitHub Vault Relay plugin is required on Windows or desktop platforms.
+- No special plugin is required on Windows or desktop platforms.
 
 ### iPhone / Mobile Workflow
 - Obsidian on iOS runs in a sandboxed mobile environment where native Git CLI, `child_process`, and Node filesystem APIs (`fs`) do not exist.
 - GitHub Vault Relay communicates directly with GitHub's REST and Git Data APIs over HTTPS using Obsidian's native `requestUrl()` API.
-- In Checkpoint 2, GitHub Vault Relay downloads remote notes locally with pre-write safety and conflict preservation.
+- **Safe Pull**: Downloads remote notes locally with pre-write safety and conflict preservation (`_vault-relay/conflicts/`).
+- **Safe Push**: Uploads safe local changes (`LOCAL_ONLY`, `LOCAL_CHANGED`) in a single atomic Git commit with optimistic concurrency and zero force-push.
 
 ---
 
 ## 🔒 Threat Model & Security Decisions
 
 1. **Secure Device Token Storage**:
-   - GitHub Vault Relay stores Personal Access Tokens (PAT) exclusively in device secure storage (Obsidian SecretStorage when available, and app-isolated local secure storage).
+   - GitHub Vault Relay stores Personal Access Tokens (PAT) exclusively in secure device storage (Obsidian SecretStorage when available, and app-isolated local storage).
    - **PATs are NEVER written to plugin `data.json`**.
    - `data.json` contains only non-sensitive configuration (owner, repo, branch, exclusions).
 2. **Zero Leaks & Automatic Redaction**:
@@ -65,14 +58,6 @@ GitHub Vault Relay is architected around an asymmetric sync model designed for u
    - The token is transmitted exclusively to `https://api.github.com` and nowhere else. No third-party servers, analytics, or telemetry.
 4. **Principle of Least Privilege**:
    - Configure your Fine-Grained PAT to have access **only** to your specific vault repository with **Contents: Read and Write** permissions.
-
----
-
-## ❓ Why Native Git / isomorphic-git is Not Used
-
-- **Mobile Sandbox Constraints**: iOS prohibits spawning subprocesses or executing shell binaries (e.g. `git status`, `git commit`).
-- **Heavyweight Bundle Avoidance**: Full Git implementations like `isomorphic-git` require emulated file systems, large polyfills, and complex packfile decoders, introducing memory overhead and stability concerns on mobile (such as Jetsam OOM terminations).
-- **Auditable & Conservative**: GitHub Vault Relay directly calls GitHub's Git Data API. Every operation (tree fetch, blob hash calculation, ref check) is explicit, transparent, and easy to audit.
 
 ---
 
@@ -91,18 +76,18 @@ To create a GitHub Fine-Grained Personal Access Token:
 
 ---
 
-## 📊 Sync Preview Categories & Safe Pull
+## 📊 Sync Preview Categories
 
-When you open the **Sync Preview Modal** or run **Safe Pull**, GitHub Vault Relay classifies each note into one of 6 states:
+When you open the **Sync Preview Modal**, GitHub Vault Relay classifies each note into one of 6 states:
 
-| Category | Description | Safe Pull Action |
-| :--- | :--- | :--- |
-| **`LOCAL ONLY`** | Exists in local vault, not present on GitHub. | Kept untouched locally (future push). |
-| **`REMOTE ONLY`** | Exists in GitHub Git tree, not in local vault. | Safely created locally. |
-| **`LOCAL CHANGED`** | Modified locally since last sync, remote unchanged. | Kept untouched locally (future push). |
-| **`REMOTE CHANGED`** | Updated on GitHub since last sync, local unchanged. | Safely updated locally after pre-write check. |
-| **`POTENTIAL CONFLICT`** | Both local and remote versions changed, or exist with differing content. | Local original untouched; remote version preserved in `_vault-relay/conflicts/`. |
-| **`UNCHANGED`** | Local Git blob SHA matches remote Git blob SHA identically. | No operation needed; baseline verified. |
+| Category | Description | Safe Pull Action | Safe Push Action |
+| :--- | :--- | :--- | :--- |
+| **`LOCAL ONLY`** | Exists in local vault, not present on GitHub. | Kept untouched locally. | Created on GitHub (`PUSH_CREATE`). |
+| **`REMOTE ONLY`** | Exists in GitHub Git tree, not in local vault. | Safely created locally. | Skipped (not a local change). |
+| **`LOCAL CHANGED`** | Modified locally since last sync, remote unchanged. | Kept untouched locally. | Updated on GitHub (`PUSH_UPDATE`). |
+| **`REMOTE CHANGED`** | Updated on GitHub since last sync, local unchanged. | Safely updated locally. | Skipped (remote is newer). |
+| **`POTENTIAL CONFLICT`** | Both local and remote versions changed independently. | Local untouched; remote saved in `_vault-relay/conflicts/`. | Skipped (blocked from push to protect remote). |
+| **`UNCHANGED`** | Local Git blob SHA matches remote Git blob SHA identically. | No operation needed. | No operation needed. |
 
 ### Default Exclusions
 GitHub Vault Relay automatically ignores internal system files and folders:
@@ -113,16 +98,17 @@ GitHub Vault Relay automatically ignores internal system files and folders:
 
 ---
 
-## 🛡️ Checkpoint 2 Safety Model Policies
+## 🛡️ Safety & Concurrency Policies
 
-- **25 MiB Mobile Safety Ceiling**: Remote files $>25\text{ MiB}$ are skipped during pull with a user warning to protect against iOS Jetsam memory terminations. (Note: GitHub platform limit is 100 MB).
-- **Canonical LF for Text**: `.md`, `.txt`, `.canvas` text files are canonicalized to LF (`\n`) in memory before Git SHA calculation and local writing.
-- **Byte-Exact Binary**: Images, PDF, audio, and binary attachments are streamed and written **100% byte-exact** without any transformation.
-- **Cryptographic Integrity**: Remote blob raw SHA is strictly verified against expected Git blob SHA before any local write.
-- **Pre-Write Conflict Protection**: Immediately before modifying an existing note, local bytes are re-read. If the user edited the note in Obsidian since planning, the local edit wins and the remote version is saved as a conflict copy.
-- **Conflict Preservation**: Conflicting remote versions are saved under `_vault-relay/conflicts/<timestamp>/<path>`. Never overwritten.
-- **Truncated Tree Guard**: If GitHub returns `truncated: true`, safe pull is completely blocked to prevent partial state corruption.
-- **Strictly Zero Remote Writes**: Checkpoint 2 performs zero `POST`, `PUT`, `PATCH`, or `DELETE` requests to GitHub.
+- **Optimistic Concurrency & Zero Force-Push**: Branch ref updates strictly set `force: false`. If remote branch HEAD changes while a push is in flight, Vault Relay aborts immediately (`ABORTED / REMOTE_CHANGED_DURING_PUSH`), preventing history overwrites.
+- **Atomic Single Commit**: All eligible local changes in a push are uploaded as blobs, assembled into a single Git tree on top of the base commit tree, and committed as a single atomic Git commit.
+- **25 MiB Mobile Safety Ceiling**: Files $>25\text{ MiB}$ are skipped with a user warning to protect against iOS Jetsam memory terminations. (Note: GitHub platform limit is 100 MB).
+- **Canonical LF for Text**: `.md`, `.txt`, `.canvas` text files are canonicalized to LF (`\n`) in memory before Git SHA calculation and upload/write operations.
+- **Byte-Exact Binary**: Images, PDF, audio, and binary attachments are streamed and uploaded/written **100% byte-exact** without any transformation.
+- **Cryptographic Integrity**: Blob raw SHAs are strictly verified against expected Git blob SHAs.
+- **Conflict Preservation**: Conflicting remote versions are saved under `_vault-relay/conflicts/<timestamp>/<path>`. Never silently overwritten.
+- **Truncated Tree Guard**: If GitHub returns `truncated: true` (>100,000 objects), sync operations are blocked to prevent partial synchronization.
+- **Post-Push Verification**: Baseline state in `_vault-relay/state.json` is updated ONLY after verified remote success (re-fetching HEAD and tree).
 
 ---
 
@@ -149,7 +135,7 @@ Copy `main.js` and `manifest.json` into:
    - Set **Repository Owner**, **Repository Name**, and **Branch** (`main`).
 3. Click **Test GitHub Connection**.
 4. Run command `GitHub Vault Relay: Preview sync status (Read-Only)` or click the ribbon icon.
-5. Click **Pull Safe Remote Changes** to test Safe Pull.
+5. Use **Pull Safe Remote Changes** or **Push Safe Local Changes** as needed.
 
 ---
 
