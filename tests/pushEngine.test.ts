@@ -1,4 +1,5 @@
-﻿import { describe, it, expect, beforeEach, vi } from "vitest";
+import fs from "fs";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { App, PluginManifest, RequestUrlParam } from "obsidian";
 import VaultRelayPlugin from "../src/main";
 import { GitHubClient } from "../src/github/githubClient";
@@ -1563,5 +1564,180 @@ describe("Ref Update & Verification Hardening (REF-001..007)", () => {
     expect(report2.status).toBe("PASS");
     state = await pushEngine.loadState();
     expect(state.lastSyncedCommitSha).toBe("commit_sha_7");
+  });
+});
+
+describe("Ref Verification Hardening #2 (REF2-001..007)", () => {
+  let app: App;
+  let plugin: VaultRelayPlugin;
+  const owner = "octocat";
+  const repo = "notes";
+  const branch = "main";
+  const token = "github_pat_valid_token_123";
+
+  beforeEach(async () => {
+    app = new App();
+    const manifest: PluginManifest = {
+      id: "github-vault-relay",
+      name: "GitHub Vault Relay",
+      version: "0.2.0",
+      minAppVersion: "0.15.0",
+      description: "A conservative GitHub bridge for Obsidian Mobile.",
+      author: "Vault Relay Contributors",
+    };
+    plugin = new VaultRelayPlugin(app, manifest);
+    plugin.settings = {
+      owner,
+      repo,
+      branch,
+      excludedPaths: [".obsidian/", ".git/", "_fit/", "_vault-relay/"],
+    };
+    await setStoredPat(app, owner, repo, token);
+  });
+
+  it("REF2-001 & REF2-005: Each verification retry executes a genuinely fresh GET request with Cache-Control headers", async () => {
+    const content = "# Ref2 Test 1\n";
+    const expectedRawSha = await calculateRawGitBlobSha(new TextEncoder().encode(content));
+    await app.vault.create("ref2_1.md", content);
+
+    const refGetRequests: RequestUrlParam[] = [];
+
+    const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      if (params.url.includes("/git/ref/heads/main") && (!params.method || params.method === "GET")) {
+        refGetRequests.push(params);
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: "commit_new_ref2_1", type: "commit" } },
+        };
+      }
+      if (params.url.includes("/branches/main")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { name: "main", commit: { sha: "commit_base_ref2_1" } },
+        };
+      }
+      if (params.url.includes("/git/trees/commit_base_ref2_1")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { sha: "tree_base_ref2_1", truncated: false, tree: [] },
+        };
+      }
+      if (params.url.includes("/git/blobs") && params.method === "POST") {
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: expectedRawSha } };
+      }
+      if (params.url.includes("/git/trees") && params.method === "POST") {
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "tree_new_ref2_1", tree: [] } };
+      }
+      if (params.url.includes("/git/commits") && params.method === "POST") {
+        return {
+          status: 201,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { sha: "commit_new_ref2_1", tree: { sha: "tree_new_ref2_1" }, parents: [{ sha: "commit_base_ref2_1" }] },
+        };
+      }
+      if (params.url.includes("/git/refs/heads/main") && params.method === "PATCH") {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: "commit_new_ref2_1", type: "commit" } },
+        };
+      }
+      if (params.url.includes("/git/trees/commit_new_ref2_1")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: {
+            sha: "tree_new_ref2_1",
+            truncated: false,
+            tree: [{ path: "ref2_1.md", mode: "100644", type: "blob", sha: expectedRawSha, size: 14 }],
+          },
+        };
+      }
+      throw new Error(`Unhandled: ${params.url}`);
+    });
+
+    const client = new GitHubClient({ token, owner, repo, branch, requestFn: fakeRequestFn });
+    const pushEngine = new PushEngine(app, plugin.settings, client);
+
+    const report = await pushEngine.executeSafePush();
+    expect(report.status).toBe("PASS");
+    expect(refGetRequests.length).toBeGreaterThanOrEqual(1);
+
+    const verificationReq = refGetRequests[0];
+    expect(verificationReq.url).toContain("?t=");
+    expect(verificationReq.headers?.["Cache-Control"]).toBe("no-cache, no-store, must-revalidate");
+    expect(verificationReq.headers?.["Pragma"]).toBe("no-cache");
+  });
+
+  it("REF2-006: False-negative push recovery -> note exists on remote -> automatically converges to UNCHANGED without duplicate commit", async () => {
+    const content = "# Already On Remote\n";
+    const sha = await calculateCanonicalGitBlobSha(content, "recovered.md");
+    await app.vault.create("recovered.md", content);
+
+    // Notice: state.json is EMPTY (simulating a false-negative push where baseline was not written)
+
+    const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      if (params.url.includes("/branches/main")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { name: "main", commit: { sha: "commit_existing" } },
+        };
+      }
+      if (params.url.includes("/git/trees/commit_existing")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: {
+            sha: "tree_existing",
+            truncated: false,
+            tree: [{ path: "recovered.md", mode: "100644", type: "blob", sha, size: 20 }],
+          },
+        };
+      }
+      throw new Error(`Unhandled URL: ${params.url}`);
+    });
+
+    const client = new GitHubClient({ token, owner, repo, branch, requestFn: fakeRequestFn });
+    const pushEngine = new PushEngine(app, plugin.settings, client);
+
+    // Push execution sees repository is already up to date, creates ZERO remote commits
+    const report = await pushEngine.executeSafePush();
+    expect(report.status).toBe("PASS");
+    expect(report.counts.pushedCreated).toBe(0);
+    expect(report.counts.pushedUpdated).toBe(0);
+    expect(report.counts.unchanged).toBe(1);
+
+    // And heals state.json with baseline!
+    const state = await pushEngine.loadState();
+    expect(state.files["recovered.md"]).toBeDefined();
+    expect(state.files["recovered.md"].localSha).toBe(sha);
+    expect(state.files["recovered.md"].remoteSha).toBe(sha);
+  });
+
+  it("REF2-007: Bundle verification -> main.js on disk contains getBranchRef and no-cache headers", () => {
+    const bundle = fs.readFileSync("main.js", "utf8");
+    expect(bundle.includes("git/ref/heads/")).toBe(true);
+    expect(bundle.includes("no-cache, no-store, must-revalidate")).toBe(true);
+    expect(bundle.includes("Authoritative Git branch ref returned")).toBe(true);
   });
 });

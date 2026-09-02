@@ -387,6 +387,30 @@ export class PushEngine {
 
     // 6. Check if anything is eligible to push
     if (eligibleItems.length === 0) {
+      // Phase 10: Auto-heal/converge baseline for UNCHANGED files missing from state.files (e.g. from previous false-negative verification)
+      let healedCount = 0;
+      for (const item of classification.items) {
+        if (item.category === "UNCHANGED" && item.localSha && item.remoteSha && item.localSha === item.remoteSha) {
+          if (!state.files[item.path] || state.files[item.path].remoteSha !== item.remoteSha) {
+            state.files[item.path] = {
+              localSha: item.localSha,
+              remoteSha: item.remoteSha,
+              syncedAt: Date.now(),
+            };
+            healedCount++;
+          }
+        }
+      }
+      if (healedCount > 0) {
+        state.lastSyncedCommitSha = baseCommitSha;
+        state.lastSyncedAt = Date.now();
+        try {
+          await this.saveState(state);
+        } catch (saveErr) {
+          console.warn("[Vault Relay] Failed to heal baseline state:", saveErr);
+        }
+      }
+
       if (report.counts.skippedConflicts > 0 || report.counts.skippedOversized > 0 || report.counts.skippedUnsafe > 0) {
         report.status = "PASS_WITH_WARNINGS";
       } else {
@@ -484,8 +508,10 @@ export class PushEngine {
     report.newCommitSha = newCommitSha;
 
     // 10. Optimistic Concurrency Ref Update (force: false)
+    let patchRefResp;
     try {
-      await this.githubClient.updateBranchRef(this.settings.branch, newCommitSha, false);
+      patchRefResp = await this.githubClient.updateBranchRef(this.settings.branch, newCommitSha, false);
+      console.info(`[Vault Relay:SafePush:T4] PATCH ref successful: ${patchRefResp.object?.sha}`);
     } catch (refErr) {
       const safeMsg = sanitizeErrorMessage(refErr);
       // If remote HEAD changed during push (e.g. 422 Unprocessable Entity)
@@ -497,20 +523,25 @@ export class PushEngine {
     // 11. Authoritative Post-Push Verification (with bounded retry for edge replication)
     try {
       let verifiedHeadSha: string | undefined;
+      let lastObservedSha: string | undefined;
       const maxRetries = 3;
-      const delays = [300, 600, 1200];
+      const delays = [500, 1000, 2000];
 
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
           const refResp = await this.githubClient.getBranchRef(this.settings.branch);
+          lastObservedSha = refResp.object?.sha;
+          console.info(`[Vault Relay:SafePush:T6] Verification attempt #${attempt + 1}: returned SHA ${lastObservedSha}`);
           if (refResp.object?.sha?.toLowerCase() === newCommitSha.toLowerCase()) {
             verifiedHeadSha = refResp.object.sha;
             break;
           }
         } catch {
-          // Fallback to getBranch if git/ref endpoint is not directly available
+          // Fallback to getBranch bypassing cache
           try {
-            const freshBranch = await this.githubClient.getBranch(this.settings.branch);
+            const freshBranch = await this.githubClient.getBranch(this.settings.branch, true);
+            lastObservedSha = freshBranch.commit?.sha;
+            console.info(`[Vault Relay:SafePush:T6-fallback] Verification attempt #${attempt + 1}: returned SHA ${lastObservedSha}`);
             if (freshBranch.commit?.sha?.toLowerCase() === newCommitSha.toLowerCase()) {
               verifiedHeadSha = freshBranch.commit.sha;
               break;
@@ -527,7 +558,7 @@ export class PushEngine {
 
       if (!verifiedHeadSha) {
         throw new GitHubError(
-          `Post-push verification failed: Authoritative Git branch ref does not match new commit SHA (${newCommitSha}) after verification budget.`
+          `Authoritative Git branch ref returned (${lastObservedSha || "unknown"}) instead of new commit SHA (${newCommitSha}) after ${maxRetries + 1} verification attempts.`
         );
       }
 

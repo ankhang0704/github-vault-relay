@@ -131,7 +131,7 @@ export class GitHubClient {
    */
   private async request<T>(
     endpoint: string,
-    options?: { method?: "GET" | "POST" | "PATCH"; body?: unknown }
+    options?: { method?: "GET" | "POST" | "PATCH"; body?: unknown; headers?: Record<string, string> }
   ): Promise<T> {
     const method = options?.method || "GET";
 
@@ -170,6 +170,7 @@ export class GitHubClient {
       Authorization: `Bearer ${this.token}`,
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "VaultRelay-Obsidian-Plugin",
+      ...(options?.headers || {}),
     };
 
     let serializedBody: string | undefined = undefined;
@@ -269,16 +270,34 @@ export class GitHubClient {
    */
   public async getBranchRef(branchName?: string): Promise<GitHubRefResponse> {
     const target = (branchName || this.branch).trim();
+    const timestamp = Date.now();
     return this.request<GitHubRefResponse>(
-      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/ref/heads/${encodeURIComponent(target)}`
+      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/ref/heads/${encodeURIComponent(target)}?t=${timestamp}`,
+      {
+        method: "GET",
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+        },
+      }
     );
   }
 
-  public async getBranch(branchName?: string): Promise<GitHubBranchResponse> {
+  public async getBranch(branchName?: string, bypassCache = false): Promise<GitHubBranchResponse> {
     const target = branchName || this.branch;
-    return this.request<GitHubBranchResponse>(
-      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/branches/${encodeURIComponent(target)}`
-    );
+    const url = bypassCache
+      ? `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/branches/${encodeURIComponent(target)}?t=${Date.now()}`
+      : `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/branches/${encodeURIComponent(target)}`;
+    const options = bypassCache
+      ? {
+          method: "GET" as const,
+          headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+          },
+        }
+      : undefined;
+    return this.request<GitHubBranchResponse>(url, options);
   }
 
   /**
