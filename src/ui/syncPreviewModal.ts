@@ -19,6 +19,7 @@ export class SyncPreviewModal extends Modal {
   private report: SyncPreviewReport | null = null;
   private activeCategoryFilter: SyncCategory | "ALL" = "ALL";
   private isLoading = false;
+  public isModalOpen = false;
 
   constructor(app: App, plugin: VaultRelayPlugin) {
     super(app);
@@ -26,6 +27,7 @@ export class SyncPreviewModal extends Modal {
   }
 
   public onOpen(): void {
+    this.isModalOpen = true;
     this.modalEl.addClass("vault-relay-preview-modal");
     this.modalEl.style.maxWidth = "850px";
     this.modalEl.style.width = "90vw";
@@ -33,11 +35,12 @@ export class SyncPreviewModal extends Modal {
   }
 
   public onClose(): void {
+    this.isModalOpen = false;
     const { contentEl } = this;
     contentEl.empty();
   }
 
-  private async runScanAndRender(): Promise<void> {
+  public async runScanAndRender(): Promise<void> {
     this.isLoading = true;
     this.renderLoading();
 
@@ -66,7 +69,7 @@ export class SyncPreviewModal extends Modal {
       this.isLoading = false;
       const safeMsg = sanitizeErrorMessage(err);
       this.renderError(safeMsg);
-      new Notice(`Vault Relay scan error: ${safeMsg}`);
+      new Notice(`GitHub Vault Relay scan error: ${safeMsg}`);
     }
   }
 
@@ -151,7 +154,11 @@ export class SyncPreviewModal extends Modal {
 
     const pullBtn = actionArea.createEl("button", { text: "Pull Safe Changes", cls: "mod-cta" });
     pullBtn.onclick = () => {
-      new PullConfirmModal(this.app, this.plugin).open();
+      new PullConfirmModal(this.app, this.plugin, async () => {
+          if (this.isModalOpen) {
+            await this.runScanAndRender();
+          }
+        }).open();
     };
 
     const refreshBtn = actionArea.createEl("button", { text: "Refresh" });

@@ -10,19 +10,23 @@ import type VaultRelayPlugin from "../main";
 import { GitHubClient } from "../github/githubClient";
 import { PullEngine } from "../sync/pullEngine";
 import { SyncEngine } from "../sync/syncEngine";
-import { SyncPreviewReport } from "../sync/syncTypes";
+import { PullExecutionReport, SyncPreviewReport } from "../sync/syncTypes";
 import { getStoredPat } from "../security/secretStore";
 import { sanitizeErrorMessage } from "../security/redact";
 import { PullResultModal } from "./pullResultModal";
+
+export type OnPullCompleteCallback = (report: PullExecutionReport) => Promise<void> | void;
 
 export class PullConfirmModal extends Modal {
   private plugin: VaultRelayPlugin;
   private previewReport: SyncPreviewReport | null = null;
   private isLoading = true;
+  private onComplete?: OnPullCompleteCallback;
 
-  constructor(app: App, plugin: VaultRelayPlugin) {
+  constructor(app: App, plugin: VaultRelayPlugin, onComplete?: OnPullCompleteCallback) {
     super(app);
     this.plugin = plugin;
+    this.onComplete = onComplete;
   }
 
   public onOpen(): void {
@@ -197,6 +201,13 @@ export class PullConfirmModal extends Modal {
 
         this.close();
         new PullResultModal(this.app, report).open();
+        if (this.onComplete) {
+          try {
+            await this.onComplete(report);
+          } catch (callbackErr) {
+            console.warn("[GitHub Vault Relay] onComplete refresh error:", callbackErr);
+          }
+        }
       } catch (err) {
         new Notice(`Safe Pull failed: ${sanitizeErrorMessage(err)}`);
         this.close();
