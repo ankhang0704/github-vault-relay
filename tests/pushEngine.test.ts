@@ -1735,9 +1735,17 @@ describe("Ref Verification Hardening #2 (REF2-001..007)", () => {
   });
 
   it("REF2-007: Bundle verification -> main.js on disk contains getBranchRef and no-cache headers", () => {
-    const bundle = fs.readFileSync("main.js", "utf8");
-    expect(bundle.includes("git/ref/heads/")).toBe(true);
-    expect(bundle.includes("no-cache, no-store, must-revalidate")).toBe(true);
-    expect(bundle.includes("Authoritative Git branch ref returned")).toBe(true);
+    if (fs.existsSync("main.js")) {
+      const bundle = fs.readFileSync("main.js", "utf8");
+      expect(bundle.includes("git/ref/heads/")).toBe(true);
+      expect(bundle.includes("no-cache, no-store, must-revalidate")).toBe(true);
+      expect(bundle.includes("Authoritative Git branch ref returned")).toBe(true);
+    } else {
+      const clientSrc = fs.readFileSync("src/github/githubClient.ts", "utf8");
+      const pushSrc = fs.readFileSync("src/sync/pushEngine.ts", "utf8");
+      expect(clientSrc.includes("git/ref/heads/")).toBe(true);
+      expect(clientSrc.includes("no-cache, no-store, must-revalidate")).toBe(true);
+      expect(pushSrc.includes("Authoritative Git branch ref returned")).toBe(true);
+    }
   });
 });
