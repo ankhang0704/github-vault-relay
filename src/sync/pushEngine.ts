@@ -494,12 +494,40 @@ export class PushEngine {
       return report;
     }
 
-    // 11. Post-Push Verification
+    // 11. Authoritative Post-Push Verification (with bounded retry for edge replication)
     try {
-      const freshBranch = await this.githubClient.getBranch();
-      if (freshBranch.commit?.sha !== newCommitSha) {
+      let verifiedHeadSha: string | undefined;
+      const maxRetries = 3;
+      const delays = [300, 600, 1200];
+
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          const refResp = await this.githubClient.getBranchRef(this.settings.branch);
+          if (refResp.object?.sha?.toLowerCase() === newCommitSha.toLowerCase()) {
+            verifiedHeadSha = refResp.object.sha;
+            break;
+          }
+        } catch {
+          // Fallback to getBranch if git/ref endpoint is not directly available
+          try {
+            const freshBranch = await this.githubClient.getBranch(this.settings.branch);
+            if (freshBranch.commit?.sha?.toLowerCase() === newCommitSha.toLowerCase()) {
+              verifiedHeadSha = freshBranch.commit.sha;
+              break;
+            }
+          } catch {
+            // continue bounded retry
+          }
+        }
+
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+        }
+      }
+
+      if (!verifiedHeadSha) {
         throw new GitHubError(
-          `Post-push verification failed: Branch HEAD SHA (${freshBranch.commit?.sha}) does not match new commit SHA (${newCommitSha}).`
+          `Post-push verification failed: Authoritative Git branch ref does not match new commit SHA (${newCommitSha}) after verification budget.`
         );
       }
 

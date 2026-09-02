@@ -263,6 +263,17 @@ export class GitHubClient {
   /**
    * Fetches branch information including HEAD commit SHA.
    */
+  /**
+   * Fetches the authoritative Git reference for a branch directly from the Git Data API.
+   * GET /repos/{owner}/{repo}/git/ref/heads/{branch}
+   */
+  public async getBranchRef(branchName?: string): Promise<GitHubRefResponse> {
+    const target = (branchName || this.branch).trim();
+    return this.request<GitHubRefResponse>(
+      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/ref/heads/${encodeURIComponent(target)}`
+    );
+  }
+
   public async getBranch(branchName?: string): Promise<GitHubBranchResponse> {
     const target = branchName || this.branch;
     return this.request<GitHubBranchResponse>(
@@ -389,7 +400,7 @@ export class GitHubClient {
 
     const targetBranch = (branch || this.branch).trim();
 
-    return this.request<GitHubRefResponse>(
+    const response = await this.request<GitHubRefResponse>(
       `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/refs/heads/${encodeURIComponent(targetBranch)}`,
       {
         method: "PATCH",
@@ -399,6 +410,18 @@ export class GitHubClient {
         },
       }
     );
+
+    if (!response.object || !response.object.sha) {
+      throw new GitHubError("GitHub ref update response did not contain an object SHA.");
+    }
+
+    if (response.object.sha.toLowerCase() !== commitSha.toLowerCase()) {
+      throw new GitHubError(
+        `GitHub ref update response returned unexpected object SHA (${response.object.sha}), expected ${commitSha}.`
+      );
+    }
+
+    return response;
   }
 
   /**

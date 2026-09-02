@@ -47,6 +47,30 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
     const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
       postRequests.push(params);
 
+      
+      if ((params.url.includes("/git/ref/heads/main") || params.url.includes("/git/refs/heads/main")) && (!params.method || params.method === "GET")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: {
+            ref: "refs/heads/main",
+            url: "https://api.github.com/git/refs/heads/main",
+            object: { sha: currentBranchSha, type: "commit" },
+          },
+        };
+      }
+      
+      if ((params.url.includes("/git/ref/heads/main") || params.url.includes("/git/refs/heads/main")) && (!params.method || params.method === "GET")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: currentBranchSha, type: "commit" } },
+        };
+      }
       if (params.url.includes("/branches/main")) {
         return {
           status: 200,
@@ -168,6 +192,15 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
 
     let currentBranchSha = "commit_v1";
     const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      if ((params.url.includes("/git/ref/heads/main") || params.url.includes("/git/refs/heads/main")) && (!params.method || params.method === "GET")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: currentBranchSha, type: "commit" } },
+        };
+      }
       if (params.url.includes("/branches/main")) {
         return {
           status: 200,
@@ -281,6 +314,7 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
       if (params.method === "POST" || params.method === "PATCH" || params.method === "PUT" || params.method === "DELETE") {
         remoteWriteAttempted = true;
       }
+      
       if (params.url.includes("/branches/main")) {
         return {
           status: 200,
@@ -336,6 +370,7 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
       if (params.method === "POST" || params.method === "PATCH" || params.method === "PUT" || params.method === "DELETE") {
         remoteWriteAttempted = true;
       }
+      
       if (params.url.includes("/branches/main")) {
         return {
           status: 200,
@@ -391,6 +426,15 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
 
     let currentBranchSha = "commit_base_006";
     const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      if ((params.url.includes("/git/ref/heads/main") || params.url.includes("/git/refs/heads/main")) && (!params.method || params.method === "GET")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: currentBranchSha, type: "commit" } },
+        };
+      }
       if (params.url.includes("/branches/main")) {
         return {
           status: 200,
@@ -487,6 +531,7 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
     await app.vault.create("note.md", content);
 
     const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      
       if (params.url.includes("/branches/main")) {
         return {
           status: 200,
@@ -563,6 +608,7 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
     await app.vault.createBinary("huge-video.mp4", new ArrayBuffer(26 * 1024 * 1024));
 
     const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      
       if (params.url.includes("/branches/main")) {
         return {
           status: 200,
@@ -601,6 +647,15 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
 
     let currentBranchSha = "commit_base_010";
     const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      if ((params.url.includes("/git/ref/heads/main") || params.url.includes("/git/refs/heads/main")) && (!params.method || params.method === "GET")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: currentBranchSha, type: "commit" } },
+        };
+      }
       if (params.url.includes("/branches/main")) {
         return {
           status: 200,
@@ -707,6 +762,7 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
     await app.vault.create("Readme.md", "# Readme Upper\n");
 
     const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      
       if (params.url.includes("/branches/main")) {
         return {
           status: 200,
@@ -770,6 +826,16 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
     await app.vault.create("test.md", testContent);
 
     const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      
+      if ((params.url.includes("/git/ref/heads/main") || params.url.includes("/git/refs/heads/main")) && (!params.method || params.method === "GET")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: "commit_new_018", type: "commit" } },
+        };
+      }
       if (params.url.includes("/branches/main")) {
         return {
           status: 200,
@@ -857,6 +923,7 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
     let attempts429 = 0;
     const requestFn = vi.fn(async (params: RequestUrlParam) => {
       const emptyHeaders: Record<string, string> = {};
+      
       if (params.url.includes("/branches/main")) {
         attempts429++;
         if (attempts429 === 1) {
@@ -899,6 +966,7 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
   it("PUSH-017: HTTP 422 Unprocessable Entity fails fast without blind retry loops", async () => {
     let treeCalls = 0;
     const requestFn = vi.fn(async (params: RequestUrlParam) => {
+      
       if (params.url.includes("/branches/main")) {
         return {
           status: 200,
@@ -936,6 +1004,16 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
     let currentBranch = "commit_reval_1";
 
     const requestFn = vi.fn(async (params: RequestUrlParam) => {
+      
+      if ((params.url.includes("/git/ref/heads/main") || params.url.includes("/git/refs/heads/main")) && (!params.method || params.method === "GET")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: currentBranch, type: "commit" } },
+        };
+      }
       if (params.url.includes("/branches/main")) {
         return {
           status: 200,
@@ -1027,5 +1105,463 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
     await expect(client.updateBranchRef("main", "sha123", true)).rejects.toThrow(
       /Force ref updates are strictly forbidden/
     );
+  });
+});
+
+describe("Ref Update & Verification Hardening (REF-001..007)", () => {
+  let app: App;
+  let plugin: VaultRelayPlugin;
+  const owner = "octocat";
+  const repo = "notes";
+  const branch = "main";
+  const token = "github_pat_valid_token_123";
+
+  beforeEach(async () => {
+    app = new App();
+    const manifest: PluginManifest = {
+      id: "github-vault-relay",
+      name: "GitHub Vault Relay",
+      version: "0.2.0",
+      minAppVersion: "0.15.0",
+      description: "A conservative GitHub bridge for Obsidian Mobile.",
+      author: "Vault Relay Contributors",
+    };
+    plugin = new VaultRelayPlugin(app, manifest);
+    plugin.settings = {
+      owner,
+      repo,
+      branch,
+      excludedPaths: [".obsidian/", ".git/", "_fit/", "_vault-relay/"],
+    };
+    await setStoredPat(app, owner, repo, token);
+  });
+
+  it("REF-001: PATCH returns HTTP 200 and object.sha == newCommitSha -> accepted", async () => {
+    const content = "# Ref Test 1\n";
+    const expectedRawSha = await calculateRawGitBlobSha(new TextEncoder().encode(content));
+    await app.vault.create("ref1.md", content);
+
+    let currentRefSha = "commit_base_ref1";
+
+    const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      if (params.url.includes("/git/ref/heads/main") && (!params.method || params.method === "GET")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: currentRefSha, type: "commit" } },
+        };
+      }
+      
+      if (params.url.includes("/branches/main")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { name: "main", commit: { sha: currentRefSha } },
+        };
+      }
+      if (params.url.includes("/git/trees/commit_base_ref1")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { sha: "tree_base_ref1", truncated: false, tree: [] },
+        };
+      }
+      if (params.url.includes("/git/blobs") && params.method === "POST") {
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: expectedRawSha } };
+      }
+      if (params.url.includes("/git/trees") && params.method === "POST") {
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "tree_new_ref1", tree: [] } };
+      }
+      if (params.url.includes("/git/commits") && params.method === "POST") {
+        return {
+          status: 201,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { sha: "commit_new_ref1", tree: { sha: "tree_new_ref1" }, parents: [{ sha: "commit_base_ref1" }] },
+        };
+      }
+      if (params.url.includes("/git/refs/heads/main") && params.method === "PATCH") {
+        currentRefSha = "commit_new_ref1";
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: "commit_new_ref1", type: "commit" } },
+        };
+      }
+      if (params.url.includes("/git/trees/commit_new_ref1")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: {
+            sha: "tree_new_ref1",
+            truncated: false,
+            tree: [{ path: "ref1.md", mode: "100644", type: "blob", sha: expectedRawSha, size: 14 }],
+          },
+        };
+      }
+      throw new Error(`Unhandled URL: ${params.url}`);
+    });
+
+    const client = new GitHubClient({ token, owner, repo, branch, requestFn: fakeRequestFn });
+    const pushEngine = new PushEngine(app, plugin.settings, client);
+
+    const report = await pushEngine.executeSafePush();
+    expect(report.status).toBe("PASS");
+    expect(report.newCommitSha).toBe("commit_new_ref1");
+
+    const state = await pushEngine.loadState();
+    expect(state.lastSyncedCommitSha).toBe("commit_new_ref1");
+    expect(state.files["ref1.md"]).toBeDefined();
+  });
+
+  it("REF-002: PATCH returns HTTP 200 but returned object.sha != expected -> failure, baseline unchanged", async () => {
+    const content = "# Ref Test 2\n";
+    const expectedRawSha = await calculateRawGitBlobSha(new TextEncoder().encode(content));
+    await app.vault.create("ref2.md", content);
+
+    const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      
+      if (params.url.includes("/branches/main")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { name: "main", commit: { sha: "commit_base_ref2" } },
+        };
+      }
+      if (params.url.includes("/git/trees/commit_base_ref2")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { sha: "tree_base_ref2", truncated: false, tree: [] },
+        };
+      }
+      if (params.url.includes("/git/blobs") && params.method === "POST") {
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: expectedRawSha } };
+      }
+      if (params.url.includes("/git/trees") && params.method === "POST") {
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "tree_new_ref2", tree: [] } };
+      }
+      if (params.url.includes("/git/commits") && params.method === "POST") {
+        return {
+          status: 201,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { sha: "commit_new_ref2", tree: { sha: "tree_new_ref2" }, parents: [{ sha: "commit_base_ref2" }] },
+        };
+      }
+      if (params.url.includes("/git/refs/heads/main") && params.method === "PATCH") {
+        // Return an unexpected SHA
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: "unexpected_sha_999", type: "commit" } },
+        };
+      }
+      throw new Error(`Unhandled: ${params.url}`);
+    });
+
+    const client = new GitHubClient({ token, owner, repo, branch, requestFn: fakeRequestFn });
+    const pushEngine = new PushEngine(app, plugin.settings, client);
+
+    const report = await pushEngine.executeSafePush();
+    expect(report.status).toBe("ABORTED");
+    expect(report.summaryMessage).toContain("unexpected object SHA");
+
+    const state = await pushEngine.loadState();
+    expect(state.lastSyncedCommitSha).toBeUndefined();
+    expect(state.files["ref2.md"]).toBeUndefined();
+  });
+
+  it("REF-003: Post-write authoritative ref initially returns old base, then expected commit on bounded retry -> verified success", async () => {
+    const content = "# Ref Test 3\n";
+    const expectedRawSha = await calculateRawGitBlobSha(new TextEncoder().encode(content));
+    await app.vault.create("ref3.md", content);
+
+    let getRefCalls = 0;
+
+    const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      if (params.url.includes("/git/ref/heads/main") && (!params.method || params.method === "GET")) {
+        getRefCalls++;
+        if (getRefCalls === 1) {
+          // Edge cache / replication delay returns old base
+          return {
+            status: 200,
+            headers: {},
+            text: "",
+            arrayBuffer: new ArrayBuffer(0),
+            json: { ref: "refs/heads/main", object: { sha: "commit_base_ref3", type: "commit" } },
+          };
+        }
+        // Second attempt returns updated new commit
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: "commit_new_ref3", type: "commit" } },
+        };
+      }
+      
+      if (params.url.includes("/branches/main")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { name: "main", commit: { sha: "commit_base_ref3" } },
+        };
+      }
+      if (params.url.includes("/git/trees/commit_base_ref3")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { sha: "tree_base_ref3", truncated: false, tree: [] },
+        };
+      }
+      if (params.url.includes("/git/blobs") && params.method === "POST") {
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: expectedRawSha } };
+      }
+      if (params.url.includes("/git/trees") && params.method === "POST") {
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "tree_new_ref3", tree: [] } };
+      }
+      if (params.url.includes("/git/commits") && params.method === "POST") {
+        return {
+          status: 201,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { sha: "commit_new_ref3", tree: { sha: "tree_new_ref3" }, parents: [{ sha: "commit_base_ref3" }] },
+        };
+      }
+      if (params.url.includes("/git/refs/heads/main") && params.method === "PATCH") {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: "commit_new_ref3", type: "commit" } },
+        };
+      }
+      if (params.url.includes("/git/trees/commit_new_ref3")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: {
+            sha: "tree_new_ref3",
+            truncated: false,
+            tree: [{ path: "ref3.md", mode: "100644", type: "blob", sha: expectedRawSha, size: 14 }],
+          },
+        };
+      }
+      throw new Error(`Unhandled: ${params.url}`);
+    });
+
+    const client = new GitHubClient({ token, owner, repo, branch, requestFn: fakeRequestFn });
+    const pushEngine = new PushEngine(app, plugin.settings, client);
+
+    const report = await pushEngine.executeSafePush();
+    expect(report.status).toBe("PASS");
+    expect(getRefCalls).toBe(2);
+    expect(report.newCommitSha).toBe("commit_new_ref3");
+
+    const state = await pushEngine.loadState();
+    expect(state.lastSyncedCommitSha).toBe("commit_new_ref3");
+  });
+
+  it("REF-004: Ref remains old base after retry budget -> FAIL, baseline unchanged", async () => {
+    const content = "# Ref Test 4\n";
+    const expectedRawSha = await calculateRawGitBlobSha(new TextEncoder().encode(content));
+    await app.vault.create("ref4.md", content);
+
+    const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      if (params.url.includes("/git/ref/heads/main") && (!params.method || params.method === "GET")) {
+        // Always returns old base
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: "commit_base_ref4", type: "commit" } },
+        };
+      }
+      
+      if (params.url.includes("/branches/main")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { name: "main", commit: { sha: "commit_base_ref4" } },
+        };
+      }
+      if (params.url.includes("/git/trees/commit_base_ref4")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { sha: "tree_base_ref4", truncated: false, tree: [] },
+        };
+      }
+      if (params.url.includes("/git/blobs") && params.method === "POST") {
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: expectedRawSha } };
+      }
+      if (params.url.includes("/git/trees") && params.method === "POST") {
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "tree_new_ref4", tree: [] } };
+      }
+      if (params.url.includes("/git/commits") && params.method === "POST") {
+        return {
+          status: 201,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { sha: "commit_new_ref4", tree: { sha: "tree_new_ref4" }, parents: [{ sha: "commit_base_ref4" }] },
+        };
+      }
+      if (params.url.includes("/git/refs/heads/main") && params.method === "PATCH") {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: "commit_new_ref4", type: "commit" } },
+        };
+      }
+      throw new Error(`Unhandled: ${params.url}`);
+    });
+
+    const client = new GitHubClient({ token, owner, repo, branch, requestFn: fakeRequestFn });
+    const pushEngine = new PushEngine(app, plugin.settings, client);
+
+    const report = await pushEngine.executeSafePush();
+    expect(report.status).toBe("FAIL");
+    expect(report.summaryMessage).toContain("Post-push verification failed");
+
+    const state = await pushEngine.loadState();
+    expect(state.lastSyncedCommitSha).toBeUndefined();
+  });
+
+  it("REF-005, REF-006, REF-007: Dangling objects from aborted push are safe; next push revalidates fresh HEAD", async () => {
+    const content = "# Ref 7\n";
+    const expectedRawSha = await calculateRawGitBlobSha(new TextEncoder().encode(content));
+    await app.vault.create("ref7.md", content);
+
+    let currentRemoteHead = "commit_head_1";
+    let attempts = 0;
+
+    const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      if (params.url.includes("/git/ref/heads/main") && (!params.method || params.method === "GET")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { ref: "refs/heads/main", object: { sha: currentRemoteHead, type: "commit" } },
+        };
+      }
+      
+      if (params.url.includes("/branches/main")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { name: "main", commit: { sha: currentRemoteHead } },
+        };
+      }
+      if (params.url.includes("/git/trees/commit_head_1")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { sha: "tree_head_1", truncated: false, tree: [] },
+        };
+      }
+      if (params.url.includes("/git/trees/commit_head_2")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { sha: "tree_head_2", truncated: false, tree: [] },
+        };
+      }
+      if (params.url.includes("/git/blobs") && params.method === "POST") {
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: expectedRawSha } };
+      }
+      if (params.url.includes("/git/trees") && params.method === "POST") {
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "tree_sha_7", tree: [] } };
+      }
+      if (params.url.includes("/git/commits") && params.method === "POST") {
+        return {
+          status: 201,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { sha: "commit_sha_7", tree: { sha: "tree_sha_7" }, parents: [{ sha: currentRemoteHead }] },
+        };
+      }
+      if (params.url.includes("/git/refs/heads/main") && params.method === "PATCH") {
+        attempts++;
+        if (attempts === 1) {
+          // Ref update fails due to race (422)
+          return { status: 422, headers: {}, text: "Unprocessable", arrayBuffer: new ArrayBuffer(0), json: { message: "Update is not a fast forward" } };
+        }
+        // Second push succeeds
+        currentRemoteHead = "commit_sha_7";
+        return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { ref: "refs/heads/main", object: { sha: "commit_sha_7", type: "commit" } } };
+      }
+      if (params.url.includes("/git/trees/commit_sha_7")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { sha: "tree_sha_7", truncated: false, tree: [{ path: "ref7.md", mode: "100644", type: "blob", sha: expectedRawSha, size: 10 }] },
+        };
+      }
+      throw new Error(`Unhandled: ${params.url}`);
+    });
+
+    const client = new GitHubClient({ token, owner, repo, branch, requestFn: fakeRequestFn });
+    const pushEngine = new PushEngine(app, plugin.settings, client);
+
+    // 1st Push -> aborts on ref race
+    const report1 = await pushEngine.executeSafePush();
+    expect(report1.status).toBe("ABORTED");
+    let state = await pushEngine.loadState();
+    expect(state.lastSyncedCommitSha).toBeUndefined();
+
+    // Concurrent actor advanced HEAD to commit_head_2
+    currentRemoteHead = "commit_head_2";
+
+    // 2nd Push -> revalidates against fresh commit_head_2 and succeeds
+    const report2 = await pushEngine.executeSafePush();
+    expect(report2.status).toBe("PASS");
+    state = await pushEngine.loadState();
+    expect(state.lastSyncedCommitSha).toBe("commit_sha_7");
   });
 });
