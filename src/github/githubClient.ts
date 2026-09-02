@@ -1,17 +1,22 @@
-/**
- * GitHub API Client for Vault Relay
+﻿/**
+ * GitHub API Client for GitHub Vault Relay
  *
- * Strictly READ-ONLY in Checkpoint 2.
- * Uses Obsidian requestUrl() (or injectable request function)
- * to communicate directly with api.github.com without Node dependencies.
+ * Implements hardened, conservative communication with GitHub REST and Git Data APIs.
+ * Supports GET reads (branches, trees, blobs) and C3 Git Data writes (blobs, trees, commits, refs).
+ * Features automatic token redaction, bounded retries (429 / 503 / 504), and offline preflight checks.
  */
 
 import { requestUrl, RequestUrlParam, RequestUrlResponse } from "obsidian";
 import {
   GitHubBlobResponse,
   GitHubBranchResponse,
+  GitHubCommitResponse,
   GitHubConnectionTestResult,
+  GitHubCreateBlobResponse,
+  GitHubCreateTreeResponse,
+  GitHubRefResponse,
   GitHubRepoResponse,
+  GitHubTreeItemInput,
   GitHubTreeResponse,
 } from "./githubTypes";
 import { sanitizeErrorMessage, redactTokens } from "../security/redact";
@@ -32,26 +37,25 @@ export class GitHubError extends Error {
   }
 }
 
-
 /**
  * Normalizes user-entered owner and repository strings, handling full URLs,
  * owner/repo slugs, .git suffixes, and stray slashes.
  */
 export function normalizeRepoConfig(owner: string, repo: string): { owner: string; repo: string } {
-  let cleanOwner = (owner || '').trim();
-  let cleanRepo = (repo || '').trim();
+  let cleanOwner = (owner || "").trim();
+  let cleanRepo = (repo || "").trim();
 
-  if (cleanRepo.startsWith('http://') || cleanRepo.startsWith('https://') || cleanRepo.startsWith('git@')) {
+  if (cleanRepo.startsWith("http://") || cleanRepo.startsWith("https://") || cleanRepo.startsWith("git@")) {
     const urlPattern = /(?:github\.com[/:])([^/]+)\/?([^/.]+)?(?:\.git)?/i;
     const match = cleanRepo.match(urlPattern);
     if (match) {
       cleanOwner = match[1] || cleanOwner;
-      cleanRepo = match[2] || '';
+      cleanRepo = match[2] || "";
     }
   }
 
-  if (cleanRepo.includes('/')) {
-    const parts = cleanRepo.split('/').filter(Boolean);
+  if (cleanRepo.includes("/")) {
+    const parts = cleanRepo.split("/").filter(Boolean);
     if (parts.length >= 2) {
       cleanOwner = parts[0];
       cleanRepo = parts[1];
@@ -60,19 +64,19 @@ export function normalizeRepoConfig(owner: string, repo: string): { owner: strin
     }
   }
 
-  if (cleanOwner.startsWith('http://') || cleanOwner.startsWith('https://')) {
+  if (cleanOwner.startsWith("http://") || cleanOwner.startsWith("https://")) {
     const match = cleanOwner.match(/github\.com\/([^/]+)/i);
     if (match) {
       cleanOwner = match[1];
     }
   }
 
-  if (cleanRepo.endsWith('.git')) {
+  if (cleanRepo.endsWith(".git")) {
     cleanRepo = cleanRepo.slice(0, -4);
   }
 
-  cleanOwner = cleanOwner.replace(/^\/+|\/+$/g, '');
-  cleanRepo = cleanRepo.replace(/^\/+|\/+$/g, '');
+  cleanOwner = cleanOwner.replace(/^\/+|\/+$/g, "");
+  cleanRepo = cleanRepo.replace(/^\/+|\/+$/g, "");
 
   return { owner: cleanOwner, repo: cleanRepo };
 }
@@ -123,9 +127,14 @@ export class GitHubClient {
   }
 
   /**
-   * Helper to perform authenticated GET HTTP requests to GitHub REST API with retries.
+   * Helper to perform authenticated HTTP requests to GitHub REST API with retries and token redaction.
    */
-  private async request<T>(endpoint: string): Promise<T> {
+  private async request<T>(
+    endpoint: string,
+    options?: { method?: "GET" | "POST" | "PATCH"; body?: unknown }
+  ): Promise<T> {
+    const method = options?.method || "GET";
+
     // Offline preflight check
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       throw new GitHubError(
@@ -163,6 +172,12 @@ export class GitHubClient {
       "User-Agent": "VaultRelay-Obsidian-Plugin",
     };
 
+    let serializedBody: string | undefined = undefined;
+    if (options?.body !== undefined) {
+      headers["Content-Type"] = "application/json";
+      serializedBody = JSON.stringify(options.body);
+    }
+
     let attempt = 0;
     const maxAttempts = 3;
 
@@ -172,8 +187,9 @@ export class GitHubClient {
       try {
         const response = await this.requestFn({
           url,
-          method: "GET",
+          method,
           headers,
+          body: serializedBody,
           throw: false,
         });
 
@@ -230,6 +246,10 @@ export class GitHubClient {
 
     throw new GitHubError("GitHub request failed after maximum retry attempts.", undefined, undefined, this.token);
   }
+
+  // ==========================================
+  // READ PRIMITIVES (GET)
+  // ==========================================
 
   /**
    * Fetches repository metadata.
@@ -300,6 +320,85 @@ export class GitHubClient {
     }
 
     return bytes;
+  }
+
+  // ==========================================
+  // C3 WRITE PRIMITIVES (POST / PATCH)
+  // ==========================================
+
+  /**
+   * Creates a Git blob object in GitHub Git Data API.
+   * POST /repos/{owner}/{repo}/git/blobs
+   */
+  public async createBlob(content: string, encoding: "utf-8" | "base64" = "utf-8"): Promise<GitHubCreateBlobResponse> {
+    return this.request<GitHubCreateBlobResponse>(
+      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/blobs`,
+      {
+        method: "POST",
+        body: { content, encoding },
+      }
+    );
+  }
+
+  /**
+   * Creates a Git tree object in GitHub Git Data API.
+   * POST /repos/{owner}/{repo}/git/trees
+   */
+  public async createTree(tree: GitHubTreeItemInput[], baseTreeSha?: string): Promise<GitHubCreateTreeResponse> {
+    const body: { tree: GitHubTreeItemInput[]; base_tree?: string } = { tree };
+    if (baseTreeSha) {
+      body.base_tree = baseTreeSha;
+    }
+
+    return this.request<GitHubCreateTreeResponse>(
+      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/trees`,
+      {
+        method: "POST",
+        body,
+      }
+    );
+  }
+
+  /**
+   * Creates a Git commit object in GitHub Git Data API.
+   * POST /repos/{owner}/{repo}/git/commits
+   */
+  public async createCommit(message: string, treeSha: string, parents: string[]): Promise<GitHubCommitResponse> {
+    return this.request<GitHubCommitResponse>(
+      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/commits`,
+      {
+        method: "POST",
+        body: {
+          message,
+          tree: treeSha,
+          parents,
+        },
+      }
+    );
+  }
+
+  /**
+   * Updates a branch reference with optimistic concurrency.
+   * PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}
+   * Strictly prohibits force: true.
+   */
+  public async updateBranchRef(branch: string, commitSha: string, force = false): Promise<GitHubRefResponse> {
+    if (force) {
+      throw new GitHubError("Force ref updates are strictly forbidden by Vault Relay safety invariants.");
+    }
+
+    const targetBranch = (branch || this.branch).trim();
+
+    return this.request<GitHubRefResponse>(
+      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/refs/heads/${encodeURIComponent(targetBranch)}`,
+      {
+        method: "PATCH",
+        body: {
+          sha: commitSha,
+          force: false,
+        },
+      }
+    );
   }
 
   /**

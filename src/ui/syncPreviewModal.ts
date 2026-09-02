@@ -13,6 +13,7 @@ import { SyncCategory, SyncPreviewItem, SyncPreviewReport } from "../sync/syncTy
 import { getStoredPat } from "../security/secretStore";
 import { sanitizeErrorMessage } from "../security/redact";
 import { PullConfirmModal } from "./pullConfirmModal";
+import { PushConfirmModal } from "./pushConfirmModal";
 
 export class SyncPreviewModal extends Modal {
   private plugin: VaultRelayPlugin;
@@ -153,16 +154,25 @@ export class SyncPreviewModal extends Modal {
     const actionArea = headerEl.createDiv({ attr: { style: "display: flex; gap: 8px;" } });
 
     const pullBtn = actionArea.createEl("button", { text: "Pull Safe Changes", cls: "mod-cta" });
-    pullBtn.onclick = () => {
-      new PullConfirmModal(this.app, this.plugin, async () => {
+      pullBtn.onclick = () => {
+        new PullConfirmModal(this.app, this.plugin, async () => {
           if (this.isModalOpen) {
             await this.runScanAndRender();
           }
         }).open();
-    };
+      };
 
-    const refreshBtn = actionArea.createEl("button", { text: "Refresh" });
-    refreshBtn.onclick = () => this.runScanAndRender();
+      const pushBtn = actionArea.createEl("button", { text: "Push Safe Changes" });
+      pushBtn.onclick = () => {
+        new PushConfirmModal(this.app, this.plugin, async () => {
+          if (this.isModalOpen) {
+            await this.runScanAndRender();
+          }
+        }).open();
+      };
+
+      const refreshBtn = actionArea.createEl("button", { text: "Refresh" });
+      refreshBtn.onclick = () => this.runScanAndRender();
 
     // Truncated tree warning banner (TRUNCATED_TREE_POLICY)
     if (this.report.truncatedRemoteTree) {

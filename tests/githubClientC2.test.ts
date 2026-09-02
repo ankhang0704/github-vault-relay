@@ -23,14 +23,22 @@ describe("GitHub Client C2 Hardening & Safety (src/github/githubClient.ts)", () 
     });
   });
 
-  it("proves C2 GitHubClient contains ZERO remote write methods (Phase 18 / C2-017)", () => {
+  it("proves GitHubClient contains ONLY allowed Git Data write methods and ZERO destructive methods (C3-020)", () => {
     const proto = GitHubClient.prototype as unknown as Record<string, unknown>;
-    expect(proto.createBlob).toBeUndefined();
-    expect(proto.createTree).toBeUndefined();
-    expect(proto.createCommit).toBeUndefined();
-    expect(proto.updateRef).toBeUndefined();
-    expect(proto.push).toBeUndefined();
+    // Allowed C3 Git Data write primitives
+    expect(typeof proto.createBlob).toBe("function");
+    expect(typeof proto.createTree).toBe("function");
+    expect(typeof proto.createCommit).toBe("function");
+    expect(typeof proto.updateBranchRef).toBe("function");
+
+    // Strictly forbidden destructive write methods
     expect(proto.deleteFile).toBeUndefined();
+    expect(proto.deleteBlob).toBeUndefined();
+    expect(proto.deleteTree).toBeUndefined();
+    expect(proto.deleteCommit).toBeUndefined();
+    expect(proto.deleteBranch).toBeUndefined();
+    expect(proto.deleteRef).toBeUndefined();
+    expect(proto.forcePush).toBeUndefined();
     expect(proto.putFile).toBeUndefined();
   });
 

@@ -1,5 +1,5 @@
-/**
- * GitHub API Response Types
+﻿/**
+ * GitHub API Response Types for GitHub Vault Relay
  */
 
 export interface GitHubRepoPermissions {
@@ -61,6 +61,50 @@ export interface GitHubBlobResponse {
   url: string;
   content: string;
   encoding: "base64" | "utf-8";
+}
+
+export interface GitHubCreateBlobResponse {
+  sha: string;
+  url: string;
+}
+
+export interface GitHubTreeItemInput {
+  path: string;
+  mode: "100644" | "100755" | "040000" | string;
+  type: "blob" | "tree" | "commit";
+  sha: string;
+}
+
+export interface GitHubCreateTreeResponse {
+  sha: string;
+  url: string;
+  tree: GitHubTreeItem[];
+  truncated?: boolean;
+}
+
+export interface GitHubCommitResponse {
+  sha: string;
+  url: string;
+  message: string;
+  tree: {
+    sha: string;
+    url?: string;
+  };
+  parents: Array<{
+    sha: string;
+    url?: string;
+  }>;
+}
+
+export interface GitHubRefResponse {
+  ref: string;
+  node_id?: string;
+  url: string;
+  object: {
+    sha: string;
+    type: string;
+    url?: string;
+  };
 }
 
 export interface GitHubConnectionTestResult {

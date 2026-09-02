@@ -17,6 +17,7 @@ import {
 } from "./security/secretStore";
 import { SyncPreviewModal } from "./ui/syncPreviewModal";
 import { PullConfirmModal } from "./ui/pullConfirmModal";
+import { PushConfirmModal } from "./ui/pushConfirmModal";
 
 export interface VaultRelaySettings {
   owner: string;
@@ -324,6 +325,17 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           .setCta()
           .onClick(() => {
             new PullConfirmModal(this.app, this.plugin).open();
+          });
+      });
+    new Setting(containerEl)
+      .setName("Push Safe Local Changes")
+      .setDesc("Upload safe local notes to GitHub with atomic single-commit creation and zero force-push.")
+      .addButton((button) => {
+        button
+          .setButtonText("Safe Push")
+          .setCta()
+          .onClick(() => {
+            new PushConfirmModal(this.app, this.plugin).open();
           });
       });
   }

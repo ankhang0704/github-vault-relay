@@ -7,6 +7,7 @@ import { Notice, Plugin } from "obsidian";
 import { DEFAULT_SETTINGS, VaultRelaySettings, VaultRelaySettingTab } from "./settings";
 import { SyncPreviewModal } from "./ui/syncPreviewModal";
 import { PullConfirmModal } from "./ui/pullConfirmModal";
+import { PushConfirmModal } from "./ui/pushConfirmModal";
 import { GitHubClient } from "./github/githubClient";
 import { sanitizeErrorMessage } from "./security/redact";
 import { getStoredPat } from "./security/secretStore";
@@ -43,6 +44,15 @@ export default class VaultRelayPlugin extends Plugin {
       },
     });
 
+    
+    // Register Command: Push Safe Local Changes
+    this.addCommand({
+      id: "github-vault-relay-push-safe-changes",
+      name: "Push safe local changes (Local -> GitHub)",
+      callback: () => {
+        new PushConfirmModal(this.app, this).open();
+      },
+    });
     // Register Command: Test GitHub Connection
     this.addCommand({
       id: "github-vault-relay-test-connection",

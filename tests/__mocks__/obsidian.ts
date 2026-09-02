@@ -213,7 +213,8 @@ export class App {
       adapter: {
         write: async (path: string, data: string) => {
           const encoded = new TextEncoder().encode(data);
-          filesMap.set(path, { content: encoded.buffer as ArrayBuffer, mtime: Date.now() });
+          const buf = encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength);
+          filesMap.set(path, { content: buf, mtime: Date.now() });
         },
         writeBinary: async (path: string, data: ArrayBuffer) => {
           filesMap.set(path, { content: data, mtime: Date.now() });

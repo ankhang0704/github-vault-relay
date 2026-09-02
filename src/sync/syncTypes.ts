@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sync Types and Category Definitions for Vault Relay
  */
 
@@ -113,6 +113,54 @@ export interface PullExecutionReport {
     unchanged: number;
     skippedLocalOnly: number;
     skippedLocalChanged: number;
+    skippedOversized: number;
+    skippedUnsafe: number;
+    failed: number;
+  };
+  summaryMessage: string;
+}
+
+export type PushActionType =
+  | "PUSH_CREATE"
+  | "PUSH_UPDATE"
+  | "SKIP_UNCHANGED"
+  | "SKIP_REMOTE_ONLY"
+  | "SKIP_REMOTE_CHANGED"
+  | "SKIP_CONFLICT"
+  | "SKIP_OVERSIZED"
+  | "SKIP_UNSAFE";
+
+export type PushItemStatus =
+  | "SUCCESS"
+  | "SKIPPED"
+  | "BLOCKED_CONFLICT"
+  | "FAILED";
+
+export interface PushFileResult {
+  path: string;
+  action: PushActionType;
+  status: PushItemStatus;
+  localSha?: string;
+  remoteBlobSha?: string;
+  message?: string;
+}
+
+export type PushExecutionStatus = "PASS" | "PASS_WITH_WARNINGS" | "FAIL" | "ABORTED";
+
+export interface PushExecutionReport {
+  timestamp: number;
+  branch: string;
+  baseCommitSha?: string;
+  newCommitSha?: string;
+  status: PushExecutionStatus;
+  results: PushFileResult[];
+  counts: {
+    pushedCreated: number;
+    pushedUpdated: number;
+    unchanged: number;
+    skippedRemoteOnly: number;
+    skippedRemoteChanged: number;
+    skippedConflicts: number;
     skippedOversized: number;
     skippedUnsafe: number;
     failed: number;
