@@ -151,7 +151,7 @@ export class PullConfirmModal extends Modal {
       },
     });
     notice.createEl("div", {
-      text: "Vault Relay will pull new and updated notes from GitHub to your local Obsidian vault. Local modifications are never silently overwritten; conflicting versions are preserved in _vault-relay/conflicts/.",
+      text: "Vault Relay will pull new and updated notes from GitHub to your local Obsidian vault. Local modifications are never silently overwritten; conflicting versions are preserved safely in internal conflict storage.",
     });
 
     // Summary of Actions
@@ -168,7 +168,7 @@ export class PullConfirmModal extends Modal {
     const list = summaryBox.createEl("div", { attr: { style: "font-size: 0.9em; line-height: 1.6;" } });
     list.createEl("div", { text: `• New files to create locally: ${counts.REMOTE_ONLY}` });
     list.createEl("div", { text: `• Files to update locally: ${counts.REMOTE_CHANGED}` });
-    list.createEl("div", { text: `• Potential conflicts (preserved to _vault-relay/conflicts/): ${counts.POTENTIAL_CONFLICT}` });
+    list.createEl("div", { text: `• Potential conflicts (preserved to internal conflict storage): ${counts.POTENTIAL_CONFLICT}` });
     list.createEl("div", { text: `• Oversized files (>25 MiB, skipped): ${counts.OVERSIZED}` });
     list.createEl("div", { text: `• Local changes / local-only files (kept untouched): ${counts.LOCAL_CHANGED + counts.LOCAL_ONLY}` });
     list.createEl("div", { text: `• Unchanged files: ${counts.UNCHANGED}` });

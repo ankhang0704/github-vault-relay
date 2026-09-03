@@ -13,6 +13,7 @@ import { VaultRelaySettings } from "../settings";
 import { StorageManager } from "./storageManager";
 import { calculateCanonicalGitBlobSha } from "./hashUtils";
 import { PushEngine } from "./pushEngine";
+import { SyncPreviewReport } from "./syncTypes";
 
 export interface ConflictRecord {
   id: string;
@@ -76,7 +77,8 @@ export class ConflictManager {
     localSha: string,
     remoteSha: string,
     remoteCommitSha?: string,
-    baseSha?: string
+    baseSha?: string,
+    snapshotPath?: string
   ): Promise<ConflictRecord> {
     const records = await this.loadConflictRecords();
     const existingIndex = records.findIndex((r) => r.path === path);
@@ -89,6 +91,7 @@ export class ConflictManager {
       remoteCommitSha,
       baseSha,
       detectedAt: Date.now(),
+      snapshotPath,
     };
 
     if (existingIndex >= 0) {
@@ -100,6 +103,64 @@ export class ConflictManager {
     await this.saveConflictRecords(records);
     return record;
   }
+
+  /**
+   * Synchronizes active conflict records with a fresh SyncPreviewReport.
+   * Guarantees: Every POTENTIAL_CONFLICT in the preview report has a reviewable ConflictRecord.
+   * Cleans up resolved conflicts that are now UNCHANGED.
+   */
+  public async syncWithPreviewReport(report: SyncPreviewReport): Promise<ConflictRecord[]> {
+    const records = await this.loadConflictRecords();
+    let modified = false;
+
+    // 1. Ensure all active POTENTIAL_CONFLICT items exist in records
+    for (const item of report.items) {
+      if (item.category === "POTENTIAL_CONFLICT") {
+        const existing = records.find((r) => r.path === item.path);
+        if (!existing) {
+          records.push({
+            id: `${Date.now()}_${item.path.replace(/[\\/]/g, "_")}`,
+            path: item.path,
+            localSha: item.localSha || "",
+            remoteSha: item.remoteSha || "",
+            baseSha: item.baseSha,
+            detectedAt: Date.now(),
+          });
+          modified = true;
+        } else {
+          if (item.localSha && existing.localSha !== item.localSha) {
+            existing.localSha = item.localSha;
+            modified = true;
+          }
+          if (item.remoteSha && existing.remoteSha !== item.remoteSha) {
+            existing.remoteSha = item.remoteSha;
+            modified = true;
+          }
+          if (item.baseSha && existing.baseSha !== item.baseSha) {
+            existing.baseSha = item.baseSha;
+            modified = true;
+          }
+        }
+      }
+    }
+
+    // 2. Remove any records that are now confirmed UNCHANGED in the report
+    const unchangedPaths = new Set(
+      report.items.filter((i) => i.category === "UNCHANGED").map((i) => i.path)
+    );
+    const remaining = records.filter((r) => !unchangedPaths.has(r.path));
+    if (remaining.length !== records.length) {
+      records.length = 0;
+      records.push(...remaining);
+      modified = true;
+    }
+
+    if (modified) {
+      await this.saveConflictRecords(records);
+    }
+    return records;
+  }
+
 
   /**
    * Removes a conflict record after resolution.

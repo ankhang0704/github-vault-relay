@@ -273,7 +273,7 @@ describe("Safe Pull Engine (src/sync/pullEngine.ts)", () => {
     // Verify conflict file was preserved under _vault-relay/conflicts/
     const conflictResult = report.results.find((r) => r.path === "Project/Plan.md");
     expect(conflictResult?.conflictPath).toBeDefined();
-    expect(conflictResult?.conflictPath).toContain("_vault-relay/conflicts/");
+    expect(conflictResult?.conflictPath).toContain("vault-relay/conflicts/");
 
     const conflictFile = app.vault.getAbstractFileByPath(conflictResult!.conflictPath!) as TFile;
     expect(conflictFile).toBeInstanceOf(TFile);

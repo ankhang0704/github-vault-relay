@@ -12,17 +12,20 @@ import type VaultRelayPlugin from "../main";
 import { GitHubClient } from "../github/githubClient";
 import { ConflictManager, ConflictRecord } from "../sync/conflictManager";
 import { getStoredPat } from "../security/secretStore";
+import { SyncPreviewReport } from "../sync/syncTypes";
 
 export class ConflictResolutionModal extends Modal {
   private plugin: VaultRelayPlugin;
   private conflictManager: ConflictManager | null = null;
   private conflicts: ConflictRecord[] = [];
   private onResolvedCallback?: () => void;
+  private previewReport?: SyncPreviewReport | null;
 
-  constructor(app: App, plugin: VaultRelayPlugin, onResolved?: () => void) {
+  constructor(app: App, plugin: VaultRelayPlugin, onResolved?: () => void, previewReport?: SyncPreviewReport | null) {
     super(app);
     this.plugin = plugin;
     this.onResolvedCallback = onResolved;
+    this.previewReport = previewReport;
   }
 
   public async onOpen(): Promise<void> {
@@ -52,7 +55,11 @@ export class ConflictResolutionModal extends Modal {
     contentEl.empty();
 
     if (!this.conflictManager) return;
-    this.conflicts = await this.conflictManager.loadConflictRecords();
+    if (this.previewReport) {
+      this.conflicts = await this.conflictManager.syncWithPreviewReport(this.previewReport);
+    } else {
+      this.conflicts = await this.conflictManager.loadConflictRecords();
+    }
 
     contentEl.createEl("h2", { text: "Conflict Resolution" });
 

@@ -8,7 +8,8 @@
  * Provides idempotent, crash-safe migration from legacy _vault-relay directories.
  */
 
-import { App } from "obsidian";
+import { App, TFile } from "obsidian";
+import { calculateRawGitBlobSha, calculateCanonicalGitBlobSha } from "./hashUtils";
 import { SyncStateData } from "./syncTypes";
 import { createEmptyState, deserializeState, serializeState } from "./syncState";
 
@@ -128,8 +129,14 @@ export class StorageManager {
 
     const timestamp = Date.now();
     const cleanPath = originalPath.replace(/[\\/]/g, "_");
-    const conflictFileName = `${timestamp}_${cleanPath}`;
-    const targetPath = `${conflictsDir}/${conflictFileName}`;
+    let conflictFileName = `${timestamp}_${cleanPath}`;
+    let targetPath = `${conflictsDir}/${conflictFileName}`;
+    let suffix = 1;
+    while (await app.vault.adapter.exists(targetPath)) {
+      conflictFileName = `${timestamp}_${suffix}_${cleanPath}`;
+      targetPath = `${conflictsDir}/${conflictFileName}`;
+      suffix++;
+    }
 
     if (typeof content === "string") {
       await app.vault.adapter.write(targetPath, content);
@@ -143,6 +150,13 @@ export class StorageManager {
   /**
    * Idempotent, crash-safe migration from legacy _vault-relay folder to internal plugin storage.
    */
+    /**
+   * Idempotent, crash-safe migration from legacy _vault-relay folder to internal plugin storage.
+   * Recursively discovers all legacy conflict copies (including nested C3 timestamped folders)
+   * and moves them into .obsidian/vault-relay/conflicts/ with byte-exact verification.
+   * Registers migrated conflicts in conflicts_meta.json so they appear in Conflict Review.
+   * Recursively deletes _vault-relay only after 100% verified copy.
+   */
   public static async migrateLegacyStorage(app: App): Promise<{ migrated: boolean; error?: string }> {
     try {
       const hasLegacyState = await app.vault.adapter.exists(LEGACY_STATE_FILE);
@@ -154,10 +168,14 @@ export class StorageManager {
         return { migrated: false };
       }
 
-      // Ensure internal directory exists
+      // Ensure internal directories exist
       const internalDir = this.getPluginStorageDir(app);
       if (!(await app.vault.adapter.exists(internalDir))) {
         await app.vault.adapter.mkdir(internalDir);
+      }
+      const internalConflictsDir = this.getConflictsDirPath(app);
+      if (!(await app.vault.adapter.exists(internalConflictsDir))) {
+        await app.vault.adapter.mkdir(internalConflictsDir);
       }
 
       const internalStatePath = this.getStateFilePath(app);
@@ -180,18 +198,111 @@ export class StorageManager {
         }
       }
 
+      // Helper for recursive file listing
+      const listFilesRecursively = async (dir: string): Promise<string[]> => {
+        const results: string[] = [];
+        if (!app.vault.adapter.list) return results;
+        try {
+          const res = await app.vault.adapter.list(dir);
+          if (res && res.files) {
+            results.push(...res.files);
+          }
+          if (res && res.folders) {
+            for (const folder of res.folders) {
+              const sub = await listFilesRecursively(folder);
+              results.push(...sub);
+            }
+          }
+        } catch (e) {
+          console.warn(`[Vault Relay] Error listing ${dir}:`, e);
+        }
+        return results;
+      };
+
+      // Helper for recursive directory deletion
+      const deleteDirectoryRecursively = async (dir: string): Promise<void> => {
+        if (app.vault.adapter.list) {
+          try {
+            const res = await app.vault.adapter.list(dir);
+            if (res && res.files) {
+              for (const file of res.files) {
+                try {
+                  await app.vault.adapter.remove(file);
+                } catch (e) {
+                  console.warn(`[Vault Relay] Failed to remove file ${file}:`, e);
+                }
+              }
+            }
+            if (res && res.folders) {
+              for (const folder of res.folders) {
+                await deleteDirectoryRecursively(folder);
+              }
+            }
+          } catch (e) {
+            console.warn(`[Vault Relay] Failed to list folder for deletion ${dir}:`, e);
+          }
+        }
+        if (app.vault.adapter.rmdir) {
+          try {
+            await app.vault.adapter.rmdir(dir, true);
+          } catch (e) {
+            console.warn(`[Vault Relay] Rmdir failed for ${dir}:`, e);
+          }
+        }
+        try {
+          const abstract = app.vault.getAbstractFileByPath(dir);
+          const vaultWithDelete = app.vault as unknown as { delete?: (f: unknown, force?: boolean) => Promise<void> };
+          if (abstract && typeof vaultWithDelete.delete === "function") {
+            await vaultWithDelete.delete(abstract, true);
+          }
+        } catch (e) {
+          console.warn(`[Vault Relay] Delete abstract file failed for ${dir}:`, e);
+        }
+      };
+
       // 2. Migrate legacy conflicts if present
       const hasLegacyConflicts = await app.vault.adapter.exists(LEGACY_CONFLICTS_DIR);
-      if (hasLegacyConflicts && app.vault.adapter.list) {
-        const internalConflictsDir = this.getConflictsDirPath(app);
-        if (!(await app.vault.adapter.exists(internalConflictsDir))) {
-          await app.vault.adapter.mkdir(internalConflictsDir);
+      if (hasLegacyConflicts) {
+        const legacyFiles = await listFilesRecursively(LEGACY_CONFLICTS_DIR);
+        const metaPath = `${internalDir}/conflicts_meta.json`;
+        let metaRecords: Array<{
+          id: string;
+          path: string;
+          localSha: string;
+          remoteSha: string;
+          detectedAt: number;
+          snapshotPath?: string;
+        }> = [];
+
+        if (await app.vault.adapter.exists(metaPath)) {
+          try {
+            metaRecords = JSON.parse(await app.vault.adapter.read(metaPath));
+          } catch (e) {
+            console.warn("[Vault Relay] Failed to parse existing metadata:", e);
+          }
         }
 
-        const listResult = await app.vault.adapter.list(LEGACY_CONFLICTS_DIR);
-        for (const file of listResult.files) {
-          const fileName = file.split("/").pop() || file;
-          const dest = `${internalConflictsDir}/${fileName}`;
+        for (const file of legacyFiles) {
+          const prefix = `${LEGACY_CONFLICTS_DIR}/`;
+          const relPath = file.startsWith(prefix) ? file.substring(prefix.length) : file;
+          const segments = relPath.split(/[/\\]/);
+
+          let originalPath: string;
+          let detectedAt = Date.now();
+
+          if (segments.length > 1 && /^\d+(_\d+)?$/.test(segments[0])) {
+            const parsedTs = parseInt(segments[0].split("_")[0], 10);
+            if (!isNaN(parsedTs)) detectedAt = parsedTs;
+            originalPath = segments.slice(1).join("/");
+          } else {
+            originalPath = segments.join("/");
+          }
+
+          const destFileName = segments.length > 1
+            ? `${segments[0]}_${segments.slice(1).join("__")}`
+            : segments[0];
+          const dest = `${internalConflictsDir}/${destFileName}`;
+
           if (!(await app.vault.adapter.exists(dest))) {
             const buf = await app.vault.adapter.readBinary(file);
             await app.vault.adapter.writeBinary(dest, buf);
@@ -199,29 +310,50 @@ export class StorageManager {
             // Byte-exact verification: length and content comparison
             const verifyBuf = await app.vault.adapter.readBinary(dest);
             if (verifyBuf.byteLength !== buf.byteLength) {
-              throw new Error(`Verification failed: Byte length mismatch for migrated conflict ${fileName}`);
+              throw new Error(`Verification failed: Byte length mismatch for migrated conflict ${file}`);
             }
             const srcBytes = new Uint8Array(buf);
             const destBytes = new Uint8Array(verifyBuf);
             for (let i = 0; i < srcBytes.length; i++) {
               if (srcBytes[i] !== destBytes[i]) {
-                throw new Error(`Verification failed: Byte content mismatch for migrated conflict ${fileName}`);
+                throw new Error(`Verification failed: Byte content mismatch for migrated conflict ${file}`);
               }
             }
+
+            // Register in metadata so ConflictResolutionModal displays it
+            const remoteSha = await calculateRawGitBlobSha(srcBytes);
+            let localSha = "";
+            const localFile = app.vault.getAbstractFileByPath(originalPath);
+            if (localFile instanceof TFile) {
+              const localBytes = await app.vault.readBinary(localFile);
+              localSha = await calculateCanonicalGitBlobSha(localBytes, originalPath);
+            }
+
+            if (!metaRecords.some((r) => r.path === originalPath)) {
+              metaRecords.push({
+                id: `legacy_${detectedAt}_${destFileName}`,
+                path: originalPath,
+                localSha: localSha || remoteSha,
+                remoteSha,
+                detectedAt,
+                snapshotPath: dest,
+              });
+            }
           }
+        }
+
+        if (metaRecords.length > 0) {
+          await app.vault.adapter.write(metaPath, JSON.stringify(metaRecords, null, 2));
         }
       }
 
       // 3. Clean up legacy directory only after successful copy and verification
       try {
-        if (app.vault.adapter.rmdir) {
-          await app.vault.adapter.rmdir(LEGACY_ROOT_DIR, true);
-        } else {
-          // Fallback if rmdir is not available
-          const legacyAbstract = app.vault.getAbstractFileByPath(LEGACY_ROOT_DIR);
-          if (legacyAbstract && (app.vault as unknown as { delete?: (f: unknown) => Promise<void> }).delete) {
-            await (app.vault as unknown as { delete: (f: unknown) => Promise<void> }).delete(legacyAbstract);
-          }
+        if (hasLegacyDir) {
+          await deleteDirectoryRecursively(LEGACY_ROOT_DIR);
+        }
+        if (hasIntermediateState) {
+          await app.vault.adapter.remove(intermediatePath);
         }
       } catch (cleanErr) {
         console.warn("[Vault Relay] Failed to clean up legacy _vault-relay directory:", cleanErr);
@@ -233,5 +365,5 @@ export class StorageManager {
       console.error("[Vault Relay] Storage migration failed:", msg);
       return { migrated: false, error: msg };
     }
-  }
+    }
 }

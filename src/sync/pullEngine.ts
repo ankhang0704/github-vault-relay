@@ -11,7 +11,7 @@
  * - Remote blob raw SHA cryptographic integrity verification.
  * - Canonical LF normalization for text (.md, .txt, .canvas), 100% byte-exact for binary.
  * - Pre-write local modification check (local editor edits win; never silently overwritten).
- * - Conflict preservation under _vault-relay/conflicts/ without modifying local files.
+ * - Conflict preservation under internal storage (.obsidian/vault-relay/conflicts/) without modifying local files.
  * - Post-write verification before advancing baseline state.
  */
 
@@ -25,6 +25,7 @@ import { isPathExcluded, normalizePath } from "./pathFilter";
 import { detectCaseCollisions, validatePathSafety } from "./pathSafety";
 import { classifySyncState } from "./syncClassifier";
 import { StorageManager } from "./storageManager";
+import { ConflictManager } from "./conflictManager";
 import { SyncProgressCallback } from "./progressTypes";
 import {
   LocalFileEntry,
@@ -364,7 +365,7 @@ export class PullEngine {
           const existingFile = this.app.vault.getAbstractFileByPath(path);
           if (existingFile) {
             // Divert to conflict
-            const conflictPath = await this.preserveConflictCopy(path, rawBytes, timestamp);
+            const conflictPath = await this.preserveConflictCopy(path, rawBytes, timestamp, undefined, item.remoteSha);
             counts.conflictsPreserved++;
             results.push({
               path,
@@ -438,7 +439,7 @@ export class PullEngine {
 
           if (currentLocalSha !== item.localSha) {
             // Local file was edited concurrently -> PRESERVE BOTH
-            const conflictPath = await this.preserveConflictCopy(path, rawBytes, timestamp);
+            const conflictPath = await this.preserveConflictCopy(path, rawBytes, timestamp, item.localSha, remoteBlob.sha);
             counts.conflictsPreserved++;
             results.push({
               path,
@@ -521,7 +522,7 @@ export class PullEngine {
           }
 
           // Content actually differs or is binary: preserve remote version in conflict folder
-          const conflictPath = await this.preserveConflictCopy(path, rawBytes, timestamp);
+          const conflictPath = await this.preserveConflictCopy(path, rawBytes, timestamp, item.localSha, remoteBlob.sha);
           counts.conflictsPreserved++;
           results.push({
             path,
@@ -585,26 +586,36 @@ export class PullEngine {
   }
 
   /**
-   * Preserves conflicting remote content under _vault-relay/conflicts/<timestamp>/<original-path>.
-   * Guaranteed never to overwrite an existing conflict file.
+   * Preserves conflicting remote content under internal storage (.obsidian/vault-relay/conflicts/).
+   * Guaranteed never to write or recreate root _vault-relay.
+   * Registers the conflict in ConflictManager so it is reviewable in UI.
    */
   private async preserveConflictCopy(
     originalPath: string,
     rawBytes: Uint8Array,
-    timestamp: number
+    timestamp: number,
+    localSha?: string,
+    remoteSha?: string
   ): Promise<string> {
-    const normalized = normalizePath(originalPath);
-    let conflictPath = `_vault-relay/conflicts/${timestamp}/${normalized}`;
+    const conflictPath = await StorageManager.saveConflictPayload(this.app, originalPath, rawBytes.buffer as ArrayBuffer);
 
-    // Ensure non-collision
-    let suffix = 0;
-    while (this.app.vault.getAbstractFileByPath(conflictPath)) {
-      suffix++;
-      conflictPath = `_vault-relay/conflicts/${timestamp}_${suffix}/${normalized}`;
+    // Register conflict record in ConflictManager
+    try {
+      const conflictManager = new ConflictManager(this.app, this.settings, this.githubClient);
+      const effRemoteSha = remoteSha || (await calculateRawGitBlobSha(rawBytes));
+      let effLocalSha = localSha || "";
+      if (!effLocalSha) {
+        const localAbstract = this.app.vault.getAbstractFileByPath(originalPath);
+        if (localAbstract instanceof TFile) {
+          const localBytes = await this.app.vault.readBinary(localAbstract);
+          effLocalSha = await calculateCanonicalGitBlobSha(localBytes, originalPath);
+        }
+      }
+      await conflictManager.recordConflict(originalPath, effLocalSha, effRemoteSha, undefined, undefined, conflictPath);
+    } catch (recordErr) {
+      console.warn(`[Vault Relay] Failed to record conflict metadata for ${originalPath}:`, recordErr);
     }
 
-    await this.ensureParentFolderExists(conflictPath);
-    await this.app.vault.createBinary(conflictPath, rawBytes.buffer);
     return conflictPath;
   }
 }

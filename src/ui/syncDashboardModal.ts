@@ -163,7 +163,7 @@ export class SyncDashboardModal extends Modal {
       });
       const reviewBtn = banner.createEl("button", { text: "Review Conflicts", cls: "mod-warning" });
       reviewBtn.onclick = () => {
-        new ConflictResolutionModal(this.app, this.plugin, () => this.runScanAndRender()).open();
+        new ConflictResolutionModal(this.app, this.plugin, () => this.runScanAndRender(), this.report).open();
       };
     }
 
