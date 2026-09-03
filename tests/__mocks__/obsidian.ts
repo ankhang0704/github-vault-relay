@@ -91,7 +91,12 @@ export interface MockVault {
     readBinary: (path: string) => Promise<ArrayBuffer>;
     exists: (path: string) => Promise<boolean>;
     mkdir: (path: string) => Promise<void>;
+    remove: (path: string) => Promise<void>;
+    rmdir: (path: string, recursive?: boolean) => Promise<void>;
+    list: (path: string) => Promise<{ files: string[]; folders: string[] }>;
   };
+  configDir?: string;
+  delete: (file: TFile | TFolder) => Promise<void>;
 }
 
 export class MockLocalStorage implements Storage {
@@ -153,7 +158,11 @@ export class App {
     this.vault = {
       getFiles: () => {
         const result: TFile[] = [];
+        const cfg = (this.vault as unknown as { configDir?: string }).configDir || ".obsidian";
         for (const [p, data] of filesMap.entries()) {
+          if (p.startsWith(cfg + "/") || p.startsWith(".obsidian/")) {
+            continue;
+          }
           const tf = new TFile();
           tf.path = p;
           tf.name = p.split("/").pop() || p;
@@ -210,6 +219,15 @@ export class App {
         tf.path = path;
         return tf;
       },
+      configDir: ".obsidian",
+      delete: async (file: TFile | TFolder) => {
+        filesMap.delete(file.path);
+        for (const k of Array.from(filesMap.keys())) {
+          if (k.startsWith(file.path + "/")) {
+            filesMap.delete(k);
+          }
+        }
+      },
       adapter: {
         write: async (path: string, data: string) => {
           const encoded = new TextEncoder().encode(data);
@@ -230,9 +248,42 @@ export class App {
           return entry.content;
         },
         exists: async (path: string) => {
-          return filesMap.has(path);
+          if (filesMap.has(path)) return true;
+          const prefix = path.endsWith("/") ? path : path + "/";
+          for (const k of filesMap.keys()) {
+            if (k.startsWith(prefix)) return true;
+          }
+          return false;
         },
         mkdir: async () => {},
+        remove: async (path: string) => {
+          filesMap.delete(path);
+        },
+        rmdir: async (path: string) => {
+          filesMap.delete(path);
+          for (const k of Array.from(filesMap.keys())) {
+            if (k.startsWith(path + "/") || k === path) {
+              filesMap.delete(k);
+            }
+          }
+        },
+        list: async (path: string) => {
+          const files: string[] = [];
+          const folders = new Set<string>();
+          const prefix = path.endsWith("/") ? path : path + "/";
+          for (const k of filesMap.keys()) {
+            if (k.startsWith(prefix)) {
+              const rel = k.substring(prefix.length);
+              const parts = rel.split("/");
+              if (parts.length === 1) {
+                files.push(k);
+              } else {
+                folders.add(prefix + parts[0]);
+              }
+            }
+          }
+          return { files, folders: Array.from(folders) };
+        },
       },
     };
   }
@@ -316,3 +367,7 @@ export class Notice {
 }
 
 export function setIcon(_el: HTMLElement, _iconId: string): void {}
+
+export function normalizePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/|\/$/g, "");
+}

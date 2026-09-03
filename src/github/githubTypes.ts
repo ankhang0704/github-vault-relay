@@ -118,3 +118,18 @@ export interface GitHubConnectionTestResult {
   isPrivate: boolean;
   errorMessage?: string;
 }
+
+export interface GitHubRepoSummary {
+  fullName: string;
+  owner: string;
+  name: string;
+  defaultBranch: string;
+  isPrivate: boolean;
+  description?: string;
+}
+
+export interface GitHubBranchSummary {
+  name: string;
+  commitSha: string;
+  protected?: boolean;
+}

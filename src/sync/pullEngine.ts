@@ -24,7 +24,8 @@ import { calculateCanonicalGitBlobSha, calculateRawGitBlobSha } from "./hashUtil
 import { isPathExcluded, normalizePath } from "./pathFilter";
 import { detectCaseCollisions, validatePathSafety } from "./pathSafety";
 import { classifySyncState } from "./syncClassifier";
-import { deserializeState, serializeState, STATE_FILE_PATH } from "./syncState";
+import { StorageManager } from "./storageManager";
+import { SyncProgressCallback } from "./progressTypes";
 import {
   LocalFileEntry,
   PullExecutionReport,
@@ -104,42 +105,26 @@ export class PullEngine {
    * Loads sync state from _vault-relay/state.json.
    */
   public async loadState(): Promise<SyncStateData> {
-    try {
-      const stateFile = this.app.vault.getAbstractFileByPath(STATE_FILE_PATH);
-      if (stateFile instanceof TFile) {
-        const content = await this.app.vault.read(stateFile);
-        return deserializeState(content);
-      }
-    } catch {
-      // Fallback
-    }
-    return deserializeState("");
+    return StorageManager.loadState(this.app);
   }
 
   /**
-   * Saves updated sync state to _vault-relay/state.json.
+   * Saves updated sync state to internal storage.
    */
   public async saveState(state: SyncStateData): Promise<void> {
-    const serialized = serializeState(state);
-    await this.ensureParentFolderExists(STATE_FILE_PATH);
-
-    const stateFile = this.app.vault.getAbstractFileByPath(STATE_FILE_PATH);
-    if (stateFile instanceof TFile) {
-      await this.app.vault.modify(stateFile, serialized);
-    } else {
-      await this.app.vault.create(STATE_FILE_PATH, serialized);
-    }
+    return StorageManager.saveState(this.app, state);
   }
 
   /**
    * Executes the complete Safe Pull process.
    */
-  public async executeSafePull(): Promise<PullExecutionReport> {
+  public async executeSafePull(onProgress?: SyncProgressCallback): Promise<PullExecutionReport> {
     const timestamp = Date.now();
     const branchName = this.settings.branch || "main";
 
     // Preflight offline check
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      onProgress?.({ phase: "COMPLETE", completed: 1, total: 1, message: "Safe pull complete." });
       return {
         timestamp,
         branch: branchName,
@@ -263,9 +248,13 @@ export class PullEngine {
     };
 
     let stateModified = false;
+    let processedCount = 0;
+    onProgress?.({ phase: "PLANNING", completed: 0, total: classification.items.length, message: "Planning safe pull..." });
 
     // Step 7: Process each item safely
     for (const item of classification.items) {
+      processedCount++;
+      onProgress?.({ phase: "DOWNLOADING", completed: processedCount, total: classification.items.length, currentPath: item.path });
       const path = item.path;
 
       // 7.1 Path safety check
@@ -556,6 +545,7 @@ export class PullEngine {
 
     // Step 8: Persist state if modified
     if (stateModified || !state.lastSyncedCommitSha) {
+      onProgress?.({ phase: "UPDATING_STATE", completed: 0, total: 1, message: "Updating sync state..." });
       state.lastSyncedCommitSha = remoteCommitSha;
       state.lastSyncedAt = timestamp;
       await this.saveState(state);
@@ -580,6 +570,7 @@ export class PullEngine {
     const summaryMessage =
       summaryParts.length > 0 ? `Safe Pull completed: ${summaryParts.join(", ")}.` : "Safe Pull completed: Vault is in sync.";
 
+    onProgress?.({ phase: "COMPLETE", completed: 1, total: 1, message: summaryMessage });
     return {
       timestamp,
       branch: branchName,

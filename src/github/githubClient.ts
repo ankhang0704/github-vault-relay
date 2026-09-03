@@ -18,6 +18,8 @@ import {
   GitHubRepoResponse,
   GitHubTreeItemInput,
   GitHubTreeResponse,
+  GitHubRepoSummary,
+  GitHubBranchSummary,
 } from "./githubTypes";
 import { sanitizeErrorMessage, redactTokens } from "../security/redact";
 import { calculateRawGitBlobSha } from "../sync/hashUtils";
@@ -154,7 +156,7 @@ export class GitHubClient {
       );
     }
 
-    if (!this.owner || !this.repo) {
+    if (!endpoint.startsWith("/user") && (!this.owner || !this.repo)) {
       throw new GitHubError(
         "Repository owner or name is not configured.",
         undefined,
@@ -493,4 +495,64 @@ export class GitHubClient {
       };
     }
   }
+
+  /**
+   * Discovers repositories accessible to the configured PAT.
+   * Uses GET /user/repos?per_page=100&sort=updated
+   */
+  public async listUserRepositories(perPage = 100): Promise<GitHubRepoSummary[]> {
+    const rawRepos = await this.request<Array<{
+      full_name: string;
+      name: string;
+      owner: { login: string };
+      default_branch: string;
+      private: boolean;
+      description?: string | null;
+    }>>(`/user/repos?per_page=${perPage}&sort=updated`, {
+      method: "GET",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        Pragma: "no-cache",
+      },
+    });
+
+    return rawRepos.map((r) => ({
+      fullName: r.full_name,
+      owner: r.owner.login,
+      name: r.name,
+      defaultBranch: r.default_branch || "main",
+      isPrivate: !!r.private,
+      description: r.description || undefined,
+    }));
+  }
+
+  /**
+   * Lists branches for a repository.
+   * Uses GET /repos/{owner}/{repo}/branches?per_page=100
+   */
+  public async listBranches(owner?: string, repo?: string): Promise<GitHubBranchSummary[]> {
+    const targetOwner = (owner || this.owner).trim();
+    const targetRepo = (repo || this.repo).trim();
+    const rawBranches = await this.request<Array<{
+      name: string;
+      commit: { sha: string };
+      protected?: boolean;
+    }>>(
+      `/repos/${encodeURIComponent(targetOwner)}/${encodeURIComponent(targetRepo)}/branches?per_page=100`,
+      {
+        method: "GET",
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+        },
+      }
+    );
+
+    return rawBranches.map((b) => ({
+      name: b.name,
+      commitSha: b.commit.sha,
+      protected: b.protected,
+    }));
+  }
+
 }

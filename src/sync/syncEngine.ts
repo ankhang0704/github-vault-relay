@@ -3,27 +3,41 @@
  *
  * Scans local Obsidian vault, fetches remote GitHub Git tree,
  * and produces a read-only sync classification report with case collision checks.
+ *
+ * C4 Hardened:
+ * - Uses authoritative, cache-safe Git ref reading (bypassing 60s edge/browser caches)
+ * - Uses StorageManager for hidden plugin storage (.obsidian/plugins/github-vault-relay/)
+ * - Incorporates high-performance LocalHashCache (mtime+size) for fast local scanning
+ * - Collects truthful operation timings
  */
 
-import { App, TFile } from "obsidian";
+import { App } from "obsidian";
 import { GitHubClient } from "../github/githubClient";
 import { VaultRelaySettings } from "../settings";
 import { calculateCanonicalGitBlobSha } from "./hashUtils";
 import { isPathExcluded } from "./pathFilter";
 import { classifySyncState } from "./syncClassifier";
-import { deserializeState, STATE_FILE_PATH } from "./syncState";
+import { StorageManager } from "./storageManager";
 import { detectCaseCollisions } from "./pathSafety";
 import {
   LocalFileEntry,
   RemoteBlobEntry,
   SyncPreviewReport,
+  SyncPreviewTimings,
   SyncStateData,
 } from "./syncTypes";
+
+export interface HashCacheEntry {
+  mtime: number;
+  size: number;
+  sha: string;
+}
 
 export class SyncEngine {
   private app: App;
   private settings: VaultRelaySettings;
   private githubClient: GitHubClient;
+  private localHashCache = new Map<string, HashCacheEntry>();
 
   constructor(app: App, settings: VaultRelaySettings, githubClient?: GitHubClient) {
     this.app = app;
@@ -39,7 +53,15 @@ export class SyncEngine {
   }
 
   /**
+   * Clears the in-memory local hash cache.
+   */
+  public clearLocalHashCache(): void {
+    this.localHashCache.clear();
+  }
+
+  /**
    * Scans local files in the Obsidian vault, computing canonical Git hashes.
+   * Utilizes mtime + size cache to avoid redundant SHA calculations on unchanged local files.
    */
   public async scanLocalVault(): Promise<Map<string, LocalFileEntry>> {
     const localFiles = new Map<string, LocalFileEntry>();
@@ -51,14 +73,25 @@ export class SyncEngine {
       }
 
       try {
-        const binaryContent = await this.app.vault.readBinary(file);
-        const sha = await calculateCanonicalGitBlobSha(binaryContent, file.path);
+        const mtime = file.stat.mtime;
+        const size = file.stat.size;
+
+        const cached = this.localHashCache.get(file.path);
+        let sha: string;
+
+        if (cached && cached.mtime === mtime && cached.size === size) {
+          sha = cached.sha;
+        } else {
+          const binaryContent = await this.app.vault.readBinary(file);
+          sha = await calculateCanonicalGitBlobSha(binaryContent, file.path);
+          this.localHashCache.set(file.path, { mtime, size, sha });
+        }
 
         localFiles.set(file.path, {
           path: file.path,
           sha,
-          size: file.stat.size,
-          mtime: file.stat.mtime,
+          size,
+          mtime,
         });
       } catch (err) {
         console.warn(`[Vault Relay] Failed to calculate hash for ${file.path}:`, err);
@@ -69,34 +102,33 @@ export class SyncEngine {
   }
 
   /**
-   * Loads the local state file (_vault-relay/state.json) if it exists.
+   * Loads the local state file from internal storage.
    */
   public async loadLocalState(): Promise<SyncStateData | undefined> {
     try {
-      const stateFile = this.app.vault.getAbstractFileByPath(STATE_FILE_PATH);
-      if (stateFile instanceof TFile) {
-        const content = await this.app.vault.read(stateFile);
-        return deserializeState(content);
-      }
+      return await StorageManager.loadState(this.app);
     } catch {
-      // Return undefined if state file does not exist
+      return undefined;
     }
-    return undefined;
   }
 
   /**
-   * Generates a complete Read-Only Sync Preview.
+   * Generates a complete Read-Only Sync Preview with authoritative cache-busting reads.
    */
   public async generatePreview(): Promise<SyncPreviewReport> {
-    const branchName = this.settings.branch || "main";
+    const branchName = (this.settings.branch || "main").trim();
+    const tStart = Date.now();
 
-    // 1. Fetch fresh remote branch HEAD
-    const branchInfo = await this.githubClient.getBranch(branchName);
+    // 1. Fetch fresh remote branch HEAD authoritatively with cache-busting
+    const branchInfo = await this.githubClient.getBranch(branchName, true);
     const remoteCommitSha = branchInfo.commit.sha;
     const treeSha = branchInfo.commit.commit?.tree?.sha || branchInfo.commit.sha;
 
+    const tHead = Date.now();
+
     // 2. Fetch remote tree recursively
     const treeResponse = await this.githubClient.getTreeRecursive(treeSha);
+    const tTree = Date.now();
 
     // 3. Filter remote blobs
     const remoteBlobs = new Map<string, RemoteBlobEntry>();
@@ -117,6 +149,7 @@ export class SyncEngine {
 
     // 4. Scan local vault
     const localFiles = await this.scanLocalVault();
+    const tLocal = Date.now();
 
     // 5. Detect case collisions
     const allScannedPaths = Array.from(new Set([...localFiles.keys(), ...remotePaths]));
@@ -137,6 +170,16 @@ export class SyncEngine {
       excludedPaths: this.settings.excludedPaths,
     });
 
+    const tClassify = Date.now();
+
+    const timings: SyncPreviewTimings = {
+      remoteHeadMs: tHead - tStart,
+      remoteTreeMs: tTree - tHead,
+      localScanMs: tLocal - tTree,
+      classificationMs: tClassify - tLocal,
+      totalMs: tClassify - tStart,
+    };
+
     return {
       timestamp: Date.now(),
       branch: branchName,
@@ -148,6 +191,7 @@ export class SyncEngine {
       totalScannedRemote: remoteBlobs.size,
       truncatedRemoteTree: !!treeResponse.truncated,
       caseCollisions,
+      timings,
     };
   }
 }

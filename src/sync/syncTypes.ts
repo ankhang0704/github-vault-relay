@@ -44,6 +44,15 @@ export interface SyncPreviewReport {
   totalScannedRemote: number;
   truncatedRemoteTree: boolean;
   caseCollisions: Array<{ key: string; paths: string[] }>;
+  timings?: SyncPreviewTimings;
+}
+
+export interface SyncPreviewTimings {
+  remoteHeadMs: number;
+  remoteTreeMs: number;
+  localScanMs: number;
+  classificationMs: number;
+  totalMs: number;
 }
 
 export interface LocalFileEntry {

@@ -1,16 +1,19 @@
 /**
  * GitHub Vault Relay - Conservative GitHub-backed Obsidian Vault Sync Plugin
- * Main Plugin Entry Point
+ * Main Plugin Entry Point (C4 Unified Sync)
  */
 
 import { Notice, Plugin } from "obsidian";
 import { DEFAULT_SETTINGS, VaultRelaySettings, VaultRelaySettingTab } from "./settings";
+import { SyncDashboardModal } from "./ui/syncDashboardModal";
 import { SyncPreviewModal } from "./ui/syncPreviewModal";
 import { PullConfirmModal } from "./ui/pullConfirmModal";
 import { PushConfirmModal } from "./ui/pushConfirmModal";
 import { GitHubClient } from "./github/githubClient";
 import { sanitizeErrorMessage } from "./security/redact";
 import { getStoredPat } from "./security/secretStore";
+import { StorageManager } from "./sync/storageManager";
+import { AttachmentImporter } from "./sync/attachmentImporter";
 
 export default class VaultRelayPlugin extends Plugin {
   public settings: VaultRelaySettings = DEFAULT_SETTINGS;
@@ -18,15 +21,47 @@ export default class VaultRelayPlugin extends Plugin {
   public async onload(): Promise<void> {
     await this.loadSettings();
 
+    // C4 Automatic Storage Migration: migrate legacy _vault-relay to hidden plugin storage
+    try {
+      await StorageManager.migrateLegacyStorage(this.app);
+    } catch (migErr) {
+      console.warn("[Vault Relay] Automatic storage migration warning:", migErr);
+    }
+
     // Register Plugin Settings Tab
     this.addSettingTab(new VaultRelaySettingTab(this.app, this));
 
-    // Register Ribbon Icon to open Sync Preview Modal
-    this.addRibbonIcon("git-compare", "GitHub Vault Relay: Preview Sync Status", () => {
-      new SyncPreviewModal(this.app, this).open();
+    // Register Primary Ribbon Icon: opens Unified Sync Dashboard
+    this.addRibbonIcon("refresh-cw", "GitHub Vault Relay: Sync Dashboard", () => {
+      new SyncDashboardModal(this.app, this).open();
     });
 
-    // Register Command: Preview Sync Status (Read-Only)
+    // Register Primary Command: Open Sync Dashboard
+    this.addCommand({
+      id: "github-vault-relay-sync-dashboard",
+      name: "Open Sync Dashboard",
+      callback: () => {
+        new SyncDashboardModal(this.app, this).open();
+      },
+    });
+
+    // Register Command: Import Attachment (Mobile-friendly)
+    this.addCommand({
+      id: "github-vault-relay-import-attachment",
+      name: "Import attachment (Image/PDF)",
+      callback: async () => {
+        const importer = new AttachmentImporter(this.app);
+        const results = await importer.promptFileSelection();
+        if (results.length > 0) {
+          const successes = results.filter((r) => r.success);
+          if (successes.length > 0) {
+            new Notice(`Imported ${successes.length} file(s) successfully.`);
+          }
+        }
+      },
+    });
+
+    // Backward-compatible Command: Preview Sync Status (Read-Only)
     this.addCommand({
       id: "github-vault-relay-preview-sync",
       name: "Preview sync status (Read-Only)",
@@ -35,7 +70,7 @@ export default class VaultRelayPlugin extends Plugin {
       },
     });
 
-    // Register Command: Pull Safe Remote Changes
+    // Backward-compatible Command: Pull Safe Remote Changes
     this.addCommand({
       id: "github-vault-relay-pull-safe-changes",
       name: "Pull safe remote changes (GitHub -> Local)",
@@ -44,8 +79,7 @@ export default class VaultRelayPlugin extends Plugin {
       },
     });
 
-    
-    // Register Command: Push Safe Local Changes
+    // Backward-compatible Command: Push Safe Local Changes
     this.addCommand({
       id: "github-vault-relay-push-safe-changes",
       name: "Push safe local changes (Local -> GitHub)",
@@ -53,6 +87,7 @@ export default class VaultRelayPlugin extends Plugin {
         new PushConfirmModal(this.app, this).open();
       },
     });
+
     // Register Command: Test GitHub Connection
     this.addCommand({
       id: "github-vault-relay-test-connection",

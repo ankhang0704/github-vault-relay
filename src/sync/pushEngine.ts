@@ -27,7 +27,8 @@ import { calculateCanonicalGitBlobSha, calculateRawGitBlobSha } from "./hashUtil
 import { isPathExcluded } from "./pathFilter";
 import { detectCaseCollisions } from "./pathSafety";
 import { classifySyncState } from "./syncClassifier";
-import { deserializeState, serializeState, STATE_FILE_PATH } from "./syncState";
+import { StorageManager } from "./storageManager";
+import { SyncProgressCallback } from "./progressTypes";
 import {
   LocalFileEntry,
   PushExecutionReport,
@@ -96,48 +97,20 @@ export class PushEngine {
    * Loads sync state from _vault-relay/state.json.
    */
   public async loadState(): Promise<SyncStateData> {
-    try {
-      const stateFile = this.app.vault.getAbstractFileByPath(STATE_FILE_PATH);
-      if (stateFile instanceof TFile) {
-        const content = await this.app.vault.read(stateFile);
-        return deserializeState(content);
-      }
-    } catch {
-      // Fallback
-    }
-    return deserializeState("");
+    return StorageManager.loadState(this.app);
   }
 
   /**
-   * Saves updated sync state to _vault-relay/state.json.
+   * Saves updated sync state to internal storage.
    */
   public async saveState(state: SyncStateData): Promise<void> {
-    const content = serializeState(state);
-    const existing = this.app.vault.getAbstractFileByPath(STATE_FILE_PATH);
-
-    if (existing instanceof TFile) {
-      await this.app.vault.modify(existing, content);
-    } else {
-      // Ensure parent directory exists
-      const lastSlash = STATE_FILE_PATH.lastIndexOf("/");
-      if (lastSlash !== -1) {
-        const folder = STATE_FILE_PATH.substring(0, lastSlash);
-        if (!this.app.vault.getAbstractFileByPath(folder)) {
-          try {
-            await this.app.vault.createFolder(folder);
-          } catch {
-            // continue
-          }
-        }
-      }
-      await this.app.vault.create(STATE_FILE_PATH, content);
-    }
+    return StorageManager.saveState(this.app, state);
   }
 
   /**
    * Executes the full conservative Safe Push workflow.
    */
-  public async executeSafePush(): Promise<PushExecutionReport> {
+  public async executeSafePush(onProgress?: SyncProgressCallback): Promise<PushExecutionReport> {
     const report: PushExecutionReport = {
       timestamp: Date.now(),
       branch: this.settings.branch,
@@ -430,7 +403,11 @@ export class PushEngine {
     }
     const uploadedRecords: UploadedFileRecord[] = [];
 
+    onProgress?.({ phase: "PLANNING", completed: 0, total: eligibleItems.length, message: "Planning safe push..." });
+    let uploadIndex = 0;
     for (const item of eligibleItems) {
+      uploadIndex++;
+      onProgress?.({ phase: "UPLOADING", completed: uploadIndex, total: eligibleItems.length, currentPath: item.path });
       try {
         let bytesToUpload = item.rawBytes;
         let expectedSha: string;
@@ -480,6 +457,7 @@ export class PushEngine {
       }
     }
 
+    onProgress?.({ phase: "CREATING_TREE", completed: 0, total: 1, message: "Creating Git tree..." });
     // 8. Create Git Tree (on top of baseCommit tree)
     let newTreeResp;
     try {
@@ -491,6 +469,7 @@ export class PushEngine {
       return report;
     }
 
+    onProgress?.({ phase: "CREATING_COMMIT", completed: 0, total: 1, message: "Creating Git commit..." });
     // 9. Create Single Git Commit
     let newCommitResp;
     const commitCount = uploadedRecords.length;
@@ -507,6 +486,7 @@ export class PushEngine {
     const newCommitSha = newCommitResp.sha;
     report.newCommitSha = newCommitSha;
 
+    onProgress?.({ phase: "UPDATING_REF", completed: 0, total: 1, message: "Updating remote branch..." });
     // 10. Optimistic Concurrency Ref Update (force: false)
     let patchRefResp;
     try {
@@ -528,6 +508,7 @@ export class PushEngine {
       const delays = [500, 1000, 2000];
 
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        onProgress?.({ phase: "VERIFYING_REMOTE", completed: attempt, total: maxRetries + 1, message: "Verifying remote ref..." });
         try {
           const refResp = await this.githubClient.getBranchRef(this.settings.branch);
           lastObservedSha = refResp.object?.sha;
@@ -625,6 +606,7 @@ export class PushEngine {
       report.summaryMessage = `Safe Push completed successfully. Pushed ${uploadedRecords.length} file(s) into commit ${newCommitSha.substring(0, 7)}.`;
     }
 
+    onProgress?.({ phase: "COMPLETE", completed: 1, total: 1, message: "Push complete." });
     return report;
   }
 }
