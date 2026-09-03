@@ -20,7 +20,7 @@ describe("Sync Preview Refresh & UX Flow (tests/previewRefresh.test.ts)", () => 
     const manifest: PluginManifest = {
       id: "github-vault-relay",
       name: "GitHub Vault Relay",
-      version: "0.2.0",
+      version: "0.3.0",
       minAppVersion: "0.15.0",
       description: "A conservative GitHub bridge for Obsidian Mobile.",
       author: "Vault Relay Contributors",

@@ -21,7 +21,7 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
     const manifest: PluginManifest = {
       id: "github-vault-relay",
       name: "GitHub Vault Relay",
-      version: "0.2.0",
+      version: "0.3.0",
       minAppVersion: "0.15.0",
       description: "A conservative GitHub bridge for Obsidian Mobile.",
       author: "Vault Relay Contributors",
@@ -1122,7 +1122,7 @@ describe("Ref Update & Verification Hardening (REF-001..007)", () => {
     const manifest: PluginManifest = {
       id: "github-vault-relay",
       name: "GitHub Vault Relay",
-      version: "0.2.0",
+      version: "0.3.0",
       minAppVersion: "0.15.0",
       description: "A conservative GitHub bridge for Obsidian Mobile.",
       author: "Vault Relay Contributors",
@@ -1580,7 +1580,7 @@ describe("Ref Verification Hardening #2 (REF2-001..007)", () => {
     const manifest: PluginManifest = {
       id: "github-vault-relay",
       name: "GitHub Vault Relay",
-      version: "0.2.0",
+      version: "0.3.0",
       minAppVersion: "0.15.0",
       description: "A conservative GitHub bridge for Obsidian Mobile.",
       author: "Vault Relay Contributors",
