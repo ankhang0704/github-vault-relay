@@ -376,7 +376,7 @@ describe("Safe Pull Engine (src/sync/pullEngine.ts)", () => {
     const client = createMockGitHubClient([
       { path: "../escaped.md", content: "evil", sha: "sha_evil" },
       { path: ".obsidian/plugins/evil.js", content: "evil", sha: "sha_plugin" },
-      { path: "_vault-relay/state.json", content: "evil", sha: "sha_state" },
+      { path: "_fit/state.json", content: "evil", sha: "sha_state" },
       { path: "Valid/Note.md", content: validBytes, sha: validSha },
     ]);
     const engine = new PullEngine(app, defaultSettings, client);

@@ -21,7 +21,8 @@ describe("pathFilter", () => {
       expect(isPathExcluded(".git/HEAD")).toBe(true);
       expect(isPathExcluded(".git/objects/12/3456")).toBe(true);
       expect(isPathExcluded("_fit/snapshots/1.json")).toBe(true);
-      expect(isPathExcluded("_vault-relay/state.json")).toBe(true);
+      // _vault-relay is user content, not excluded by default
+      expect(isPathExcluded("_vault-relay/file.md")).toBe(false);
     });
 
     it("allows standard vault notes and attachments", () => {
@@ -42,7 +43,7 @@ describe("pathFilter", () => {
 
     it("handles Windows backslashes in input paths correctly", () => {
       expect(isPathExcluded(".obsidian\\workspace.json")).toBe(true);
-      expect(isPathExcluded("_vault-relay\\state.json")).toBe(true);
+      expect(isPathExcluded(".git\\HEAD")).toBe(true);
       expect(isPathExcluded("Folder\\Note.md")).toBe(false);
     });
   });
@@ -59,7 +60,7 @@ describe("pathFilter", () => {
       expect(rules).toContain("drafts/");
       expect(rules).toContain(".obsidian/");
       expect(rules).toContain(".git/");
-      expect(rules).toContain("_vault-relay/");
+      expect(rules).not.toContain("_vault-relay/");
     });
   });
 });

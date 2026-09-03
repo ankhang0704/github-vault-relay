@@ -17,7 +17,6 @@ const RESERVED_PATH_PREFIXES = [
   ".obsidian",
   ".git",
   "_fit",
-  "_vault-relay",
 ];
 
 /**

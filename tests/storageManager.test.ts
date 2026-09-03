@@ -117,13 +117,13 @@ describe("StorageManager & Legacy Migration (MIG-001..008)", () => {
     const binaryPath = await StorageManager.saveConflictPayload(app, "image.png", binaryBuf);
     expect(await app.vault.adapter.exists(binaryPath)).toBe(true);
   });
-  it("MIG-009: Internal storage lives in .obsidian/vault-relay (safe against BRAT and plugin updates)", () => {
+  it("MIG-009: Internal storage lives in .obsidian/github-vault-relay (safe against BRAT and plugin updates)", () => {
     const dir = StorageManager.getPluginStorageDir(app);
-    expect(dir).toBe(".obsidian/vault-relay");
+    expect(dir).toBe(".obsidian/github-vault-relay");
     expect(dir.includes("plugins/github-vault-relay")).toBe(false);
   });
 
-  it("MIG-010: Migrates intermediate plugin-dir state to permanent .obsidian/vault-relay", async () => {
+  it("MIG-010: Migrates intermediate plugin-dir state to permanent .obsidian/github-vault-relay", async () => {
     const intermediatePath = StorageManager.getIntermediatePluginStateFilePath(app);
     const sampleState = JSON.stringify({
       version: 1,
