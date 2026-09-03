@@ -89,4 +89,27 @@ describe("Mobile Attachment Importer (IMPORT-001..006)", () => {
     expect(source.includes('from "fs"')).toBe(false);
     expect(source.includes("node:fs")).toBe(false);
   });
+  it("IMPORT-006: Imported attachment becomes normal LOCAL_ONLY file and is discoverable by SyncEngine", async () => {
+    const { SyncEngine } = await import("../src/sync/syncEngine");
+    const { GitHubClient } = await import("../src/github/githubClient");
+
+    const importer = new AttachmentImporter(app);
+    const fakeContent = new Uint8Array([1, 2, 3, 4]);
+    const fakeFile = {
+      name: "diagram.png",
+      size: 4,
+      arrayBuffer: async () => fakeContent.buffer as ArrayBuffer,
+    } as unknown as File;
+
+    const importRes = await importer.importFile(fakeFile);
+    expect(importRes.success).toBe(true);
+
+    const client = new GitHubClient({ token: "tok", owner: "octocat", repo: "notes", branch: "main" });
+    const engine = new SyncEngine(app, { owner: "octocat", repo: "notes", branch: "main", excludedPaths: [] }, client);
+
+    const localVault = await engine.scanLocalVault();
+    expect(localVault.has("diagram.png")).toBe(true);
+    expect(localVault.get("diagram.png")?.size).toBe(4);
+    expect(localVault.get("diagram.png")?.sha).toBeDefined();
+  });
 });

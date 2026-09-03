@@ -159,14 +159,8 @@ export class ConflictManager {
       }
     }
 
-    // Fetch remote blob
-    const blobResp = await this.githubClient.getBlob(record.remoteSha);
-    const cleanBase64 = blobResp.content.replace(/\s+/g, "");
-    const binaryString = atob(cleanBase64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
+    // Fetch remote blob using verified getRawBlobBytes (integrity + 25 MiB ceiling checked)
+    const bytes = await this.githubClient.getRawBlobBytes(record.remoteSha);
 
     // Overwrite local file
     if (file instanceof TFile) {
@@ -193,13 +187,8 @@ export class ConflictManager {
    * Preserves local file untouched and saves remote version as a conflict copy.
    */
   public async resolveKeepBoth(record: ConflictRecord): Promise<{ success: boolean; message: string; copyPath?: string }> {
-    const blobResp = await this.githubClient.getBlob(record.remoteSha);
-    const cleanBase64 = blobResp.content.replace(/\s+/g, "");
-    const binaryString = atob(cleanBase64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
+    // Fetch remote blob using verified getRawBlobBytes (integrity + 25 MiB ceiling checked)
+    const bytes = await this.githubClient.getRawBlobBytes(record.remoteSha);
 
     // Generate deterministic collision-safe second filename
     const now = new Date();

@@ -117,4 +117,42 @@ describe("StorageManager & Legacy Migration (MIG-001..008)", () => {
     const binaryPath = await StorageManager.saveConflictPayload(app, "image.png", binaryBuf);
     expect(await app.vault.adapter.exists(binaryPath)).toBe(true);
   });
+  it("MIG-009: Internal storage lives in .obsidian/vault-relay (safe against BRAT and plugin updates)", () => {
+    const dir = StorageManager.getPluginStorageDir(app);
+    expect(dir).toBe(".obsidian/vault-relay");
+    expect(dir.includes("plugins/github-vault-relay")).toBe(false);
+  });
+
+  it("MIG-010: Migrates intermediate plugin-dir state to permanent .obsidian/vault-relay", async () => {
+    const intermediatePath = StorageManager.getIntermediatePluginStateFilePath(app);
+    const sampleState = JSON.stringify({
+      version: 1,
+      lastSyncedCommitSha: "commit_intermediate",
+      lastSyncedAt: 999888,
+      files: { "Doc.md": { localSha: "s1", remoteSha: "s1", syncedAt: 999888 } },
+    });
+
+    await app.vault.adapter.write(intermediatePath, sampleState);
+    expect(await app.vault.adapter.exists(intermediatePath)).toBe(true);
+
+    const result = await StorageManager.migrateLegacyStorage(app);
+    expect(result.migrated).toBe(true);
+
+    const loaded = await StorageManager.loadState(app);
+    expect(loaded.lastSyncedCommitSha).toBe("commit_intermediate");
+    expect(loaded.files["Doc.md"]).toBeDefined();
+  });
+
+  it("MIG-011: Binary conflict migration verifies byte-exact equality", async () => {
+    await app.vault.adapter.write(LEGACY_STATE_FILE, JSON.stringify({ version: 1, files: {} }));
+    const binaryData = new Uint8Array([137, 80, 78, 71, 0, 255, 128, 64]);
+    await app.vault.adapter.writeBinary(`${LEGACY_ROOT_DIR}/conflicts/photo.png`, binaryData.buffer as ArrayBuffer);
+
+    const result = await StorageManager.migrateLegacyStorage(app);
+    expect(result.migrated).toBe(true);
+
+    const internalConflicts = StorageManager.getConflictsDirPath(app);
+    const migratedBinary = await app.vault.adapter.readBinary(`${internalConflicts}/photo.png`);
+    expect(new Uint8Array(migratedBinary)).toEqual(binaryData);
+  });
 });

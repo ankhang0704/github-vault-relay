@@ -50,6 +50,27 @@ export class SyncEngine {
         repo: settings.repo,
         branch: settings.branch,
       });
+
+    // Vault event invalidation: any file change in Obsidian immediately evicts stale hash cache
+    if (this.app?.vault?.on) {
+      try {
+        this.app.vault.on("modify", (file: unknown) => {
+          const path = (file as { path?: string })?.path;
+          if (path) this.localHashCache.delete(path);
+        });
+        this.app.vault.on("delete", (file: unknown) => {
+          const path = (file as { path?: string })?.path;
+          if (path) this.localHashCache.delete(path);
+        });
+        this.app.vault.on("rename", (file: unknown, oldPath?: string) => {
+          if (oldPath) this.localHashCache.delete(oldPath);
+          const path = (file as { path?: string })?.path;
+          if (path) this.localHashCache.delete(path);
+        });
+      } catch {
+        // Ignore if mock vault does not implement event emitter
+      }
+    }
   }
 
   /**
@@ -63,7 +84,7 @@ export class SyncEngine {
    * Scans local files in the Obsidian vault, computing canonical Git hashes.
    * Utilizes mtime + size cache to avoid redundant SHA calculations on unchanged local files.
    */
-  public async scanLocalVault(): Promise<Map<string, LocalFileEntry>> {
+  public async scanLocalVault(bypassCache = false): Promise<Map<string, LocalFileEntry>> {
     const localFiles = new Map<string, LocalFileEntry>();
     const allVaultFiles = this.app.vault.getFiles();
 
@@ -76,7 +97,7 @@ export class SyncEngine {
         const mtime = file.stat.mtime;
         const size = file.stat.size;
 
-        const cached = this.localHashCache.get(file.path);
+        const cached = !bypassCache ? this.localHashCache.get(file.path) : undefined;
         let sha: string;
 
         if (cached && cached.mtime === mtime && cached.size === size) {
@@ -115,7 +136,7 @@ export class SyncEngine {
   /**
    * Generates a complete Read-Only Sync Preview with authoritative cache-busting reads.
    */
-  public async generatePreview(): Promise<SyncPreviewReport> {
+  public async generatePreview(bypassLocalCache = false): Promise<SyncPreviewReport> {
     const branchName = (this.settings.branch || "main").trim();
     const tStart = Date.now();
 
@@ -148,7 +169,7 @@ export class SyncEngine {
     }
 
     // 4. Scan local vault
-    const localFiles = await this.scanLocalVault();
+    const localFiles = await this.scanLocalVault(bypassLocalCache);
     const tLocal = Date.now();
 
     // 5. Detect case collisions

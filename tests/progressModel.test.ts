@@ -178,4 +178,108 @@ describe("Truthful Operation Progress Model (PROGRESS-001..006)", () => {
     expect(getPhaseLabel("CREATING_COMMIT")).toContain("commit");
     expect(getPhaseLabel("COMPLETE")).toContain("complete");
   });
+  it("PROGRESS-003: Unified Sync emits continuous progress events spanning Pull and Push", async () => {
+    const { UnifiedSyncEngine } = await import("../src/sync/unifiedSyncEngine");
+    const events: SyncProgressEvent[] = [];
+
+    const fakeRequestFn = vi.fn(async (params: { url: string }) => {
+      if (params.url.includes("/branches/main")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { name: "main", commit: { sha: "c_sync", commit: { tree: { sha: "t_sync" } } } },
+        };
+      }
+      if (params.url.includes("/git/trees/t_sync")) {
+        return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "t_sync", truncated: false, tree: [] } };
+      }
+      throw new Error("Unhandled: " + params.url);
+    });
+
+    const client = new GitHubClient({ token: "tok", owner: "octocat", repo: "notes", branch: "main", requestFn: fakeRequestFn });
+    const unified = new UnifiedSyncEngine(app, settings, client);
+
+    await unified.executeSync((evt) => events.push(evt));
+    const phases = events.map((e) => e.phase);
+    expect(phases).toContain("SCANNING");
+    expect(phases).toContain("COMPLETE");
+  });
+
+  it("PROGRESS-004: Failed operation emits failure progress and retains exact failing phase", async () => {
+    const events: SyncProgressEvent[] = [];
+    const fakeRequestFn = vi.fn(async (params: { url: string }) => {
+      if (params.url.includes("/branches/main")) {
+        throw new Error("Network timeout connecting to GitHub");
+      }
+      throw new Error("Unhandled: " + params.url);
+    });
+
+    const client = new GitHubClient({ token: "tok", owner: "octocat", repo: "notes", branch: "main", requestFn: fakeRequestFn });
+    const pullEngine = new PullEngine(app, settings, client);
+
+    const report = await pullEngine.executeSafePull((evt) => events.push(evt));
+    expect(report.status).toBe("FAIL");
+
+    // Must have emitted at least PLANNING phase before failure
+    expect(events.length).toBeGreaterThan(0);
+    expect(events[0].phase).toBe("PLANNING");
+    // Did NOT emit COMPLETE on failure
+    expect(events.some((e) => e.phase === "COMPLETE")).toBe(false);
+  });
+
+  it("PROGRESS-006: Progress file count completed is monotonic during downloads and uploads", async () => {
+    const fileContent1 = "content 1";
+    const fileContent2 = "content 2";
+    const sha1 = await calculateCanonicalGitBlobSha(fileContent1, "f1.md");
+    const sha2 = await calculateCanonicalGitBlobSha(fileContent2, "f2.md");
+    const events: SyncProgressEvent[] = [];
+
+    const fakeRequestFn = vi.fn(async (params: { url: string }) => {
+      if (params.url.includes("/branches/main")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { name: "main", commit: { sha: "c2", commit: { tree: { sha: "t2" } } } },
+        };
+      }
+      if (params.url.includes("/git/trees/t2")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: {
+            sha: "t2",
+            truncated: false,
+            tree: [
+              { path: "f1.md", mode: "100644", type: "blob", sha: sha1, size: fileContent1.length },
+              { path: "f2.md", mode: "100644", type: "blob", sha: sha2, size: fileContent2.length },
+            ],
+          },
+        };
+      }
+      if (params.url.includes("/git/blobs/" + sha1)) {
+        return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: sha1, size: fileContent1.length, encoding: "utf-8", content: fileContent1 } };
+      }
+      if (params.url.includes("/git/blobs/" + sha2)) {
+        return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: sha2, size: fileContent2.length, encoding: "utf-8", content: fileContent2 } };
+      }
+      throw new Error("Unhandled: " + params.url);
+    });
+
+    const client = new GitHubClient({ token: "tok", owner: "octocat", repo: "notes", branch: "main", requestFn: fakeRequestFn });
+    const pullEngine = new PullEngine(app, settings, client);
+
+    await pullEngine.executeSafePull((evt) => events.push(evt));
+
+    const dlEvents = events.filter((e) => e.phase === "DOWNLOADING");
+    expect(dlEvents.length).toBe(2);
+    expect(dlEvents[0].completed).toBe(1);
+    expect(dlEvents[1].completed).toBe(2);
+    expect(dlEvents[0].completed).toBeLessThanOrEqual(dlEvents[1].completed);
+  });
 });

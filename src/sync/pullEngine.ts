@@ -124,7 +124,7 @@ export class PullEngine {
 
     // Preflight offline check
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      onProgress?.({ phase: "COMPLETE", completed: 1, total: 1, message: "Safe pull complete." });
+      // Aborted offline
       return {
         timestamp,
         branch: branchName,
@@ -145,13 +145,15 @@ export class PullEngine {
       };
     }
 
+    onProgress?.({ phase: "PLANNING", completed: 0, total: 1, message: "Planning safe pull..." });
+
     // Step 1: Fetch fresh branch HEAD and tree from GitHub
     let remoteCommitSha: string;
     let treeSha: string;
     let treeResponse;
 
     try {
-      const branchInfo = await this.githubClient.getBranch(branchName);
+      const branchInfo = await this.githubClient.getBranch(branchName, true);
       remoteCommitSha = branchInfo.commit.sha;
       treeSha = branchInfo.commit.commit?.tree?.sha || branchInfo.commit.sha;
       treeResponse = await this.githubClient.getTreeRecursive(treeSha);

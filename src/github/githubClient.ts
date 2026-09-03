@@ -285,7 +285,7 @@ export class GitHubClient {
     );
   }
 
-  public async getBranch(branchName?: string, bypassCache = false): Promise<GitHubBranchResponse> {
+  public async getBranch(branchName?: string, bypassCache = true): Promise<GitHubBranchResponse> {
     const target = branchName || this.branch;
     const url = bypassCache
       ? `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/branches/${encodeURIComponent(target)}?t=${Date.now()}`
@@ -305,6 +305,16 @@ export class GitHubClient {
   /**
    * Fetches the full Git tree recursively for a given commit or tree SHA.
    */
+  /**
+   * Authoritative commit reader from Git Data API.
+   * Content-addressed and immutable: GET /repos/{owner}/{repo}/git/commits/{commitSha}
+   */
+  public async getCommit(commitSha: string): Promise<GitHubCommitResponse> {
+    return this.request<GitHubCommitResponse>(
+      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/commits/${encodeURIComponent(commitSha)}`
+    );
+  }
+
   public async getTreeRecursive(treeSha: string): Promise<GitHubTreeResponse> {
     return this.request<GitHubTreeResponse>(
       `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/trees/${encodeURIComponent(treeSha)}?recursive=1`
@@ -500,59 +510,98 @@ export class GitHubClient {
    * Discovers repositories accessible to the configured PAT.
    * Uses GET /user/repos?per_page=100&sort=updated
    */
-  public async listUserRepositories(perPage = 100): Promise<GitHubRepoSummary[]> {
-    const rawRepos = await this.request<Array<{
-      full_name: string;
-      name: string;
-      owner: { login: string };
-      default_branch: string;
-      private: boolean;
-      description?: string | null;
-    }>>(`/user/repos?per_page=${perPage}&sort=updated`, {
-      method: "GET",
-      headers: {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        Pragma: "no-cache",
-      },
-    });
+  /**
+   * Discovers repositories accessible to the configured PAT.
+   * Supports pagination beyond 100 repositories up to maxRepos (default 300).
+   * Uses GET /user/repos?per_page=100&page=N&sort=updated
+   */
+  public async listUserRepositories(maxRepos = 300): Promise<GitHubRepoSummary[]> {
+    const allRepos: GitHubRepoSummary[] = [];
+    let page = 1;
+    const perPage = 100;
 
-    return rawRepos.map((r) => ({
-      fullName: r.full_name,
-      owner: r.owner.login,
-      name: r.name,
-      defaultBranch: r.default_branch || "main",
-      isPrivate: !!r.private,
-      description: r.description || undefined,
-    }));
+    while (allRepos.length < maxRepos) {
+      const rawRepos = await this.request<Array<{
+        full_name: string;
+        name: string;
+        owner: { login: string };
+        default_branch: string;
+        private: boolean;
+        description?: string | null;
+      }>>(`/user/repos?per_page=${perPage}&page=${page}&sort=updated`, {
+        method: "GET",
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+        },
+      });
+
+      if (!rawRepos || rawRepos.length === 0) break;
+
+      for (const r of rawRepos) {
+        allRepos.push({
+          fullName: r.full_name,
+          owner: r.owner.login,
+          name: r.name,
+          defaultBranch: r.default_branch || "main",
+          isPrivate: !!r.private,
+          description: r.description || undefined,
+        });
+      }
+
+      if (rawRepos.length < perPage) break;
+      page++;
+    }
+
+    return allRepos;
   }
 
   /**
    * Lists branches for a repository.
    * Uses GET /repos/{owner}/{repo}/branches?per_page=100
    */
-  public async listBranches(owner?: string, repo?: string): Promise<GitHubBranchSummary[]> {
+  /**
+   * Lists branches for a repository with pagination support up to maxBranches (default 200).
+   * Uses GET /repos/{owner}/{repo}/branches?per_page=100&page=N
+   */
+  public async listBranches(owner?: string, repo?: string, maxBranches = 200): Promise<GitHubBranchSummary[]> {
     const targetOwner = (owner || this.owner).trim();
     const targetRepo = (repo || this.repo).trim();
-    const rawBranches = await this.request<Array<{
-      name: string;
-      commit: { sha: string };
-      protected?: boolean;
-    }>>(
-      `/repos/${encodeURIComponent(targetOwner)}/${encodeURIComponent(targetRepo)}/branches?per_page=100`,
-      {
-        method: "GET",
-        headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-          Pragma: "no-cache",
-        },
-      }
-    );
+    const allBranches: GitHubBranchSummary[] = [];
+    let page = 1;
+    const perPage = 100;
 
-    return rawBranches.map((b) => ({
-      name: b.name,
-      commitSha: b.commit.sha,
-      protected: b.protected,
-    }));
+    while (allBranches.length < maxBranches) {
+      const rawBranches = await this.request<Array<{
+        name: string;
+        commit: { sha: string };
+        protected?: boolean;
+      }>>(
+        `/repos/${encodeURIComponent(targetOwner)}/${encodeURIComponent(targetRepo)}/branches?per_page=${perPage}&page=${page}`,
+        {
+          method: "GET",
+          headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+          },
+        }
+      );
+
+      if (!rawBranches || rawBranches.length === 0) break;
+
+      for (const b of rawBranches) {
+        allBranches.push({
+          name: b.name,
+          commitSha: b.commit.sha,
+          protected: b.protected,
+        });
+      }
+
+      if (rawBranches.length < perPage) break;
+      page++;
+    }
+
+    return allBranches;
   }
 
 }

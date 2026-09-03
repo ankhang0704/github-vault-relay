@@ -163,4 +163,110 @@ describe("GitHub Connection Wizard & Repository Discovery (CONN-001..009)", () =
 
     await expect(client.getRepo()).rejects.toThrow(/GitHub token is missing/);
   });
+  it("CONN-006: listUserRepositories paginates automatically beyond 100 repositories", async () => {
+    let callCount = 0;
+    const fakeRequestFn = vi.fn(async (params: { url: string }) => {
+      callCount++;
+      if (params.url.includes("page=1&") || params.url.endsWith("page=1")) {
+        // Return 100 items on page 1
+        const page1 = Array.from({ length: 100 }, (_, i) => ({
+          full_name: `user/repo-${i}`,
+          name: `repo-${i}`,
+          owner: { login: "user" },
+          default_branch: "main",
+          private: false,
+        }));
+        return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: page1 };
+      }
+      if (params.url.includes("page=2&") || params.url.endsWith("page=2")) {
+        // Return 10 items on page 2 (terminating page)
+        const page2 = Array.from({ length: 10 }, (_, i) => ({
+          full_name: `user/repo-${100 + i}`,
+          name: `repo-${100 + i}`,
+          owner: { login: "user" },
+          default_branch: "main",
+          private: false,
+        }));
+        return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: page2 };
+      }
+      return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: [] };
+    });
+
+    const client = new GitHubClient({ token: "tok", owner: "", repo: "", branch: "main", requestFn: fakeRequestFn });
+    const repos = await client.listUserRepositories();
+    expect(repos.length).toBe(110);
+    expect(callCount).toBe(2);
+  });
+
+  it("CONN-007: listBranches paginates automatically beyond 100 branches", async () => {
+    let callCount = 0;
+    const fakeRequestFn = vi.fn(async (params: { url: string }) => {
+      callCount++;
+      if (params.url.includes("page=1&") || params.url.endsWith("page=1")) {
+        const page1 = Array.from({ length: 100 }, (_, i) => ({
+          name: `branch-${i}`,
+          commit: { sha: `sha-${i}` },
+          protected: false,
+        }));
+        return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: page1 };
+      }
+      if (params.url.includes("page=2&") || params.url.endsWith("page=2")) {
+        const page2 = Array.from({ length: 5 }, (_, i) => ({
+          name: `branch-${100 + i}`,
+          commit: { sha: `sha-${100 + i}` },
+          protected: false,
+        }));
+        return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: page2 };
+      }
+      return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: [] };
+    });
+
+    const client = new GitHubClient({ token: "tok", owner: "owner", repo: "repo", branch: "main", requestFn: fakeRequestFn });
+    const branches = await client.listBranches("owner", "repo");
+    expect(branches.length).toBe(105);
+    expect(callCount).toBe(2);
+  });
+
+  it("CONN-008: Offline detection aborts wizard actions safely without unhandled error", async () => {
+    const originalNavigator = globalThis.navigator;
+    try {
+      Object.defineProperty(globalThis, "navigator", {
+        value: { onLine: false },
+        configurable: true,
+      });
+
+      const client = new GitHubClient({ token: "tok", owner: "owner", repo: "repo", branch: "main" });
+      await expect(client.listUserRepositories()).rejects.toThrow(/Device is offline/);
+    } finally {
+      Object.defineProperty(globalThis, "navigator", {
+        value: originalNavigator,
+        configurable: true,
+      });
+    }
+  });
+
+  it("CONN-009: Missing Contents permission on testConnection provides actionable advice", async () => {
+    const fakeRequestFn = vi.fn(async (params: { url: string }) => {
+      if (params.url.includes("/branches/main")) {
+        throw new Error("HTTP 403: Resource not accessible by personal access token");
+      }
+      return {
+        status: 200,
+        headers: {},
+        text: "",
+        arrayBuffer: new ArrayBuffer(0),
+        json: {
+          full_name: "owner/repo",
+          default_branch: "main",
+          private: true,
+          permissions: { push: false, pull: true },
+        },
+      };
+    });
+
+    const client = new GitHubClient({ token: "tok", owner: "owner", repo: "repo", branch: "main", requestFn: fakeRequestFn });
+    const result = await client.testConnection();
+    expect(result.success).toBe(false);
+    expect(result.errorMessage).toContain("branch 'main' was not found or could not be accessed");
+  });
 });

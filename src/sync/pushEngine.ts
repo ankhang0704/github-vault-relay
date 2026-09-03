@@ -140,7 +140,7 @@ export class PushEngine {
     // 1. Fresh Remote Revalidation
     let branchInfo;
     try {
-      branchInfo = await this.githubClient.getBranch();
+      branchInfo = await this.githubClient.getBranch(undefined, true);
     } catch (err) {
       report.status = "ABORTED";
       report.summaryMessage = `Failed to fetch remote branch: ${sanitizeErrorMessage(err)}`;
