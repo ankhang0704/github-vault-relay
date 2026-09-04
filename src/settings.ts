@@ -61,9 +61,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
     const backendLabel =
       backend === "SECRET_STORAGE"
         ? "Obsidian SecretStorage (Core API)"
-        : backend === "LOCAL_STORAGE"
-        ? "Device Secure Storage (App-Isolated LocalStorage)"
-        : "Unavailable";
+        : "Unavailable (SecretStorage Required)";
 
     // Security & Scope Notice Box
     const noticeBox = containerEl.createDiv({
@@ -79,7 +77,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
       attr: { style: "margin: 6px 0 0 18px; font-size: 0.9em; line-height: 1.5;" },
     });
     noticeList.createEl("li", {
-      text: `Tokens are stored in secure device storage (${backendLabel}) and NEVER written to plugin data.json.`,
+      text: `Tokens are stored exclusively in Obsidian SecretStorage (${backendLabel}) and NEVER written to plugin data.json or localStorage.`,
     });
     noticeList.createEl("li", {
       text: "Requires a GitHub Fine-Grained Personal Access Token scoped strictly to your vault repository (Contents: Read and write).",

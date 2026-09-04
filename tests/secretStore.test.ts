@@ -42,34 +42,30 @@ describe("Device Secret Storage Integration (src/security/secretStore.ts)", () =
     expect(await getStoredPat(app, "octocat", "vault")).toBeNull();
   });
 
-  it("stores, retrieves, and clears PAT via device localStorage when app.secretStorage is absent", async () => {
+  it("fails closed when app.secretStorage is absent (no localStorage fallback)", async () => {
     const appWithoutCoreStorage = new App();
     (appWithoutCoreStorage as unknown as { secretStorage: unknown }).secretStorage = undefined;
 
-    expect(isSecureStorageAvailable(appWithoutCoreStorage)).toBe(true);
-    expect(getActiveStorageBackend(appWithoutCoreStorage)).toBe("LOCAL_STORAGE");
+    expect(isSecureStorageAvailable(appWithoutCoreStorage)).toBe(false);
+    expect(getActiveStorageBackend(appWithoutCoreStorage)).toBe("UNAVAILABLE");
 
     const token = "github_pat_local_storage_test_value";
 
     expect(await hasStoredPat(appWithoutCoreStorage, "octocat", "notes")).toBe(false);
     expect(await getStoredPat(appWithoutCoreStorage, "octocat", "notes")).toBeNull();
 
-    await setStoredPat(appWithoutCoreStorage, "octocat", "notes", token);
+    // Must FAIL CLOSED and throw without writing to localStorage
+    await expect(setStoredPat(appWithoutCoreStorage, "octocat", "notes", token)).rejects.toThrow(
+      /SecretStorage is unavailable/i
+    );
 
-    expect(await hasStoredPat(appWithoutCoreStorage, "octocat", "notes")).toBe(true);
-    expect(await getStoredPat(appWithoutCoreStorage, "octocat", "notes")).toBe(token);
-
-    // Verify it is stored in localStorage under correct key
-    expect(window.localStorage.getItem("github-vault-relay:pat:octocat:notes")).toBe(token);
-
-    await clearStoredPat(appWithoutCoreStorage, "octocat", "notes");
-
+    // Verify ZERO writes to localStorage
+    expect(window.localStorage.getItem("github-vault-relay:pat:octocat:notes")).toBeNull();
     expect(await hasStoredPat(appWithoutCoreStorage, "octocat", "notes")).toBe(false);
     expect(await getStoredPat(appWithoutCoreStorage, "octocat", "notes")).toBeNull();
-    expect(window.localStorage.getItem("github-vault-relay:pat:octocat:notes")).toBeNull();
   });
 
-  it("reads legacy vault-relay:pat:* key seamlessly for backward compatibility", async () => {
+  it("migrates legacy localStorage vault-relay:pat:* key into SecretStorage once and purges localStorage", async () => {
     const app = new App();
     const token = "github_pat_legacy_key_val";
 
@@ -77,5 +73,13 @@ describe("Device Secret Storage Integration (src/security/secretStore.ts)", () =
 
     const retrieved = await getStoredPat(app, "legacyowner", "legacyrepo");
     expect(retrieved).toBe(token);
+
+    // Verified written to SecretStorage
+    const inSecretStorage = await app.secretStorage.getSecret("github-vault-relay:pat:legacyowner:legacyrepo");
+    expect(inSecretStorage).toBe(token);
+
+    // Verified purged immediately from localStorage
+    expect(window.localStorage.getItem("vault-relay:pat:legacyowner:legacyrepo")).toBeNull();
+    expect(window.localStorage.getItem("github-vault-relay:pat:legacyowner:legacyrepo")).toBeNull();
   });
 });

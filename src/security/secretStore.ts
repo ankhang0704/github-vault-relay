@@ -1,17 +1,18 @@
 /**
  * Device Secret Storage Integration for GitHub Vault Relay
  *
- * Implements secure, isolated device token storage:
- * 1. Uses Obsidian SecretStorage (app.secretStorage) when available.
- * 2. Uses device localStorage (isolated within Obsidian app profile) on platforms
- *    where core SecretStorage is not yet present.
- *
- * Personal Access Tokens (PAT) are NEVER stored in plugin data.json
- * or synchronized via vault sync.
+ * Implements strict, isolated token storage:
+ * 1. Active PAT storage = Obsidian SecretStorage (app.secretStorage) ONLY.
+ * 2. Personal Access Tokens (PAT) are NEVER stored in plugin data.json,
+ *    plaintext stores, or synchronized via vault sync.
+ * 3. Zero plaintext fallback. If SecretStorage is unavailable or fails,
+ *    system fails closed.
+ * 4. Legacy localStorage tokens (if any exist from earlier versions) are
+ *    migrated ONCE to SecretStorage, verified, and immediately purged from localStorage.
  */
 
 import { App } from "obsidian";
-import { redactTokens, sanitizeErrorMessage } from "./redact";
+import { sanitizeErrorMessage } from "./redact";
 
 export interface SecretStorageAPI {
   getSecret(key: string): Promise<string | null> | string | null;
@@ -25,7 +26,7 @@ export interface AppWithSecretStorage {
   secretStorage?: SecretStorageAPI;
 }
 
-export type StorageBackendType = "SECRET_STORAGE" | "LOCAL_STORAGE" | "UNAVAILABLE";
+export type StorageBackendType = "SECRET_STORAGE" | "UNAVAILABLE";
 
 /**
  * Generates the namespaced secret key for a repository.
@@ -57,6 +58,8 @@ export function getSecretStorage(app: App): SecretStorageAPI | undefined {
 
 /**
  * Cross-environment safe accessor for device localStorage.
+ * STRICTLY restricted to legacy token cleanup and one-time migration.
+ * NEVER used as an active or runtime storage fallback.
  */
 export function getDeviceLocalStorage(): Storage | undefined {
   if (typeof window !== "undefined" && typeof window.localStorage !== "undefined") {
@@ -70,13 +73,11 @@ export function getDeviceLocalStorage(): Storage | undefined {
 
 /**
  * Detects the active secure storage backend.
+ * ONLY Obsidian SecretStorage is authorized as an active storage backend.
  */
 export function getActiveStorageBackend(app: App): StorageBackendType {
   if (getSecretStorage(app) !== undefined) {
     return "SECRET_STORAGE";
-  }
-  if (getDeviceLocalStorage() !== undefined) {
-    return "LOCAL_STORAGE";
   }
   return "UNAVAILABLE";
 }
@@ -85,67 +86,128 @@ export function getActiveStorageBackend(app: App): StorageBackendType {
  * Checks if secure token storage is available on this device.
  */
 export function isSecureStorageAvailable(app: App): boolean {
-  return getActiveStorageBackend(app) !== "UNAVAILABLE";
+  return getActiveStorageBackend(app) === "SECRET_STORAGE";
+}
+
+/**
+ * Helper to delete a secret from SecretStorage using available API methods.
+ */
+async function deleteFromSecretStorage(secretStorage: SecretStorageAPI, key: string): Promise<void> {
+  try {
+    if (typeof secretStorage.deleteSecret === "function") {
+      await secretStorage.deleteSecret(key);
+    } else if (typeof secretStorage.removeSecret === "function") {
+      await secretStorage.removeSecret(key);
+    } else {
+      await secretStorage.setSecret(key, null);
+    }
+  } catch (err) {
+    console.warn(`[GitHub Vault Relay] Failed to delete secret key:`, sanitizeErrorMessage(err));
+  }
+}
+
+/**
+ * Helper to purge legacy keys from localStorage to guarantee no plaintext retention.
+ */
+export function purgeLegacyLocalStorageKeys(owner: string, repo: string): void {
+  const localStorage = getDeviceLocalStorage();
+  if (!localStorage) return;
+  try {
+    const key = getSecretKeyForRepo(owner, repo);
+    const legacyKey = `vault-relay:pat:${(owner || "").trim().toLowerCase()}:${(repo || "").trim().toLowerCase()}`;
+    localStorage.removeItem(key);
+    localStorage.removeItem(legacyKey);
+    localStorage.removeItem("github-vault-relay:pat");
+    localStorage.removeItem("vault-relay:pat");
+  } catch {
+    // Ignore localStorage cleanup errors
+  }
 }
 
 /**
  * Retrieves the stored PAT from device secure storage.
+ * Reads ONLY from Obsidian SecretStorage.
+ * If legacy localStorage token exists, migrates it once into SecretStorage,
+ * verifies the write, immediately deletes it from localStorage, and returns it.
+ * If SecretStorage is unavailable, FAILS CLOSED and returns null.
  */
 export async function getStoredPat(app: App, owner: string, repo: string): Promise<string | null> {
+  const secretStorage = getSecretStorage(app);
+  if (!secretStorage) {
+    // FAIL CLOSED: No SecretStorage available, never read from plaintext fallback
+    return null;
+  }
+
   const key = getSecretKeyForRepo(owner, repo);
   const legacyKey = `vault-relay:pat:${(owner || "").trim().toLowerCase()}:${(repo || "").trim().toLowerCase()}`;
 
-  // 1. Try Obsidian SecretStorage if available
-  const secretStorage = getSecretStorage(app);
-  if (secretStorage) {
-    try {
-      let secret = await secretStorage.getSecret(key);
-      if (typeof secret === "string" && secret.trim().length > 0) {
-        return secret.trim();
-      }
-
-      // Check legacy key in SecretStorage if exists
-      secret = await secretStorage.getSecret(legacyKey);
-      if (typeof secret === "string" && secret.trim().length > 0) {
-        return secret.trim();
-      }
-
-      // Check global fallback key
-      if (key !== "github-vault-relay:pat") {
-        const fallbackSecret = await secretStorage.getSecret("github-vault-relay:pat");
-        if (typeof fallbackSecret === "string" && fallbackSecret.trim().length > 0) {
-          return fallbackSecret.trim();
-        }
-      }
-    } catch (err) {
-      console.warn("[GitHub Vault Relay] Failed to read from SecretStorage:", sanitizeErrorMessage(err));
+  // 1. Read from SecretStorage (canonical key)
+  try {
+    let secret = await secretStorage.getSecret(key);
+    if (typeof secret === "string" && secret.trim().length > 0) {
+      // Purge any stale legacy localStorage entries as a safety hygiene measure
+      purgeLegacyLocalStorageKeys(owner, repo);
+      return secret.trim();
     }
+
+    // 2. Read from SecretStorage (legacy key within SecretStorage)
+    secret = await secretStorage.getSecret(legacyKey);
+    if (typeof secret === "string" && secret.trim().length > 0) {
+      const trimmed = secret.trim();
+      // Migrate within SecretStorage to canonical key
+      await secretStorage.setSecret(key, trimmed);
+      const verified = await secretStorage.getSecret(key);
+      if (verified === trimmed) {
+        await deleteFromSecretStorage(secretStorage, legacyKey);
+      }
+      purgeLegacyLocalStorageKeys(owner, repo);
+      return trimmed;
+    }
+
+    // 3. Read from SecretStorage (global fallback key)
+    if (key !== "github-vault-relay:pat") {
+      const fallbackSecret = await secretStorage.getSecret("github-vault-relay:pat");
+      if (typeof fallbackSecret === "string" && fallbackSecret.trim().length > 0) {
+        purgeLegacyLocalStorageKeys(owner, repo);
+        return fallbackSecret.trim();
+      }
+    }
+  } catch (err) {
+    console.warn("[GitHub Vault Relay] Failed to read from SecretStorage:", sanitizeErrorMessage(err));
+    return null;
   }
 
-  // 2. Try device localStorage (isolated to Obsidian app storage)
+  // 4. One-time migration from legacy localStorage (ONLY if SecretStorage is active and empty)
   const localStorage = getDeviceLocalStorage();
   if (localStorage) {
     try {
-      let localVal = localStorage.getItem(key);
-      if (typeof localVal === "string" && localVal.trim().length > 0) {
-        return localVal.trim();
-      }
+      const candidates = [
+        key,
+        legacyKey,
+        "github-vault-relay:pat",
+        "vault-relay:pat",
+      ];
 
-      // Check legacy key
-      localVal = localStorage.getItem(legacyKey);
-      if (typeof localVal === "string" && localVal.trim().length > 0) {
-        return localVal.trim();
-      }
-
-      // Check global key
-      if (key !== "github-vault-relay:pat") {
-        const fallbackVal = localStorage.getItem("github-vault-relay:pat");
-        if (typeof fallbackVal === "string" && fallbackVal.trim().length > 0) {
-          return fallbackVal.trim();
+      for (const candidateKey of candidates) {
+        const rawLegacy = localStorage.getItem(candidateKey);
+        if (typeof rawLegacy === "string" && rawLegacy.trim().length > 0) {
+          const cleanLegacy = rawLegacy.trim();
+          // Write into SecretStorage
+          await secretStorage.setSecret(key, cleanLegacy);
+          // Verify SecretStorage write
+          const verified = await secretStorage.getSecret(key);
+          if (verified === cleanLegacy) {
+            // Immediately purge legacy value and all related keys from localStorage
+            purgeLegacyLocalStorageKeys(owner, repo);
+            return cleanLegacy;
+          } else {
+            console.error("[GitHub Vault Relay] Failed to verify SecretStorage write during legacy migration.");
+            return null;
+          }
         }
       }
     } catch (err) {
-      console.warn("[GitHub Vault Relay] Failed to read from localStorage:", sanitizeErrorMessage(err));
+      console.warn("[GitHub Vault Relay] Error during legacy localStorage migration:", sanitizeErrorMessage(err));
     }
   }
 
@@ -154,6 +216,9 @@ export async function getStoredPat(app: App, owner: string, repo: string): Promi
 
 /**
  * Stores the PAT in device secure storage.
+ * Writes EXCLUSIVELY to Obsidian SecretStorage.
+ * Never writes to localStorage or any other plaintext store.
+ * Verifies write immediately. Fails closed if SecretStorage is unavailable or write fails.
  */
 export async function setStoredPat(
   app: App,
@@ -169,42 +234,34 @@ export async function setStoredPat(
     return;
   }
 
-  const backend = getActiveStorageBackend(app);
-  if (backend === "UNAVAILABLE") {
-    throw new Error("Device secure storage is unavailable in current runtime environment.");
-  }
-
-  let saved = false;
-
-  // 1. Save to SecretStorage if present
   const secretStorage = getSecretStorage(app);
-  if (secretStorage) {
-    try {
-      await secretStorage.setSecret(key, cleanToken);
-      saved = true;
-    } catch (err) {
-      console.warn("[GitHub Vault Relay] Failed to save in SecretStorage:", sanitizeErrorMessage(err, cleanToken));
-    }
+  if (!secretStorage) {
+    // FAIL CLOSED: SecretStorage is strictly required
+    throw new Error(
+      "Obsidian SecretStorage is unavailable. Personal Access Tokens cannot be stored safely without Obsidian SecretStorage."
+    );
   }
 
-  // 2. Save to localStorage (ensures universal persistence across current Obsidian releases)
-  const localStorage = getDeviceLocalStorage();
-  if (localStorage) {
-    try {
-      localStorage.setItem(key, cleanToken);
-      saved = true;
-    } catch (err) {
-      console.warn("[GitHub Vault Relay] Failed to save in localStorage:", sanitizeErrorMessage(err, cleanToken));
-    }
-  }
+  try {
+    // Write ONLY to SecretStorage
+    await secretStorage.setSecret(key, cleanToken);
 
-  if (!saved) {
-    throw new Error("Failed to write PAT to device storage.");
+    // Verify write
+    const verified = await secretStorage.getSecret(key);
+    if (verified !== cleanToken) {
+      throw new Error("SecretStorage write verification failed: stored value did not match.");
+    }
+
+    // Safety hygiene: ensure no legacy plaintext leftovers remain in localStorage
+    purgeLegacyLocalStorageKeys(owner, repo);
+  } catch (err) {
+    throw new Error(`Failed to save PAT in Obsidian SecretStorage: ${sanitizeErrorMessage(err, cleanToken)}`);
   }
 }
 
 /**
  * Clears/removes the stored PAT from device storage.
+ * Deletes from SecretStorage and purges any legacy localStorage entries.
  */
 export async function clearStoredPat(app: App, owner: string, repo: string): Promise<void> {
   const key = getSecretKeyForRepo(owner, repo);
@@ -213,31 +270,15 @@ export async function clearStoredPat(app: App, owner: string, repo: string): Pro
   // 1. Clear from SecretStorage if present
   const secretStorage = getSecretStorage(app);
   if (secretStorage) {
-    try {
-      if (typeof secretStorage.deleteSecret === "function") {
-        await secretStorage.deleteSecret(key);
-        await secretStorage.deleteSecret(legacyKey);
-      } else if (typeof secretStorage.removeSecret === "function") {
-        await secretStorage.removeSecret(key);
-        await secretStorage.removeSecret(legacyKey);
-      } else {
-        await secretStorage.setSecret(key, null);
-      }
-    } catch (err) {
-      console.warn(`[GitHub Vault Relay] Failed to clear secret for ${redactTokens(key)}:`, err);
+    await deleteFromSecretStorage(secretStorage, key);
+    await deleteFromSecretStorage(secretStorage, legacyKey);
+    if (key !== "github-vault-relay:pat") {
+      await deleteFromSecretStorage(secretStorage, "github-vault-relay:pat");
     }
   }
 
-  // 2. Clear from localStorage
-  const localStorage = getDeviceLocalStorage();
-  if (localStorage) {
-    try {
-      localStorage.removeItem(key);
-      localStorage.removeItem(legacyKey);
-    } catch (err) {
-      console.warn(`[GitHub Vault Relay] Failed to remove item from localStorage:`, err);
-    }
-  }
+  // 2. Always purge any legacy entries from localStorage as safety hygiene
+  purgeLegacyLocalStorageKeys(owner, repo);
 }
 
 /**
@@ -247,3 +288,4 @@ export async function hasStoredPat(app: App, owner: string, repo: string): Promi
   const token = await getStoredPat(app, owner, repo);
   return !!token;
 }
+
