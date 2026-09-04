@@ -181,10 +181,12 @@ Evaluated across mixed note vaults (.md, .txt, .canvas, PNG, JPG, PDF, generic b
 | **Unified Verify** | `npm run verify` | **PASS** | Complete pipeline passes |
 
 ### Production Release Bundle Audit
-- `main.js`: SHA-256 and byte length verified after build.
-- `manifest.json`: Version 0.5.0, `minAppVersion: 0.15.0`.
-- `styles.css`: Present and optimized for mobile responsive layout.
-- Excluded from release bundle: `src/`, `tests/`, `node_modules/`, `data.json`, `state.json`, `.git/`.
+- **GitHub Prerelease:** [0.5.0 (Release Candidate)](https://github.com/ankhang0704/github-vault-relay/releases/tag/0.5.0)
+- **Verified Release Assets:**
+  - `main.js` (130,200 bytes): `0CB10C17459EF22826CA9E1134D479CF66DF66D759CE9914C4BC922BD58A64FD`
+  - `manifest.json` (357 bytes): `685999A4F2840677272C0E2B7D0A3772521C34D563F57732014BC79C61825F7E`
+  - `styles.css` (1,256 bytes): `F4E2C982B2237A0EC6EA3956C3C9C759385F19765E1759FAD7DA0FFE544584E8`
+- **Exclusions:** Tests, source files, `.git`, `node_modules`, `data.json`, and local state are strictly excluded.
 
 ---
 
@@ -195,8 +197,27 @@ All P0 and P1 items identified during C5 hardening have been resolved and verifi
 
 ### Runtime Acceptance Status:
 - **C5 Automated Verification**: **PASS**
-- **C5 CI (Node 20 & 22)**: **GREEN** (Run ID `33890627082` - Node 20.x SUCCESS, Node 22.x SUCCESS)
+- **C5 CI (Node 20 & 22)**: **GREEN** (Run ID `33890627082` & `33892492722` - Node 20.x SUCCESS, Node 22.x SUCCESS)
+- **C5 GitHub 0.5.0 Prerelease Published & Verified**: **YES**
 - **C5 Real Windows Acceptance**: **NOT RUN** (Awaiting real Obsidian desktop validation)
 - **C5 Real iPhone Acceptance**: **NOT RUN** (Awaiting real iOS BRAT / Obsidian Mobile validation)
 
-**Release Policy Note**: Stable 1.0.0 must NOT be published until real Windows and real iPhone acceptance runs are completed and verified. 0.5.0 is designated as a Release Candidate for real-device testing.
+### Path to MVP Complete & 1.0.0:
+```
+C5 Automated PASS
+        ↓
+README Wording Cleanup
+        ↓
+Publish exact C5 build as 0.5.0 prerelease (DONE)
+        ↓
+REAL WINDOWS acceptance
+        ↓
+REAL IPHONE acceptance via BRAT
+        ↓
+C5 VERIFIED
+        ↓
+MVP COMPLETE
+        ↓
+1.0.0 stable
+```
+**Release Policy Note**: Stable 1.0.0 must NOT be published until real Windows and real iPhone acceptance runs are completed and verified. 0.5.0 is the active Release Candidate for device testing.
