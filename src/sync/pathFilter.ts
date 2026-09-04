@@ -75,3 +75,18 @@ export function parseExclusionRules(text: string): string[] {
 
   return rules;
 }
+
+/**
+ * One-time migration for legacy exclusion configurations.
+ * Removes the old plugin-owned root '_vault-relay/' or '_vault-relay' rule
+ * because C4 now treats '_vault-relay/' as normal user content.
+ * Preserves all other default and user-defined exclusion rules.
+ */
+export function migrateLegacyExclusions(exclusions: string[]): string[] {
+  if (!Array.isArray(exclusions)) return [...DEFAULT_EXCLUSIONS];
+  return exclusions.filter((rule) => {
+    if (!rule || typeof rule !== "string") return false;
+    const norm = normalizePath(rule);
+    return norm !== "_vault-relay";
+  });
+}

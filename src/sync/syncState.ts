@@ -1,7 +1,7 @@
 /**
  * Sync State Persistence & Metadata Model
  *
- * Designed for local state tracking at _vault-relay/state.json.
+ * Designed for local state tracking in internal hidden storage.
  * Tracks per-file:
  * - last known remote blob SHA
  * - last known local content Git SHA
@@ -10,7 +10,6 @@
 
 import { SyncStateData } from "./syncTypes";
 
-export const STATE_FILE_PATH = "_vault-relay/state.json";
 export const CURRENT_STATE_VERSION = 1;
 
 /**

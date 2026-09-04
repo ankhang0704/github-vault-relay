@@ -23,12 +23,15 @@ import {
 } from "./security/secretStore";
 import { SyncDashboardModal } from "./ui/syncDashboardModal";
 
+export const CURRENT_SETTINGS_VERSION = 2;
+
 export interface VaultRelaySettings {
   owner: string;
   repo: string;
   branch: string;
   excludedPaths: string[];
   secretKey?: string;
+  settingsVersion?: number;
 }
 
 export const DEFAULT_SETTINGS: VaultRelaySettings = {
@@ -36,6 +39,7 @@ export const DEFAULT_SETTINGS: VaultRelaySettings = {
   repo: "",
   branch: "main",
   excludedPaths: [...DEFAULT_EXCLUSIONS],
+  settingsVersion: CURRENT_SETTINGS_VERSION,
 };
 
 export class VaultRelaySettingTab extends PluginSettingTab {
@@ -280,7 +284,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
         )
         .addTextArea((textArea) => {
           textArea
-            .setPlaceholder(".obsidian/\n.git/\n_fit/\n_vault-relay/")
+            .setPlaceholder(".obsidian/\n.git/\n_fit/")
             .setValue(this.plugin.settings.excludedPaths.join("\n"))
             .onChange(async (value) => {
               this.plugin.settings.excludedPaths = parseExclusionRules(value);

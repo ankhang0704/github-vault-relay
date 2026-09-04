@@ -4,7 +4,12 @@
  */
 
 import { Notice, Plugin } from "obsidian";
-import { DEFAULT_SETTINGS, VaultRelaySettings, VaultRelaySettingTab } from "./settings";
+import {
+  CURRENT_SETTINGS_VERSION,
+  DEFAULT_SETTINGS,
+  VaultRelaySettings,
+  VaultRelaySettingTab,
+} from "./settings";
 import { SyncDashboardModal } from "./ui/syncDashboardModal";
 import { SyncPreviewModal } from "./ui/syncPreviewModal";
 import { PullConfirmModal } from "./ui/pullConfirmModal";
@@ -13,6 +18,7 @@ import { GitHubClient } from "./github/githubClient";
 import { sanitizeErrorMessage } from "./security/redact";
 import { CANONICAL_SECRET_KEY, getStoredPat } from "./security/secretStore";
 import { StorageManager } from "./sync/storageManager";
+import { migrateLegacyExclusions } from "./sync/pathFilter";
 
 export default class VaultRelayPlugin extends Plugin {
   public settings: VaultRelaySettings = DEFAULT_SETTINGS;
@@ -126,9 +132,29 @@ export default class VaultRelayPlugin extends Plugin {
   }
 
   public async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const rawData = (await this.loadData()) as Partial<VaultRelaySettings> | null;
+    const loaded = rawData || {};
+    const previousVersion = typeof loaded.settingsVersion === "number" ? loaded.settingsVersion : 1;
+
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+
+    let needsSave = false;
+
     if (this.settings.secretKey && this.settings.secretKey !== CANONICAL_SECRET_KEY) {
       this.settings.secretKey = CANONICAL_SECRET_KEY;
+      needsSave = true;
+    }
+
+    // One-time migration: pre-v2 settings had _vault-relay/ in default exclusions.
+    // In C4, _vault-relay/ is user-owned, so remove old persisted default once.
+    // If user later explicitly re-adds it, settingsVersion is already 2 so it is preserved.
+    if (previousVersion < CURRENT_SETTINGS_VERSION) {
+      this.settings.excludedPaths = migrateLegacyExclusions(this.settings.excludedPaths);
+      this.settings.settingsVersion = CURRENT_SETTINGS_VERSION;
+      needsSave = true;
+    }
+
+    if (needsSave) {
       await this.saveSettings();
     }
   }

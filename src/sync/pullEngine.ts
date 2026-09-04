@@ -103,7 +103,7 @@ export class PullEngine {
   }
 
   /**
-   * Loads sync state from _vault-relay/state.json.
+   * Loads sync state from internal storage.
    */
   public async loadState(): Promise<SyncStateData> {
     return StorageManager.loadState(this.app);

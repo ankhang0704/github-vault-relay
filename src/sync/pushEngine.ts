@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Safe Push Engine for Vault Relay (Checkpoint 3: Local Obsidian -> GitHub)
  *
  * Implements the conservative Safe Push workflow:
@@ -8,7 +8,7 @@
  * - Zero pushes for REMOTE_ONLY, REMOTE_CHANGED, POTENTIAL_CONFLICT, UNCHANGED.
  * - Deletion deferred (local deletions never delete remote files).
  * - 25 MiB mobile safety ceiling check.
- * - Reserved path (.obsidian, .git, _fit, _vault-relay) and path traversal guards.
+ * - Reserved path (.obsidian, .git, _fit) and path traversal guards.
  * - Case collision detection and safety blocks.
  * - In-memory LF canonicalization for text (.md, .txt, .canvas), byte-exact for binary.
  * - Atomic Git commit creation (all files in ONE commit and ONE ref update).
@@ -94,7 +94,7 @@ export class PushEngine {
   }
 
   /**
-   * Loads sync state from _vault-relay/state.json.
+   * Loads sync state from internal storage.
    */
   public async loadState(): Promise<SyncStateData> {
     return StorageManager.loadState(this.app);
