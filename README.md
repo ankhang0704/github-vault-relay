@@ -12,11 +12,11 @@ GitHub Vault Relay connects your **Obsidian Mobile (iPhone / iPad)** and **Deskt
 
 ## 🏛️ What GitHub Vault Relay Does
 
-- **Unified Safe Sync**: Single-action sync (`[ Sync ]`) that safely pulls remote changes and pushes eligible local changes in a single atomic Git commit (`force: false`).
+- **Unified Safe Sync**: A single `[ Sync ]` action safely pulls eligible remote changes, then replans and pushes eligible local changes. Each Safe Push batch is committed to GitHub as one Git commit (`force: false`). Unified Sync is intentionally not an end-to-end transaction: a successful Pull is not rolled back merely because a later Push fails.
 - **Data Integrity Over Convenience**: Explicit failure over silent guessing. When state is ambiguous, Vault Relay halts safely and preserves both versions.
 - **Mobile-First iOS/Android Design**: Communicates via Obsidian's native HTTPS requests (`requestUrl()`). Never invokes Node.js child processes or native Git.
-- **Clean Vault Experience**: Sync metadata and conflict snapshots are stored exclusively in internal plugin storage (`.obsidian/github-vault-relay/`), completely invisible to note search and graph view.
-- **Fast and Fresh**: Direct Git ref queries bypass iOS WebKit HTTP caches; file hashing caches (`mtime` + `size`) keep warm scans under 10ms.
+- **Clean Vault Experience**: Internal state is kept under `.obsidian/github-vault-relay/` and is not treated as normal vault note content.
+- **Fast and Fresh**: Authoritative Git ref reads are designed to avoid stale mobile HTTP-cache results, while bounded local hash caching reduces unnecessary repeated file hashing.
 - **Full External Git Compatibility**: Fully compatible with native Git on desktop, Obsidian Git, or web edits on GitHub. Vault Relay does not assume exclusive ownership of your repository.
 
 ---
@@ -135,7 +135,7 @@ Open **Conflict Resolution** (`GitHub Vault Relay: Review Conflicts`) to review 
 
 ## 🗄️ Internal Storage & Migration
 
-- All plugin state resides in `.obsidian/github-vault-relay/`:
+- Internal state is kept under `.obsidian/github-vault-relay/` and is not treated as normal vault note content:
   - `state.json`: Tracked commit SHAs and file baselines.
   - `conflicts_meta.json`: Active conflict records.
   - `conflicts/`: Isolated conflict payloads.
@@ -156,6 +156,6 @@ Open **Conflict Resolution** (`GitHub Vault Relay: Review Conflicts`) to review 
 
 ## ⚠️ Known Limitations
 
-- **GitHub API Rate Limits**: Standard authenticated limits apply (5,000 requests per hour).
+- **GitHub API Rate Limits**: Standard GitHub authenticated API rate limits apply.
 - **Repository Size Limit**: Repositories returning truncated Git trees (>100,000 files) are blocked for safety.
 - **Single Repository / Branch**: Multi-repo and multi-branch concurrent sync is not supported.
