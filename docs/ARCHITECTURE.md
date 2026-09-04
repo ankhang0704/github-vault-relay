@@ -24,7 +24,7 @@ flowchart TD
         NativeGit["Native Git CLI / GUI / Web Editor"] <--> GitRepo
     end
 
-    Relay -- "HTTPS REST & Git Data API\n(Obsidian requestUrl)" --> GitDataAPI
+    Relay -->|"HTTPS REST & Git Data API<br>(Obsidian requestUrl)"| GitDataAPI
 ```
 
 ---
@@ -120,7 +120,7 @@ sequenceDiagram
         Sync->>Push: executeSafePush(freshPushItems)
         Push->>GitHub: Upload blobs, tree, commit
         Push->>Push: Re-verify local bytes on disk
-        Push->>GitHub: PATCH /git/refs/heads/{branch} (force: false)
+        Push->>GitHub: PATCH /git/refs/heads/:branch (force: false)
         Push->>GitHub: Authoritative GET ref check
         Push->>Store: Advance state.json baseline
         Push-->>Sync: PushReport (SUCCESS)
@@ -142,20 +142,20 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    Start([Start Safe Push]) --> Preflight[Preflight Checks: Exclusions, 25 MiB ceiling, Valid paths]
-    Preflight --> Blobs[1. POST /git/blobs for each modified file]
-    Blobs --> Tree[2. POST /git/trees using base_commit tree SHA]
-    Tree --> Commit[3. POST /git/commits referencing parent commit SHA]
-    Commit --> InFlightCheck{4. Re-read local disk files: Did any bytes change in flight?}
-    InFlightCheck -- Yes --> AbortInFlight[ABORT: Local file modified during upload. Ref untouched.]
-    InFlightCheck -- No --> PatchRef[5. PATCH /git/refs/heads/{branch} with force: false]
-    PatchRef --> RefCheck{Remote accepted update?}
-    RefCheck -- Rejection / 422 --> AbortMoved[ABORT: Remote HEAD moved concurrently. History preserved.]
-    RefCheck -- Network Drop --> RecoverLost[Query GET /git/refs/heads/{branch} to verify authoritative SHA]
+    Start(["Start Safe Push"]) --> Preflight["Preflight Checks: Exclusions, 25 MiB ceiling, Valid paths"]
+    Preflight --> Blobs["1. POST /git/blobs for each modified file"]
+    Blobs --> Tree["2. POST /git/trees using base commit tree SHA"]
+    Tree --> Commit["3. POST /git/commits referencing parent commit SHA"]
+    Commit --> InFlightCheck{"4. Re-read local disk files:<br>Did any bytes change in flight?"}
+    InFlightCheck -->|"Yes"| AbortInFlight["ABORT: Local file modified during upload.<br>Branch ref untouched."]
+    InFlightCheck -->|"No"| PatchRef["5. PATCH /git/refs/heads/:branch with force: false"]
+    PatchRef --> RefCheck{"Remote accepted ref update?"}
+    RefCheck -->|"Rejection / 422"| AbortMoved["ABORT: Remote HEAD moved concurrently.<br>History preserved."]
+    RefCheck -->|"Network Drop"| RecoverLost["Query GET /git/refs/heads/:branch to verify authoritative SHA"]
     RecoverLost --> VerifyRef
-    RefCheck -- 200 OK --> VerifyRef[6. Authoritative GET ref verification retry budget]
-    VerifyRef --> AdvanceState[7. Durably advance state.json baseline commit SHA]
-    AdvanceState --> Done([Push Complete])
+    RefCheck -->|"200 OK"| VerifyRef["6. Authoritative GET ref verification retry budget"]
+    VerifyRef --> AdvanceState["7. Durably advance state.json baseline commit SHA"]
+    AdvanceState --> Done(["Push Complete"])
 ```
 
 ---
@@ -163,45 +163,27 @@ flowchart TD
 ## 5. Conflict Resolution Sequence
 
 ```mermaid
-stateDiagram-v2
-    [*] --> PotentialConflict: Both local and remote notes changed independently
-    PotentialConflict --> UserReview: Review in ConflictResolutionModal
+flowchart TD
+    PotentialConflict["Potential Conflict Detected:<br>Both local and remote notes modified independently"] --> UserReview["User Reviews Note in ConflictResolutionModal"]
 
-    state UserReview {
-        [*] --> Choice
-        Choice --> KeepLocal: Select "Keep Local"
-        Choice --> UseRemote: Select "Use Remote"
-        Choice --> KeepBoth: Select "Keep Both"
-    }
+    UserReview --> Choice{"User Resolution Choice"}
 
-    state KeepLocal {
-        KL_Revalidate: Revalidate remote HEAD & local file
-        KL_Push: Scoped authorized Safe Push
-        KL_Done: Clear conflict & advance baseline
-        KL_Revalidate --> KL_Push --> KL_Done
-    }
+    Choice -->|"Keep Local"| KL1["1. Revalidate remote HEAD & local disk bytes"]
+    KL1 --> KL2["2. Execute scoped authorized Safe Push to GitHub"]
+    KL2 --> KL3["3. Clear conflict record & advance state baseline"]
 
-    state UseRemote {
-        UR_Revalidate: Revalidate local file matches reviewed hash
-        UR_Backup: Save pre-write local backup to journal
-        UR_Write: Overwrite local file with remote blob
-        UR_Verify: Post-write verification
-        UR_Done: Clear conflict & advance baseline
-        UR_Revalidate --> UR_Backup --> UR_Write --> UR_Verify --> UR_Done
-    }
+    Choice -->|"Use Remote"| UR1["1. Revalidate local file matches reviewed hash"]
+    UR1 --> UR2["2. Save pre-write local backup to journal"]
+    UR2 --> UR3["3. Overwrite local file with verified remote blob"]
+    UR3 --> UR4["4. Verify local disk bytes & update baseline"]
 
-    state KeepBoth {
-        KB_Name: Generate deterministic timestamped filename
-        KB_Write: Write remote version as conflict copy
-        KB_Verify: Verify conflict copy on disk
-        KB_Done: Update baseline for both files independently
-        KB_Name --> KB_Write --> KB_Verify --> KB_Done
-    }
+    Choice -->|"Keep Both"| KB1["1. Generate timestamped conflict filename"]
+    KB1 --> KB2["2. Write remote version alongside local note"]
+    KB2 --> KB3["3. Verify disk copy & advance baselines independently"]
 
-    KeepLocal --> Resolved: Conflict eliminated
-    UseRemote --> Resolved: Conflict eliminated
-    KeepBoth --> Resolved: Conflict eliminated
-    Resolved --> [*]
+    KL3 --> Resolved(["Conflict Resolved"])
+    UR4 --> Resolved
+    KB3 --> Resolved
 ```
 
 ---
@@ -210,18 +192,18 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    Startup([Obsidian Startup / Plugin Load]) --> CheckDir[Ensure .obsidian/github-vault-relay/ exists]
-    CheckDir --> MigCheck{Legacy storage detected?}
-    MigCheck -- Yes --> MigAction[Migrate C2/C3 root or C4 intermediate data with byte-exact verification]
+    Startup(["Obsidian Startup / Plugin Load"]) --> CheckDir["Ensure .obsidian/github-vault-relay/ exists"]
+    CheckDir --> MigCheck{"Legacy storage detected?"}
+    MigCheck -->|"Yes"| MigAction["Migrate C2/C3 root or C4 intermediate data with byte-exact verification"]
     MigAction --> AtomicRec
-    MigCheck -- No --> AtomicRec[Inspect state.json: .tmp or .bak present?]
-    AtomicRec -- .tmp without .bak --> DiscardTmp[Discard stale .tmp]
-    AtomicRec -- .bak present --> RestoreBak[Restore last valid .bak backup to state.json]
+    MigCheck -->|"No"| AtomicRec["Inspect state.json: .tmp or .bak present?"]
+    AtomicRec -->|".tmp without .bak"| DiscardTmp["Discard stale .tmp"]
+    AtomicRec -->|".bak present"| RestoreBak["Restore last valid .bak backup to state.json"]
     DiscardTmp --> JournalCheck
     RestoreBak --> JournalCheck
-    AtomicRec -- Clean --> JournalCheck[Inspect pull-recovery/ directory]
-    JournalCheck -- Journal found --> RollbackJournal[Roll back interrupted pull writes to pre-write state]
-    JournalCheck -- No journals --> OrphanGC[Garbage Collect unreferenced conflict payloads]
+    AtomicRec -->|"Clean"| JournalCheck["Inspect pull-recovery/ directory"]
+    JournalCheck -->|"Journal found"| RollbackJournal["Roll back interrupted pull writes to pre-write state"]
+    JournalCheck -->|"No journals"| OrphanGC["Garbage Collect unreferenced conflict payloads"]
     RollbackJournal --> OrphanGC
-    OrphanGC --> Ready([Plugin Ready for User Interaction])
+    OrphanGC --> Ready(["Plugin Ready for User Interaction"])
 ```
