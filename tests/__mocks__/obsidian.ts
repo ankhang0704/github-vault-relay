@@ -344,28 +344,6 @@ export class Plugin {
   addCommand = (_command: CommandConfig): CommandConfig => _command;
 }
 
-export class PluginSettingTab {
-  app: App;
-  plugin: Plugin;
-  containerEl: HTMLElement;
-  constructor(app: App, plugin: Plugin) {
-    this.app = app;
-    this.plugin = plugin;
-    this.containerEl = {} as HTMLElement;
-  }
-  display(): void {}
-  hide(): void {}
-}
-
-export class Setting {
-  constructor(_el: HTMLElement) {}
-  setName(_name: string): this { return this; }
-  setDesc(_desc: string): this { return this; }
-  addText(_cb: (text: unknown) => void): this { return this; }
-  addTextArea(_cb: (textArea: unknown) => void): this { return this; }
-  addButton(_cb: (button: unknown) => void): this { return this; }
-}
-
 export class MockElement {
   tag: string;
   classes: Set<string> = new Set();
@@ -375,6 +353,7 @@ export class MockElement {
   children: MockElement[] = [];
   disabled: boolean = false;
   onclick?: (e?: unknown) => void | Promise<void>;
+  onchange?: (e?: unknown) => void;
 
   constructor(tag = "div") {
     this.tag = tag;
@@ -427,6 +406,155 @@ export class MockElement {
       results.push(...child.findAll(predicate));
     }
     return results;
+  }
+}
+
+export class PluginSettingTab {
+  app: App;
+  plugin: Plugin;
+  containerEl: MockElement;
+  constructor(app: App, plugin: Plugin) {
+    this.app = app;
+    this.plugin = plugin;
+    this.containerEl = new MockElement("div");
+  }
+  display(): void | Promise<void> {}
+  hide(): void {}
+}
+
+export interface MockTextComponent {
+  inputEl: MockElement;
+  setValue: (v: string) => MockTextComponent;
+  getValue: () => string;
+  setPlaceholder: (p: string) => MockTextComponent;
+  onChange: (fn: (v: string) => void) => MockTextComponent;
+}
+
+export interface MockTextAreaComponent {
+  inputEl: MockElement;
+  setValue: (v: string) => MockTextAreaComponent;
+  getValue: () => string;
+  setPlaceholder: (p: string) => MockTextAreaComponent;
+  onChange: (fn: (v: string) => void) => MockTextAreaComponent;
+}
+
+export interface MockButtonComponent {
+  buttonEl: MockElement;
+  setButtonText: (t: string) => MockButtonComponent;
+  setCta: () => MockButtonComponent;
+  setWarning: () => MockButtonComponent;
+  setDisabled: (d: boolean) => MockButtonComponent;
+  onClick: (fn: () => void | Promise<void>) => MockButtonComponent;
+}
+
+export interface MockDropdownComponent {
+  selectEl: MockElement;
+  addOption: (val: string, display: string) => MockDropdownComponent;
+  setValue: (val: string) => MockDropdownComponent;
+  getValue: () => string;
+  onChange: (fn: (val: string) => void) => MockDropdownComponent;
+}
+
+export class Setting {
+  public settingEl: MockElement;
+  public nameEl: MockElement;
+  public descEl: MockElement;
+  public controlEl: MockElement;
+
+  constructor(containerEl: unknown) {
+    this.settingEl = containerEl instanceof MockElement ? containerEl.createDiv({ cls: "setting-item" }) : new MockElement("div");
+    this.nameEl = this.settingEl.createDiv({ cls: "setting-item-name" });
+    this.descEl = this.settingEl.createDiv({ cls: "setting-item-description" });
+    this.controlEl = this.settingEl.createDiv({ cls: "setting-item-control" });
+  }
+
+  setName(name: string): this {
+    this.nameEl.setText(name);
+    return this;
+  }
+
+  setDesc(desc: string): this {
+    this.descEl.setText(desc);
+    return this;
+  }
+
+  setClass(cls: string): this {
+    this.settingEl.addClass(cls);
+    return this;
+  }
+
+  addText(cb: (text: MockTextComponent) => void): this {
+    const inputEl = this.controlEl.createEl("input");
+    let val = "";
+    const textComponent: MockTextComponent = {
+      inputEl,
+      setValue: (v: string) => { val = v; inputEl.setText(v); return textComponent; },
+      getValue: () => val,
+      setPlaceholder: (p: string) => { inputEl.attributes["placeholder"] = p; return textComponent; },
+      onChange: (fn: (v: string) => void) => {
+        inputEl.onchange = () => fn(val);
+        return textComponent;
+      },
+    };
+    cb(textComponent);
+    return this;
+  }
+
+  addTextArea(cb: (textArea: MockTextAreaComponent) => void): this {
+    const inputEl = this.controlEl.createEl("textarea");
+    let val = "";
+    const textAreaComponent: MockTextAreaComponent = {
+      inputEl,
+      setValue: (v: string) => { val = v; inputEl.setText(v); return textAreaComponent; },
+      getValue: () => val,
+      setPlaceholder: (p: string) => { inputEl.attributes["placeholder"] = p; return textAreaComponent; },
+      onChange: (fn: (v: string) => void) => {
+        inputEl.onchange = () => fn(val);
+        return textAreaComponent;
+      },
+    };
+    cb(textAreaComponent);
+    return this;
+  }
+
+  addButton(cb: (button: MockButtonComponent) => void): this {
+    const buttonEl = this.controlEl.createEl("button");
+    const buttonComponent: MockButtonComponent = {
+      buttonEl,
+      setButtonText: (t: string) => { buttonEl.setText(t); return buttonComponent; },
+      setCta: () => { buttonEl.addClass("mod-cta"); return buttonComponent; },
+      setWarning: () => { buttonEl.addClass("mod-warning"); return buttonComponent; },
+      setDisabled: (d: boolean) => { buttonEl.disabled = d; return buttonComponent; },
+      onClick: (fn: () => void | Promise<void>) => {
+        buttonEl.onclick = fn;
+        return buttonComponent;
+      },
+    };
+    cb(buttonComponent);
+    return this;
+  }
+
+  addDropdown(cb: (dropdown: MockDropdownComponent) => void): this {
+    const selectEl = this.controlEl.createEl("select");
+    let currentVal = "";
+    const dropdownComponent: MockDropdownComponent = {
+      selectEl,
+      addOption: (val: string, display: string) => {
+        selectEl.createEl("option", { text: display, attr: { value: val } });
+        return dropdownComponent;
+      },
+      setValue: (val: string) => {
+        currentVal = val;
+        return dropdownComponent;
+      },
+      getValue: () => currentVal,
+      onChange: (fn: (val: string) => void) => {
+        selectEl.onchange = () => fn(currentVal);
+        return dropdownComponent;
+      },
+    };
+    cb(dropdownComponent);
+    return this;
   }
 }
 

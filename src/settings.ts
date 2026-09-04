@@ -22,6 +22,7 @@ import {
   setStoredPat,
 } from "./security/secretStore";
 import { SyncDashboardModal } from "./ui/syncDashboardModal";
+import { ClearTokenConfirmModal } from "./ui/clearTokenConfirmModal";
 
 export const CURRENT_SETTINGS_VERSION = 2;
 
@@ -101,7 +102,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
       this.plugin.settings.repo
     );
 
-    // Section 1: GitHub Connection Wizard
+    // Section 1: GitHub Connection Wizard (Primary Connection Flow: ONE primary CTA only)
     containerEl.createEl("h3", { text: "Connection Wizard", attr: { style: "margin-top: 10px;" } });
 
     const tokenSetting = new Setting(containerEl)
@@ -118,7 +119,8 @@ export class VaultRelaySettingTab extends PluginSettingTab {
         this.tokenInputVal = value.trim();
       });
       text.inputEl.type = "password";
-      text.inputEl.style.width = "240px";
+      text.inputEl.style.width = "100%";
+      text.inputEl.style.maxWidth = "280px";
     });
 
     tokenSetting.addButton((button) => {
@@ -146,24 +148,9 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           new Notice(`Connection failed: ${sanitizeErrorMessage(err)}`);
         }
       });
+      button.buttonEl.style.minHeight = "44px";
+      button.buttonEl.style.padding = "8px 16px";
     });
-
-    if (tokenExists) {
-      tokenSetting.addButton((button) => {
-        button
-          .setButtonText("Clear Token")
-          .setWarning()
-          .onClick(async () => {
-            await clearStoredPat(this.app, this.plugin.settings.owner, this.plugin.settings.repo);
-            this.plugin.settings.secretKey = undefined;
-            await this.plugin.saveSettings();
-            this.discoveredRepos = [];
-            this.discoveredBranches = [];
-            new Notice("Stored GitHub PAT cleared.");
-            this.display();
-          });
-      });
-    }
 
     // Repository Dropdown (if repos discovered or discovered previously)
     if (this.discoveredRepos.length > 0) {
@@ -216,13 +203,48 @@ export class VaultRelaySettingTab extends PluginSettingTab {
       });
     }
 
-    // Section 2: Advanced / Manual Setup (Collapsible)
+    // Section 2: Advanced / Security
+    containerEl.createEl("h3", { text: "Advanced / Security", attr: { style: "margin-top: 24px;" } });
+
+    // Stored Credential Setting (Clear Token moved out of primary flow into Advanced / Security)
+    const credSetting = new Setting(containerEl)
+      .setName("Stored Credential")
+      .setDesc(
+        tokenExists
+          ? `Active in Obsidian SecretStorage (${keyName}).`
+          : "No token currently stored in SecretStorage."
+      );
+
+    if (tokenExists) {
+      credSetting.addButton((button) => {
+        button
+          .setButtonText("Clear Token")
+          .setWarning()
+          .onClick(() => {
+            new ClearTokenConfirmModal(this.app, async () => {
+              await clearStoredPat(this.app, this.plugin.settings.owner, this.plugin.settings.repo);
+              this.plugin.settings.secretKey = undefined;
+              await this.plugin.saveSettings();
+              this.discoveredRepos = [];
+              this.discoveredBranches = [];
+              new Notice("Stored GitHub PAT cleared from SecretStorage.");
+              this.display();
+            }).open();
+          });
+        button.buttonEl.style.minHeight = "44px";
+        button.buttonEl.style.padding = "8px 16px";
+      });
+    }
+
+    // Manual Repository Configuration (Collapsible)
     const advToggleSetting = new Setting(containerEl)
-      .setName("Advanced / Manual Setup")
+      .setName("Manual Configuration")
       .setDesc("Manually configure repository details, custom branches, and exclusion rules.");
 
     advToggleSetting.addButton((btn) => {
       btn.setButtonText(this.showManualSetup ? "Hide Manual Setup" : "Show Manual Setup");
+      btn.buttonEl.style.minHeight = "44px";
+      btn.buttonEl.style.padding = "8px 16px";
       btn.onClick(() => {
         this.showManualSetup = !this.showManualSetup;
         this.display();
@@ -306,6 +328,8 @@ export class VaultRelaySettingTab extends PluginSettingTab {
       button.setButtonText("Open Sync Dashboard").setCta().onClick(() => {
         new SyncDashboardModal(this.app, this.plugin).open();
       });
+      button.buttonEl.style.minHeight = "44px";
+      button.buttonEl.style.padding = "8px 16px";
     });
 
     actionsSetting.addButton((button) => {
@@ -347,6 +371,8 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           button.setDisabled(false);
         }
       });
+      button.buttonEl.style.minHeight = "44px";
+      button.buttonEl.style.padding = "8px 16px";
     });
   }
 
