@@ -129,6 +129,7 @@ export class ConflictManager {
             path: item.path,
             localSha: item.localSha || "",
             remoteSha: item.remoteSha || "",
+            remoteCommitSha: report.remoteCommitSha,
             baseSha: item.baseSha,
             detectedAt: Date.now(),
           });
@@ -140,6 +141,10 @@ export class ConflictManager {
           }
           if (item.remoteSha && existing.remoteSha !== item.remoteSha) {
             existing.remoteSha = item.remoteSha;
+            modified = true;
+          }
+          if (report.remoteCommitSha && existing.remoteCommitSha !== report.remoteCommitSha) {
+            existing.remoteCommitSha = report.remoteCommitSha;
             modified = true;
           }
           if (item.baseSha && existing.baseSha !== item.baseSha) {
@@ -198,20 +203,15 @@ export class ConflictManager {
 
     this.inFlightResolutions.add(record.path);
     try {
-      // 1. Revalidate remote state
-      const branchInfo = await this.githubClient.getBranch(this.settings.branch, true);
-      if (record.remoteCommitSha && branchInfo.commit.sha !== record.remoteCommitSha) {
-        return {
-          success: false,
-          message: "Remote branch changed concurrently since conflict was reviewed. Please refresh and review again.",
-        };
-      }
-
-      // 2. Push local version via PushEngine
       const pushEngine = new PushEngine(this.app, this.settings, this.githubClient);
-      const report = await pushEngine.executeSafePush();
+      const report = await pushEngine.executeAuthorizedConflictPush({
+        path: record.path,
+        expectedLocalSha: record.localSha,
+        expectedRemoteSha: record.remoteSha,
+        expectedRemoteCommitSha: record.remoteCommitSha,
+      });
 
-      if (report.status === "PASS" || report.status === "PASS_WITH_WARNINGS") {
+      if (report.status === "PASS") {
         if (record.id) this.resolvedRecordIds.add(record.id);
         await this.removeConflict(record.path);
         return { success: true, message: `Successfully pushed local version for ${record.path}.` };

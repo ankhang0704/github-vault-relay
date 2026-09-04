@@ -44,7 +44,11 @@ describe("C4 W5 Conflict Resolution Reentrancy & Lifecycle (W5-UX-001..010)", ()
     plugin.settings = { ...settings };
   });
 
-  function setupKeepLocalMockClient(localSha: string, path = "Note.md") {
+  function setupKeepLocalMockClient(
+    localSha: string,
+    path = "Note.md",
+    remoteShaOrMap: string | Record<string, string> = "old_remote_sha"
+  ) {
     let patchCount = 0;
     let commitCount = 0;
     let createdTreeItems: Array<{ path: string; mode?: string; sha: string }> = [];
@@ -97,7 +101,11 @@ describe("C4 W5 Conflict Resolution Reentrancy & Lifecycle (W5-UX-001..010)", ()
         return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "tree_new" } };
       }
       if (params.url.includes("/git/trees/")) {
-        return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "tree_base", truncated: false, tree: [] } };
+        const treeList =
+          typeof remoteShaOrMap === "string"
+            ? [{ path, mode: "100644", type: "blob", sha: remoteShaOrMap, size: 20 }]
+            : Object.entries(remoteShaOrMap).map(([p, s]) => ({ path: p, mode: "100644", type: "blob", sha: s, size: 20 }));
+        return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "tree_base", truncated: false, tree: treeList } };
       }
       if (params.url.includes("/git/blobs") && params.method === "POST") {
         let sha = localSha;
@@ -179,7 +187,7 @@ describe("C4 W5 Conflict Resolution Reentrancy & Lifecycle (W5-UX-001..010)", ()
     await app.vault.create("Note.md", fileContent);
     const localSha = await calculateRawGitBlobSha(new TextEncoder().encode(fileContent));
 
-    const { client, getCounts } = setupKeepLocalMockClient(localSha);
+    const { client, getCounts } = setupKeepLocalMockClient(localSha, "Note.md", "remote_sha");
     const manager = new ConflictManager(app, settings, client);
 
     const record: ConflictRecord = {
@@ -272,7 +280,7 @@ describe("C4 W5 Conflict Resolution Reentrancy & Lifecycle (W5-UX-001..010)", ()
     await app.vault.create("Note.md", fileContent);
     const localSha = await calculateRawGitBlobSha(new TextEncoder().encode(fileContent));
 
-    const { client } = setupKeepLocalMockClient(localSha);
+    const { client } = setupKeepLocalMockClient(localSha, "Note.md", "remote_sha");
     const manager = new ConflictManager(app, settings, client);
 
     const record: ConflictRecord = {
@@ -305,7 +313,7 @@ describe("C4 W5 Conflict Resolution Reentrancy & Lifecycle (W5-UX-001..010)", ()
     const localSha1 = await calculateRawGitBlobSha(new TextEncoder().encode("# Note 1\n"));
     const localSha2 = await calculateRawGitBlobSha(new TextEncoder().encode("# Note 2\n"));
 
-    const { client } = setupKeepLocalMockClient(localSha1, "Note1.md");
+    const { client } = setupKeepLocalMockClient(localSha1, "Note1.md", { "Note1.md": "remote1", "Note2.md": "remote2" });
     const manager = new ConflictManager(app, settings, client);
 
     const record1: ConflictRecord = {
@@ -571,7 +579,7 @@ describe("C4 W5 Conflict Resolution Reentrancy & Lifecycle (W5-UX-001..010)", ()
     await app.vault.create("Note.md", fileContent);
     const localSha = await calculateRawGitBlobSha(new TextEncoder().encode(fileContent));
 
-    const { client } = setupKeepLocalMockClient(localSha);
+    const { client } = setupKeepLocalMockClient(localSha, "Note.md", "remote");
     const manager = new ConflictManager(app, settings, client);
 
     const record: ConflictRecord = {

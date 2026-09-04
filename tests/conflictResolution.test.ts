@@ -60,7 +60,7 @@ describe("Conflict Resolution Engine (CONFLICT-001..008)", () => {
         return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "tree_new" } };
       }
       if (params.url.includes("/git/trees/")) {
-        return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "tree_expected", truncated: false, tree: [] } };
+        return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "tree_expected", truncated: false, tree: [{ path: "Note.md", mode: "100644", type: "blob", sha: "some_old_remote", size: 20 }] } };
       }
       if (params.url.includes("/git/blobs") && params.method === "POST") {
         return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: localSha } };

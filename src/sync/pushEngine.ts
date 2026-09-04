@@ -25,7 +25,7 @@ import { isCanonicalTextPath, canonicalizeTextBytes } from "./canonicalContent";
 import { isOversized } from "./fileSizePolicy";
 import { calculateCanonicalGitBlobSha, calculateRawGitBlobSha } from "./hashUtils";
 import { isPathExcluded } from "./pathFilter";
-import { detectCaseCollisions } from "./pathSafety";
+import { detectCaseCollisions, validatePathSafety } from "./pathSafety";
 import { classifySyncState } from "./syncClassifier";
 import { StorageManager } from "./storageManager";
 import { SyncProgressCallback } from "./progressTypes";
@@ -50,6 +50,13 @@ export function uint8ArrayToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
+}
+
+export interface AuthorizedConflictResolution {
+  path: string;
+  expectedLocalSha: string;
+  expectedRemoteSha?: string;
+  expectedRemoteCommitSha?: string;
 }
 
 export class PushEngine {
@@ -607,6 +614,294 @@ export class PushEngine {
     }
 
     onProgress?.({ phase: "COMPLETE", completed: 1, total: 1, message: "Push complete." });
+    return report;
+  }
+
+  /**
+   * Narrowly scoped safe push authorized for resolving a single specific conflict note.
+   *
+   * Crucial invariants:
+   * - Does NOT modify or bypass normal PushEngine conflict blocking for other files.
+   * - Revalidates current local file SHA matches reviewed expectedLocalSha (prevents LOCAL RACE).
+   * - Revalidates remote branch HEAD matches reviewed expectedRemoteCommitSha (prevents REMOTE RACE).
+   * - Revalidates remote tree blob SHA matches reviewed expectedRemoteSha (prevents REMOTE RACE).
+   * - Pushes ONLY the single authorized conflict path; no other vault files are mutated on remote.
+   * - Uses force: false to prevent clobbering concurrent remote commits.
+   * - Authoritatively verifies remote ref and tree blob after push before updating baseline.
+   * - Never fakes or modifies baseline state beforehand.
+   */
+  public async executeAuthorizedConflictPush(
+    resolution: AuthorizedConflictResolution,
+    onProgress?: SyncProgressCallback
+  ): Promise<PushExecutionReport> {
+    const report: PushExecutionReport = {
+      timestamp: Date.now(),
+      branch: this.settings.branch,
+      status: "PASS",
+      summaryMessage: "",
+      counts: {
+        pushedCreated: 0,
+        pushedUpdated: 0,
+        unchanged: 0,
+        skippedRemoteOnly: 0,
+        skippedRemoteChanged: 0,
+        skippedConflicts: 0,
+        skippedOversized: 0,
+        skippedUnsafe: 0,
+        failed: 0,
+      },
+      results: [],
+    };
+
+    // 1. Offline preflight check
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      report.status = "ABORTED";
+      report.summaryMessage = "Device is offline. Push aborted before any remote mutation.";
+      return report;
+    }
+
+    // 2. Path safety and exclusion checks
+    const safety = validatePathSafety(resolution.path, this.settings.excludedPaths);
+    if (!safety.valid) {
+      report.status = "FAIL";
+      report.summaryMessage = `Conflict path validation failed: ${safety.reason}`;
+      return report;
+    }
+
+    if (isPathExcluded(resolution.path, this.settings.excludedPaths)) {
+      report.status = "FAIL";
+      report.summaryMessage = `Conflict path is excluded by settings: ${resolution.path}`;
+      return report;
+    }
+
+    // 3. Remote revalidation (Guards against REMOTE RACE)
+    onProgress?.({ phase: "PLANNING", completed: 0, total: 1, message: "Revalidating remote branch..." });
+    let branchInfo;
+    try {
+      branchInfo = await this.githubClient.getBranch(this.settings.branch, true);
+    } catch (branchErr) {
+      const safeMsg = sanitizeErrorMessage(branchErr);
+      report.status = "FAIL";
+      report.summaryMessage = `Failed to fetch remote branch: ${safeMsg}`;
+      return report;
+    }
+
+    const baseCommitSha = branchInfo.commit.sha;
+    report.baseCommitSha = baseCommitSha;
+
+    if (resolution.expectedRemoteCommitSha && baseCommitSha.toLowerCase() !== resolution.expectedRemoteCommitSha.toLowerCase()) {
+      report.status = "ABORTED";
+      report.summaryMessage = `Remote branch changed concurrently since conflict was reviewed (reviewed commit ${resolution.expectedRemoteCommitSha.slice(0, 7)}, current ${baseCommitSha.slice(0, 7)}). Push blocked.`;
+      return report;
+    }
+
+    // Fetch base commit tree
+    let baseTreeResp;
+    try {
+      baseTreeResp = await this.githubClient.getTreeRecursive(baseCommitSha);
+    } catch (treeErr) {
+      const safeMsg = sanitizeErrorMessage(treeErr);
+      report.status = "FAIL";
+      report.summaryMessage = `Failed to fetch base tree: ${safeMsg}`;
+      return report;
+    }
+
+    if (resolution.expectedRemoteSha) {
+      const remoteTreeItem = baseTreeResp.tree.find((item) => item.path === resolution.path);
+      const currentRemoteSha = remoteTreeItem?.sha;
+      if (currentRemoteSha?.toLowerCase() !== resolution.expectedRemoteSha.toLowerCase()) {
+        report.status = "ABORTED";
+        report.summaryMessage = `Remote file changed concurrently since conflict was reviewed (reviewed ${resolution.expectedRemoteSha.slice(0, 7)}, current ${currentRemoteSha ? currentRemoteSha.slice(0, 7) : "missing"}). Push blocked.`;
+        return report;
+      }
+    }
+
+    // 4. Local file revalidation (Guards against LOCAL RACE)
+    const file = this.app.vault.getAbstractFileByPath(resolution.path);
+    if (!file || !(file instanceof TFile)) {
+      report.status = "FAIL";
+      report.summaryMessage = `Local file no longer exists or is not a file: ${resolution.path}. Safe Push aborted.`;
+      return report;
+    }
+
+    let rawBytes: Uint8Array;
+    try {
+      const arrayBuffer = await this.app.vault.readBinary(file);
+      rawBytes = new Uint8Array(arrayBuffer);
+    } catch (err) {
+      report.status = "FAIL";
+      report.summaryMessage = `Failed to read local file ${resolution.path}: ${sanitizeErrorMessage(err)}`;
+      return report;
+    }
+
+    if (isOversized(rawBytes.byteLength)) {
+      report.status = "FAIL";
+      report.summaryMessage = `Conflict file exceeds mobile size limit (25 MiB): ${resolution.path}`;
+      return report;
+    }
+
+    const currentLocalSha = await calculateCanonicalGitBlobSha(rawBytes, resolution.path);
+    if (currentLocalSha.toLowerCase() !== resolution.expectedLocalSha.toLowerCase()) {
+      report.status = "FAIL";
+      report.summaryMessage = `Local file changed concurrently since conflict was reviewed (reviewed ${resolution.expectedLocalSha.slice(0, 7)}, current ${currentLocalSha.slice(0, 7)}). Push blocked to prevent pushing unreviewed changes.`;
+      return report;
+    }
+
+    // 5. Upload blob for the single authorized conflict file
+    onProgress?.({ phase: "UPLOADING", completed: 1, total: 1, currentPath: resolution.path });
+    let bytesToUpload = rawBytes;
+    if (isCanonicalTextPath(resolution.path)) {
+      bytesToUpload = canonicalizeTextBytes(bytesToUpload);
+    }
+    const expectedBlobSha = await calculateRawGitBlobSha(bytesToUpload);
+    const base64Content = uint8ArrayToBase64(bytesToUpload);
+
+    let blobResp;
+    try {
+      blobResp = await this.githubClient.createBlob(base64Content, "base64");
+    } catch (blobErr) {
+      const safeMsg = sanitizeErrorMessage(blobErr);
+      report.status = "FAIL";
+      report.summaryMessage = `Blob upload failed for ${resolution.path}: ${safeMsg}`;
+      return report;
+    }
+
+    if (blobResp.sha.toLowerCase() !== expectedBlobSha.toLowerCase()) {
+      report.status = "FAIL";
+      report.summaryMessage = `Cryptographic SHA mismatch during blob upload for ${resolution.path}. Expected ${expectedBlobSha}, received ${blobResp.sha}.`;
+      return report;
+    }
+
+    // 6. Create Git tree on top of baseTreeResp.sha updating ONLY the authorized path
+    onProgress?.({ phase: "CREATING_TREE", completed: 0, total: 1, message: "Creating Git tree..." });
+    let newTreeResp;
+    const treeItemsToPush: GitHubTreeItemInput[] = [
+      {
+        path: resolution.path,
+        mode: "100644",
+        type: "blob",
+        sha: blobResp.sha,
+      },
+    ];
+
+    try {
+      newTreeResp = await this.githubClient.createTree(treeItemsToPush, baseTreeResp.sha);
+    } catch (treeErr) {
+      const safeMsg = sanitizeErrorMessage(treeErr);
+      report.status = "FAIL";
+      report.summaryMessage = `Tree creation failed: ${safeMsg}`;
+      return report;
+    }
+
+    // 7. Create Single Git commit with parent = verified baseCommitSha
+    onProgress?.({ phase: "CREATING_COMMIT", completed: 0, total: 1, message: "Creating Git commit..." });
+    const commitMsg = `Vault Relay safe conflict resolution: Keep local for ${resolution.path}`;
+    let newCommitResp;
+    try {
+      newCommitResp = await this.githubClient.createCommit(commitMsg, newTreeResp.sha, [baseCommitSha]);
+    } catch (commitErr) {
+      const safeMsg = sanitizeErrorMessage(commitErr);
+      report.status = "FAIL";
+      report.summaryMessage = `Commit creation failed: ${safeMsg}`;
+      return report;
+    }
+
+    const newCommitSha = newCommitResp.sha;
+    report.newCommitSha = newCommitSha;
+
+    // 8. Optimistic Concurrency Ref Update (force: false is MANDATORY)
+    onProgress?.({ phase: "UPDATING_REF", completed: 0, total: 1, message: "Updating remote branch..." });
+    try {
+      await this.githubClient.updateBranchRef(this.settings.branch, newCommitSha, false);
+      console.info(`[Vault Relay:AuthorizedPush] PATCH ref successful: ${newCommitSha}`);
+    } catch (refErr) {
+      const safeMsg = sanitizeErrorMessage(refErr);
+      report.status = "ABORTED";
+      report.summaryMessage = `Optimistic concurrency check aborted ref update (remote branch HEAD was modified during push): ${safeMsg}`;
+      return report;
+    }
+
+    // 9. Authoritative Post-Push Verification
+    try {
+      let verifiedHeadSha: string | undefined;
+      let lastObservedSha: string | undefined;
+      const maxRetries = 3;
+      const delays = [500, 1000, 2000];
+
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        onProgress?.({ phase: "VERIFYING_REMOTE", completed: attempt, total: maxRetries + 1, message: "Verifying remote ref..." });
+        try {
+          const refResp = await this.githubClient.getBranchRef(this.settings.branch);
+          lastObservedSha = refResp.object?.sha;
+          if (refResp.object?.sha?.toLowerCase() === newCommitSha.toLowerCase()) {
+            verifiedHeadSha = refResp.object.sha;
+            break;
+          }
+        } catch {
+          try {
+            const freshBranch = await this.githubClient.getBranch(this.settings.branch, true);
+            lastObservedSha = freshBranch.commit?.sha;
+            if (freshBranch.commit?.sha?.toLowerCase() === newCommitSha.toLowerCase()) {
+              verifiedHeadSha = freshBranch.commit.sha;
+              break;
+            }
+          } catch {
+            // continue bounded retry
+          }
+        }
+
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+        }
+      }
+
+      if (!verifiedHeadSha) {
+        throw new GitHubError(
+          `Authoritative Git branch ref returned (${lastObservedSha || "unknown"}) instead of new commit SHA (${newCommitSha}) after ${maxRetries + 1} verification attempts.`
+        );
+      }
+
+      const freshTree = await this.githubClient.getTreeRecursive(newCommitSha);
+      const verifiedRemoteItem = freshTree.tree.find((i) => i.path === resolution.path && i.type === "blob");
+      if (verifiedRemoteItem?.sha?.toLowerCase() !== blobResp.sha.toLowerCase()) {
+        throw new GitHubError(
+          `Post-push verification failed: Remote tree blob SHA for ${resolution.path} (${verifiedRemoteItem?.sha}) does not match uploaded blob SHA (${blobResp.sha}).`
+        );
+      }
+    } catch (verifyErr) {
+      const safeMsg = sanitizeErrorMessage(verifyErr);
+      report.status = "FAIL";
+      report.summaryMessage = `Post-push verification failed: ${safeMsg}. Baseline was not updated.`;
+      return report;
+    }
+
+    // 10. Advance Local Baseline State ONLY AFTER verified remote success
+    const state = await this.loadState();
+    state.lastSyncedCommitSha = newCommitSha;
+    state.lastSyncedAt = Date.now();
+    state.files[resolution.path] = {
+      localSha: currentLocalSha,
+      remoteSha: blobResp.sha,
+      syncedAt: Date.now(),
+    };
+
+    try {
+      await this.saveState(state);
+    } catch (saveErr) {
+      console.warn("[Vault Relay] Failed to save state.json after authorized conflict push:", saveErr);
+    }
+
+    report.status = "PASS";
+    report.summaryMessage = `Successfully pushed authorized conflict resolution for ${resolution.path}.`;
+    report.results.push({
+      path: resolution.path,
+      action: "PUSH_UPDATE",
+      status: "SUCCESS",
+      localSha: currentLocalSha,
+      remoteBlobSha: blobResp.sha,
+    });
+    report.counts.pushedUpdated = 1;
+    onProgress?.({ phase: "COMPLETE", completed: 1, total: 1, message: "Authorized conflict push complete." });
     return report;
   }
 }
