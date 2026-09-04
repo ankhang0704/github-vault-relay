@@ -1,0 +1,120 @@
+name: Bug Report
+description: Report a synchronization, conflict, or data integrity issue in GitHub Vault Relay
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### ⚠️ SECURITY WARNING: NEVER PASTE YOUR PERSONAL ACCESS TOKEN (PAT)
+        Do **NOT** paste your GitHub Personal Access Token (`github_pat_*`, `ghp_*`), authorization headers, or sensitive vault credentials in this issue. Ensure all logs are sanitized before submitting.
+
+  - type: input
+    id: plugin_version
+    attributes:
+      label: Plugin Version
+      description: What version of GitHub Vault Relay are you running?
+      placeholder: e.g. 0.5.0
+    validations:
+      required: true
+
+  - type: input
+    id: obsidian_version
+    attributes:
+      label: Obsidian Version
+      description: What version of Obsidian are you using?
+      placeholder: e.g. 1.7.7
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Operating System / Platform
+      options:
+        - iOS (iPhone)
+        - iPadOS (iPad)
+        - Android
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: Installation / Update Method
+      options:
+        - Obsidian BRAT
+        - Manual Release Asset (main.js + manifest.json + styles.css)
+        - Developer Build (from source)
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction Steps
+      description: Step-by-step instructions to reproduce the issue.
+      placeholder: |
+        1. Open Sync Dashboard
+        2. Click Sync
+        3. Observe error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: local_content_changed
+    attributes:
+      label: Did local note content change unexpectedly?
+      options:
+        - "No: local notes remained untouched"
+        - "Yes: note content was modified"
+        - "Uncertain"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: remote_content_changed
+    attributes:
+      label: Did remote repository content change unexpectedly?
+      options:
+        - "No: remote GitHub repository was not altered"
+        - "Yes: remote commits/branches were modified"
+        - "Uncertain"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: conflict_status
+    attributes:
+      label: Was a conflict present or reviewed?
+      options:
+        - "No conflicts involved"
+        - "Active conflict was shown in Review Conflicts modal"
+        - "Conflict resolution failed"
+    validations:
+      required: true
+
+  - type: textarea
+    id: sanitized_logs
+    attributes:
+      label: Sanitized Logs / Error Messages
+      description: Paste any error messages from the Obsidian developer console or UI notices. (Remember: zero PATs!).

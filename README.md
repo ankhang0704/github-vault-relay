@@ -159,3 +159,15 @@ Open **Conflict Resolution** (`GitHub Vault Relay: Review Conflicts`) to review 
 - **GitHub API Rate Limits**: Standard GitHub authenticated API rate limits apply.
 - **Repository Size Limit**: Repositories returning truncated Git trees (>100,000 files) are blocked for safety.
 - **Single Repository / Branch**: Multi-repo and multi-branch concurrent sync is not supported.
+
+---
+
+## 📚 Technical Documentation & Resources
+
+- **Security Policy & Disclosures**: [SECURITY.md](SECURITY.md)
+- **System Architecture & Data Flows**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **Project Source of Truth**: [docs/PROJECT_SOURCE_OF_TRUTH.md](docs/PROJECT_SOURCE_OF_TRUTH.md)
+- **Real-Device Acceptance Protocol**: [docs/MANUAL_TEST_MATRIX.md](docs/MANUAL_TEST_MATRIX.md)
+- **Contributing & Development**: [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Changelog**: [CHANGELOG.md](CHANGELOG.md)
+- **Complete Documentation Index**: [docs/README.md](docs/README.md)

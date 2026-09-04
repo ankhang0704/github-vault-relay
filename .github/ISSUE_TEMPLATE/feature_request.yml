@@ -1,0 +1,43 @@
+name: Feature Request
+description: Propose a capability or enhancement for GitHub Vault Relay
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### ⚠️ FEATURE FREEZE NOTICE
+        GitHub Vault Relay is currently in an MVP feature freeze. Background sync, sync-on-save, automated file deletion, and alternative Git hosts are explicit non-goals. Feature requests will be evaluated for post-MVP consideration against our core principle of **data integrity over convenience**.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Description
+      description: What problem or friction does this feature solve?
+      placeholder: I encounter an issue when...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed Solution / Behavior
+      description: Describe the behavior or workflow you would like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: safety_implications
+    attributes:
+      label: Safety & Data Integrity Implications
+      description: How does this proposed change maintain zero silent overwrites, zero force push, and safe conflict handling?
+    validations:
+      required: true
+
+  - type: textarea
+    id: mobile_relevance
+    attributes:
+      label: Mobile Environment Relevance
+      description: How does this feature perform within mobile sandboxes (iOS/Android) without native Git or child processes?
+    validations:
+      required: true
