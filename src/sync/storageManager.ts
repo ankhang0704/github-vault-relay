@@ -17,6 +17,7 @@ import { App, TFile } from "obsidian";
 import { calculateRawGitBlobSha, calculateCanonicalGitBlobSha } from "./hashUtils";
 import { SyncStateData } from "./syncTypes";
 import { createEmptyState, deserializeState, serializeState } from "./syncState";
+import { normalizePath } from "./pathFilter";
 
 export const PLUGIN_ID = "github-vault-relay";
 export const LEGACY_ROOT_DIR = "_vault-relay";
@@ -176,6 +177,139 @@ export class StorageManager {
     }
 
     return targetPath;
+  }
+
+  /**
+   * Safely deletes a specific internal conflict payload file from storage.
+   *
+   * Crucial safety invariants:
+   * - Positively verifies the target path is strictly within the plugin's canonical conflicts dir.
+   * - Prevents path traversal ('..') or deleting files outside conflicts dir.
+   * - Never touches user vault notes or settings.
+   */
+  public static async deleteConflictPayload(app: App, payloadPath: string): Promise<boolean> {
+    if (!payloadPath || typeof payloadPath !== "string") return false;
+    const conflictsDir = normalizePath(this.getConflictsDirPath(app));
+    const target = normalizePath(payloadPath);
+
+    // Safety: strictly ensure the file is within the canonical conflicts directory
+    if (!target.startsWith(`${conflictsDir}/`)) {
+      console.warn(`[Vault Relay] Refusing to delete payload outside canonical conflicts dir: ${payloadPath}`);
+      return false;
+    }
+
+    // Safety: reject path traversal
+    if (target.includes("..")) {
+      console.warn(`[Vault Relay] Refusing to delete path with traversal: ${payloadPath}`);
+      return false;
+    }
+
+    if (await app.vault.adapter.exists(target)) {
+      try {
+        await app.vault.adapter.remove(target);
+        return true;
+      } catch (err) {
+        console.warn(`[Vault Relay] Failed to remove conflict payload ${target}:`, err);
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Crash-safe orphan garbage collection:
+   * Reconciles plugin-owned internal conflicts directory against active conflict records.
+   * Removes any obsolete/orphan payload files left behind by crashes or uncleaned resolutions.
+   *
+   * Safety invariants:
+   * - Only scans ${configDir}/github-vault-relay/conflicts/
+   * - Never touches files outside this canonical directory
+   * - If conflicts_meta.json cannot be parsed or read, preserves files to prevent data loss
+   * - Never deletes any active conflict payload referenced in conflicts_meta.json
+   */
+  public static async cleanOrphanConflictPayloads(
+    app: App
+  ): Promise<{ scanned: number; removed: number; bytesReclaimed: number }> {
+    const conflictsDir = this.getConflictsDirPath(app);
+    if (!(await app.vault.adapter.exists(conflictsDir))) {
+      return { scanned: 0, removed: 0, bytesReclaimed: 0 };
+    }
+
+    const metaPath = this.getConflictsMetaFilePath(app);
+    const activePayloadPaths = new Set<string>();
+
+    if (await app.vault.adapter.exists(metaPath)) {
+      try {
+        const raw = await app.vault.adapter.read(metaPath);
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (item && typeof item.snapshotPath === "string") {
+              activePayloadPaths.add(normalizePath(item.snapshotPath));
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[Vault Relay] Failed to read conflicts metadata during GC; aborting to preserve evidence:", err);
+        return { scanned: 0, removed: 0, bytesReclaimed: 0 };
+      }
+    }
+
+    const canonicalConflictsDir = normalizePath(conflictsDir);
+    const filesToScan: string[] = [];
+    const queue = [conflictsDir];
+
+    while (queue.length > 0) {
+      const currentDir = queue.shift()!;
+      try {
+        const res = await app.vault.adapter.list(currentDir);
+        filesToScan.push(...res.files);
+        queue.push(...res.folders);
+      } catch (listErr) {
+        console.warn(`[Vault Relay] Failed to list conflicts directory ${currentDir}:`, listErr);
+      }
+    }
+
+    let removed = 0;
+    let bytesReclaimed = 0;
+
+    for (const filePath of filesToScan) {
+      const normalized = normalizePath(filePath);
+
+      // Strict containment check: must be inside conflicts directory
+      if (!normalized.startsWith(`${canonicalConflictsDir}/`)) {
+        continue;
+      }
+
+      // Traversal safety
+      if (normalized.includes("..")) {
+        continue;
+      }
+
+      // Protected metadata check
+      if (normalized.endsWith("conflicts_meta.json") || normalized.endsWith("state.json")) {
+        continue;
+      }
+
+      // Check if this payload is referenced by any active conflict record
+      if (!activePayloadPaths.has(normalized)) {
+        try {
+          let size = 0;
+          if (typeof app.vault.adapter.stat === "function") {
+            const stat = await app.vault.adapter.stat(normalized);
+            size = stat?.size || 0;
+          }
+          await app.vault.adapter.remove(normalized);
+          removed++;
+          bytesReclaimed += size;
+          console.info(`[Vault Relay:GC] Reclaimed orphan conflict payload: ${normalized} (${size} bytes)`);
+        } catch (err) {
+          console.warn(`[Vault Relay:GC] Failed to remove orphan conflict payload ${normalized}:`, err);
+        }
+      }
+    }
+
+    return { scanned: filesToScan.length, removed, bytesReclaimed };
   }
 
   /**

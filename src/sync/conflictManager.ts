@@ -159,11 +159,21 @@ export class ConflictManager {
     const unchangedPaths = new Set(
       report.items.filter((i) => i.category === "UNCHANGED").map((i) => i.path)
     );
+    const removedRecords = records.filter((r) => unchangedPaths.has(r.path));
     const remaining = records.filter((r) => !unchangedPaths.has(r.path));
     if (remaining.length !== records.length) {
       records.length = 0;
       records.push(...remaining);
       modified = true;
+
+      for (const rec of removedRecords) {
+        if (rec.snapshotPath) {
+          const isReferencedElsewhere = remaining.some((r) => r.snapshotPath === rec.snapshotPath);
+          if (!isReferencedElsewhere) {
+            await StorageManager.deleteConflictPayload(this.app, rec.snapshotPath);
+          }
+        }
+      }
     }
 
     if (modified) {
@@ -173,12 +183,29 @@ export class ConflictManager {
   }
 
   /**
-   * Removes a conflict record after resolution.
+   * Removes a conflict record after resolution and safely deletes its internal payload file.
    */
   public async removeConflict(path: string): Promise<void> {
     const records = await this.loadConflictRecords();
+    const target = records.find((r) => r.path === path);
     const filtered = records.filter((r) => r.path !== path);
     await this.saveConflictRecords(filtered);
+
+    // If target had a snapshotPath, clean it up if not referenced by any other active record
+    if (target?.snapshotPath) {
+      const isReferencedElsewhere = filtered.some((r) => r.snapshotPath === target.snapshotPath);
+      if (!isReferencedElsewhere) {
+        await StorageManager.deleteConflictPayload(this.app, target.snapshotPath);
+      }
+    }
+  }
+
+  /**
+   * Reconciles internal conflict storage, removing any orphan payload files
+   * that are not referenced by any active conflict record in conflicts_meta.json.
+   */
+  public async reconcileOrphanPayloads(): Promise<{ scanned: number; removed: number; bytesReclaimed: number }> {
+    return await StorageManager.cleanOrphanConflictPayloads(this.app);
   }
 
   /**

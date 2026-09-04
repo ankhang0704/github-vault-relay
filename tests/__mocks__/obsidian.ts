@@ -94,6 +94,7 @@ export interface MockVault {
     remove: (path: string) => Promise<void>;
     rmdir: (path: string, recursive?: boolean) => Promise<void>;
     list: (path: string) => Promise<{ files: string[]; folders: string[] }>;
+    stat?: (path: string) => Promise<{ mtime: number; ctime: number; size: number } | null>;
   };
   configDir?: string;
   delete: (file: TFile | TFolder) => Promise<void>;
@@ -300,6 +301,13 @@ export class App {
             }
           }
           return { files, folders: Array.from(folders) };
+        },
+        stat: async (path: string) => {
+          const entry = filesMap.get(path);
+          if (entry) {
+            return { mtime: entry.mtime, ctime: entry.mtime, size: entry.content.byteLength };
+          }
+          return null;
         },
       },
     };
