@@ -209,7 +209,11 @@ describe("C4 Conflict Internal Storage Lifecycle & Garbage Collection (GC-001..0
     const remoteBytes = new TextEncoder().encode(remoteContent);
     const remoteSha = await calculateRawGitBlobSha(remoteBytes);
 
-    const client = createMockClient({ remoteBlobBytes: remoteBytes, remoteBlobSha: remoteSha });
+    const client = createMockClient({
+      remoteBlobBytes: remoteBytes,
+      remoteBlobSha: remoteSha,
+      localFilePath: "Notes/RemoteWins.md",
+    });
     const manager = new ConflictManager(app, settings, client);
 
     const payloadPath = await StorageManager.saveConflictPayload(app, "Notes/RemoteWins.md", remoteContent);
@@ -251,7 +255,11 @@ describe("C4 Conflict Internal Storage Lifecycle & Garbage Collection (GC-001..0
     const remoteBytes = new TextEncoder().encode(remoteContent);
     const remoteSha = await calculateRawGitBlobSha(remoteBytes);
 
-    const client = createMockClient({ remoteBlobBytes: remoteBytes, remoteBlobSha: remoteSha });
+    const client = createMockClient({
+      remoteBlobBytes: remoteBytes,
+      remoteBlobSha: remoteSha,
+      localFilePath: "Notes/Both.md",
+    });
     const manager = new ConflictManager(app, settings, client);
 
     const payloadPath = await StorageManager.saveConflictPayload(app, "Notes/Both.md", remoteContent);

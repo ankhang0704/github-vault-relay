@@ -182,7 +182,9 @@ export class GitHubClient {
     }
 
     let attempt = 0;
-    const maxAttempts = 3;
+    // Read requests are safe to retry. Git mutations are not retried because a lost
+    // response is ambiguous: GitHub may already have accepted the operation.
+    const maxAttempts = method === "GET" ? 3 : 1;
 
     while (attempt < maxAttempts) {
       attempt++;

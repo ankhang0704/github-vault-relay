@@ -47,6 +47,7 @@ export class ConflictResolutionModal extends Modal {
 
   public async onOpen(): Promise<void> {
     this._isOpen = true;
+    this.modalEl.addClass("vault-relay-modal");
     this.modalEl.addClass("vault-relay-conflict-modal");
     this.modalEl.style.maxWidth = "700px";
     this.modalEl.style.width = "92vw";
@@ -130,12 +131,10 @@ export class ConflictResolutionModal extends Modal {
     });
     header.setText(conflict.path);
 
-    const meta = card.createDiv({
-      attr: { style: "font-size: 0.8em; color: var(--text-muted); margin-bottom: 10px; font-family: var(--font-monospace);" },
+    card.createDiv({
+      text: "Both versions are preserved until you choose an action.",
+      attr: { style: "font-size: 0.8em; color: var(--text-muted); margin-bottom: 10px;" },
     });
-    const localTrunc = (conflict.localSha || "").substring(0, 7);
-    const remoteTrunc = (conflict.remoteSha || "").substring(0, 7);
-    meta.setText(`Local SHA: ${localTrunc} | Remote SHA: ${remoteTrunc}`);
 
     // Status / Progress indicator area
     const statusDiv = card.createDiv({

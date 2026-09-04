@@ -467,6 +467,28 @@ describe("C4 W5 Conflict Resolution Reentrancy & Lifecycle (W5-UX-001..010)", ()
       repo: "notes",
       branch: "main",
       requestFn: vi.fn(async (params: { url: string }) => {
+        if (params.url.includes("/branches/main")) {
+          return {
+            status: 200,
+            headers: {},
+            text: "",
+            arrayBuffer: new ArrayBuffer(0),
+            json: { name: "main", commit: { sha: "commit_base" } },
+          };
+        }
+        if (params.url.includes("/git/trees/")) {
+          return {
+            status: 200,
+            headers: {},
+            text: "",
+            arrayBuffer: new ArrayBuffer(0),
+            json: {
+              sha: "tree_base",
+              truncated: false,
+              tree: [{ path: "Note.md", mode: "100644", type: "blob", sha: remoteSha }],
+            },
+          };
+        }
         if (params.url.includes("/git/blobs/" + remoteSha)) {
           fetchCount++;
           return {
@@ -492,6 +514,7 @@ describe("C4 W5 Conflict Resolution Reentrancy & Lifecycle (W5-UX-001..010)", ()
       path: "Note.md",
       localSha,
       remoteSha,
+      remoteCommitSha: "commit_base",
       detectedAt: Date.now(),
     };
     await manager.saveConflictRecords([record]);
@@ -528,6 +551,28 @@ describe("C4 W5 Conflict Resolution Reentrancy & Lifecycle (W5-UX-001..010)", ()
       repo: "notes",
       branch: "main",
       requestFn: vi.fn(async (params: { url: string }) => {
+        if (params.url.includes("/branches/main")) {
+          return {
+            status: 200,
+            headers: {},
+            text: "",
+            arrayBuffer: new ArrayBuffer(0),
+            json: { name: "main", commit: { sha: "commit_base" } },
+          };
+        }
+        if (params.url.includes("/git/trees/")) {
+          return {
+            status: 200,
+            headers: {},
+            text: "",
+            arrayBuffer: new ArrayBuffer(0),
+            json: {
+              sha: "tree_base",
+              truncated: false,
+              tree: [{ path: "Note.md", mode: "100644", type: "blob", sha: remoteSha }],
+            },
+          };
+        }
         if (params.url.includes("/git/blobs/" + remoteSha)) {
           blobFetchCount++;
           return {
@@ -553,6 +598,7 @@ describe("C4 W5 Conflict Resolution Reentrancy & Lifecycle (W5-UX-001..010)", ()
       path: "Note.md",
       localSha,
       remoteSha,
+      remoteCommitSha: "commit_base",
       detectedAt: Date.now(),
     };
     await manager.saveConflictRecords([record]);

@@ -14,6 +14,14 @@ import { StorageManager } from "./storageManager";
 import { calculateCanonicalGitBlobSha } from "./hashUtils";
 import { PushEngine } from "./pushEngine";
 import { SyncPreviewReport } from "./syncTypes";
+import { sanitizeErrorMessage } from "../security/redact";
+import { prepareContentBytesForPath } from "./canonicalContent";
+import { validatePathSafety } from "./pathSafety";
+import {
+  acquireMutationLease,
+  getActiveMutationLabel,
+  releaseMutationLease,
+} from "./mutationCoordinator";
 
 export interface ConflictRecord {
   id: string;
@@ -43,6 +51,40 @@ export class ConflictManager {
     return this.inFlightResolutions.has(path);
   }
 
+  private markResolved(id: string | undefined): void {
+    if (!id) return;
+    this.resolvedRecordIds.add(id);
+    while (this.resolvedRecordIds.size > 256) {
+      const oldest = this.resolvedRecordIds.values().next().value as string | undefined;
+      if (!oldest) break;
+      this.resolvedRecordIds.delete(oldest);
+    }
+  }
+
+  private async revalidateRemoteRecord(record: ConflictRecord): Promise<string | undefined> {
+    try {
+      const branch = await this.githubClient.getBranch(this.settings.branch, true);
+      if (
+        record.remoteCommitSha &&
+        branch.commit.sha.toLowerCase() !== record.remoteCommitSha.toLowerCase()
+      ) {
+        return "Remote branch changed since this conflict was reviewed. Refresh conflicts before resolving.";
+      }
+
+      const tree = await this.githubClient.getTreeRecursive(branch.commit.sha);
+      if (tree.truncated) {
+        return "Remote tree is truncated. Conflict resolution is blocked for safety.";
+      }
+      const remote = tree.tree.find((item) => item.type === "blob" && item.path === record.path);
+      if (!remote || remote.sha.toLowerCase() !== record.remoteSha.toLowerCase()) {
+        return "Remote file changed since this conflict was reviewed. Refresh conflicts before resolving.";
+      }
+      return undefined;
+    } catch (err) {
+      return `Could not revalidate the remote file: ${sanitizeErrorMessage(err)}`;
+    }
+  }
+
   private getMetadataPath(): string {
     return `${StorageManager.getPluginStorageDir(this.app)}/conflicts_meta.json`;
   }
@@ -51,13 +93,17 @@ export class ConflictManager {
    * Loads all active conflict records from internal storage.
    */
   public async loadConflictRecords(): Promise<ConflictRecord[]> {
+    await StorageManager.recoverAtomicStorage(this.app);
     const metaPath = this.getMetadataPath();
     if (await this.app.vault.adapter.exists(metaPath)) {
       try {
         const raw = await this.app.vault.adapter.read(metaPath);
-        return JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) throw new Error("Conflict metadata is not an array.");
+        return parsed;
       } catch (err) {
         console.warn("[Vault Relay] Failed to read conflicts metadata:", err);
+        throw new Error("Conflict metadata is unreadable. Existing conflict evidence was preserved.");
       }
     }
     return [];
@@ -67,12 +113,7 @@ export class ConflictManager {
    * Saves conflict records to internal storage.
    */
   public async saveConflictRecords(records: ConflictRecord[]): Promise<void> {
-    const metaPath = this.getMetadataPath();
-    const dir = StorageManager.getPluginStorageDir(this.app);
-    if (!(await this.app.vault.adapter.exists(dir))) {
-      await this.app.vault.adapter.mkdir(dir);
-    }
-    await this.app.vault.adapter.write(metaPath, JSON.stringify(records, null, 2));
+    await StorageManager.saveConflictRecords(this.app, records);
   }
 
   /**
@@ -228,19 +269,31 @@ export class ConflictManager {
       };
     }
 
+    const mutationLease = acquireMutationLease(this.app, "Keep Local conflict resolution");
+    if (!mutationLease) {
+      return {
+        success: false,
+        message: `Another vault mutation is already in progress (${getActiveMutationLabel(this.app) || "unknown operation"}).`,
+      };
+    }
+
     this.inFlightResolutions.add(record.path);
     try {
       const pushEngine = new PushEngine(this.app, this.settings, this.githubClient);
-      const report = await pushEngine.executeAuthorizedConflictPush({
-        path: record.path,
-        expectedLocalSha: record.localSha,
-        expectedRemoteSha: record.remoteSha,
-        expectedRemoteCommitSha: record.remoteCommitSha,
-      });
+      const report = await pushEngine.executeAuthorizedConflictPush(
+        {
+          path: record.path,
+          expectedLocalSha: record.localSha,
+          expectedRemoteSha: record.remoteSha,
+          expectedRemoteCommitSha: record.remoteCommitSha,
+        },
+        undefined,
+        mutationLease
+      );
 
       if (report.status === "PASS") {
-        if (record.id) this.resolvedRecordIds.add(record.id);
         await this.removeConflict(record.path);
+        this.markResolved(record.id);
         return { success: true, message: `Successfully pushed local version for ${record.path}.` };
       }
 
@@ -250,6 +303,7 @@ export class ConflictManager {
       };
     } finally {
       this.inFlightResolutions.delete(record.path);
+      releaseMutationLease(mutationLease);
     }
   }
 
@@ -272,44 +326,122 @@ export class ConflictManager {
       };
     }
 
+    const mutationLease = acquireMutationLease(this.app, "Use Remote conflict resolution");
+    if (!mutationLease) {
+      return {
+        success: false,
+        message: `Another vault mutation is already in progress (${getActiveMutationLabel(this.app) || "unknown operation"}).`,
+      };
+    }
+
     this.inFlightResolutions.add(record.path);
     try {
+      const safety = validatePathSafety(record.path, this.settings.excludedPaths);
+      if (!safety.valid) {
+        return { success: false, message: `Conflict path is unsafe: ${safety.reason}` };
+      }
       const file = this.app.vault.getAbstractFileByPath(record.path);
-      if (file instanceof TFile) {
-        const currentBytes = await this.app.vault.readBinary(file);
-        const currentLocalSha = await calculateCanonicalGitBlobSha(currentBytes, file.path);
-        if (currentLocalSha.toLowerCase() !== record.localSha.toLowerCase()) {
-          return {
-            success: false,
-            message: "Local file was modified since conflict was reviewed. Aborted to prevent data loss.",
-          };
-        }
+      if (!(file instanceof TFile)) {
+        return {
+          success: false,
+          message: "Local file was removed since conflict was reviewed. Aborted to prevent data loss.",
+        };
+      }
+      const currentBytes = await this.app.vault.readBinary(file);
+      const currentLocalSha = await calculateCanonicalGitBlobSha(currentBytes, file.path);
+      if (currentLocalSha.toLowerCase() !== record.localSha.toLowerCase()) {
+        return {
+          success: false,
+          message: "Local file was modified since conflict was reviewed. Aborted to prevent data loss.",
+        };
+      }
+
+      const staleRemoteMessage = await this.revalidateRemoteRecord(record);
+      if (staleRemoteMessage) {
+        return { success: false, message: staleRemoteMessage };
       }
 
       // Fetch remote blob using verified getRawBlobBytes (integrity + 25 MiB ceiling checked)
-      const bytes = await this.githubClient.getRawBlobBytes(record.remoteSha);
+      const remoteBytes = await this.githubClient.getRawBlobBytes(record.remoteSha);
+      const bytes = prepareContentBytesForPath(remoteBytes, record.path);
+      const expectedLocalSha = await calculateCanonicalGitBlobSha(bytes, record.path);
+      const recoveryJournal = await StorageManager.beginPullWriteRecovery(
+        this.app,
+        record.path,
+        expectedLocalSha,
+        record.remoteSha,
+        currentBytes
+      );
 
-      // Overwrite local file
-      if (file instanceof TFile) {
+      try {
         await this.app.vault.modifyBinary(file, bytes.buffer as ArrayBuffer);
-      } else {
-        await this.app.vault.createBinary(record.path, bytes.buffer as ArrayBuffer);
+        const verifiedFile = this.app.vault.getAbstractFileByPath(record.path);
+        if (!(verifiedFile instanceof TFile)) throw new Error("Local file is missing after write.");
+        const verifiedSha = await calculateCanonicalGitBlobSha(
+          await this.app.vault.readBinary(verifiedFile),
+          record.path
+        );
+        if (verifiedSha !== expectedLocalSha) {
+          throw new Error("Post-write verification failed for the remote conflict resolution.");
+        }
+      } catch (err) {
+        try {
+          const rollbackTarget = this.app.vault.getAbstractFileByPath(record.path);
+          if (rollbackTarget instanceof TFile) {
+            await this.app.vault.modifyBinary(rollbackTarget, currentBytes);
+            const rollbackSha = await calculateCanonicalGitBlobSha(
+              await this.app.vault.readBinary(rollbackTarget),
+              record.path
+            );
+            if (rollbackSha === currentLocalSha) {
+              await StorageManager.completePullWriteRecovery(this.app, recoveryJournal);
+            }
+          }
+        } catch {
+          // Preserve the recovery journal and verified backup for startup recovery.
+        }
+        throw err;
       }
 
       // Update baseline in state
       const state = await StorageManager.loadState(this.app);
       state.files[record.path] = {
-        localSha: record.remoteSha,
+        localSha: expectedLocalSha,
         remoteSha: record.remoteSha,
         syncedAt: Date.now(),
       };
-      await StorageManager.saveState(this.app, state);
+      try {
+        await StorageManager.saveState(this.app, state);
+      } catch (err) {
+        try {
+          const rollbackTarget = this.app.vault.getAbstractFileByPath(record.path);
+          if (rollbackTarget instanceof TFile) {
+            await this.app.vault.modifyBinary(rollbackTarget, currentBytes);
+            const rollbackSha = await calculateCanonicalGitBlobSha(
+              await this.app.vault.readBinary(rollbackTarget),
+              record.path
+            );
+            if (rollbackSha === currentLocalSha) {
+              await StorageManager.completePullWriteRecovery(this.app, recoveryJournal);
+            }
+          }
+        } catch {
+          // Preserve the recovery journal and verified backup for startup recovery.
+        }
+        throw err;
+      }
 
-      if (record.id) this.resolvedRecordIds.add(record.id);
       await this.removeConflict(record.path);
+      this.markResolved(record.id);
+      try {
+        await StorageManager.completePullWriteRecovery(this.app, recoveryJournal);
+      } catch (cleanupErr) {
+        console.warn("[Vault Relay] Deferred conflict recovery cleanup:", cleanupErr);
+      }
       return { success: true, message: `Local file updated to remote version for ${record.path}.` };
     } finally {
       this.inFlightResolutions.delete(record.path);
+      releaseMutationLease(mutationLease);
     }
   }
 
@@ -331,13 +463,47 @@ export class ConflictManager {
       };
     }
 
+    const mutationLease = acquireMutationLease(this.app, "Keep Both conflict resolution");
+    if (!mutationLease) {
+      return {
+        success: false,
+        message: `Another vault mutation is already in progress (${getActiveMutationLabel(this.app) || "unknown operation"}).`,
+      };
+    }
+
     this.inFlightResolutions.add(record.path);
     try {
+      const safety = validatePathSafety(record.path, this.settings.excludedPaths);
+      if (!safety.valid) {
+        return { success: false, message: `Conflict path is unsafe: ${safety.reason}` };
+      }
+      const file = this.app.vault.getAbstractFileByPath(record.path);
+      if (!(file instanceof TFile)) {
+        return {
+          success: false,
+          message: "Local file was removed since conflict was reviewed. Refresh conflicts before resolving.",
+        };
+      }
+      const currentBytes = await this.app.vault.readBinary(file);
+      const currentLocalSha = await calculateCanonicalGitBlobSha(currentBytes, record.path);
+      if (currentLocalSha.toLowerCase() !== record.localSha.toLowerCase()) {
+        return {
+          success: false,
+          message: "Local file was modified since conflict was reviewed. Refresh conflicts before resolving.",
+        };
+      }
+
+      const staleRemoteMessage = await this.revalidateRemoteRecord(record);
+      if (staleRemoteMessage) {
+        return { success: false, message: staleRemoteMessage };
+      }
+
       // Fetch remote blob using verified getRawBlobBytes (integrity + 25 MiB ceiling checked)
-      const bytes = await this.githubClient.getRawBlobBytes(record.remoteSha);
+      const remoteBytes = await this.githubClient.getRawBlobBytes(record.remoteSha);
+      const bytes = prepareContentBytesForPath(remoteBytes, record.path);
 
       // Generate deterministic collision-safe second filename
-      const now = new Date();
+      const now = new Date(record.detectedAt);
       const pad = (n: number) => String(n).padStart(2, "0");
       const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
 
@@ -347,26 +513,47 @@ export class ConflictManager {
 
       let copyPath = `${base} (remote conflict ${dateStr})${ext}`;
       let suffix = 1;
+      let copyAlreadyExists = false;
       while (this.app.vault.getAbstractFileByPath(copyPath)) {
+        const existing = this.app.vault.getAbstractFileByPath(copyPath);
+        if (existing instanceof TFile) {
+          const existingBytes = new Uint8Array(await this.app.vault.readBinary(existing));
+          if (
+            existingBytes.byteLength === bytes.byteLength &&
+            existingBytes.every((byte, index) => byte === bytes[index])
+          ) {
+            copyAlreadyExists = true;
+            break;
+          }
+        }
         copyPath = `${base} (remote conflict ${dateStr}_${suffix})${ext}`;
         suffix++;
       }
 
-      await this.app.vault.createBinary(copyPath, bytes.buffer as ArrayBuffer);
+      if (!copyAlreadyExists) {
+        await this.app.vault.createBinary(copyPath, bytes.buffer as ArrayBuffer);
+      }
+      const verifiedCopy = this.app.vault.getAbstractFileByPath(copyPath);
+      if (!(verifiedCopy instanceof TFile)) throw new Error("Remote conflict copy is missing after write.");
+      const verifiedBytes = new Uint8Array(await this.app.vault.readBinary(verifiedCopy));
+      if (
+        verifiedBytes.byteLength !== bytes.byteLength ||
+        !verifiedBytes.every((byte, index) => byte === bytes[index])
+      ) {
+        throw new Error("Post-write verification failed for the remote conflict copy.");
+      }
 
       // Update baseline state for local note
       const state = await StorageManager.loadState(this.app);
-      if (!state.files[record.path]) {
-        state.files[record.path] = {
-          localSha: record.localSha,
-          remoteSha: record.localSha,
-          syncedAt: Date.now(),
-        };
-        await StorageManager.saveState(this.app, state);
-      }
+      state.files[record.path] = {
+        localSha: currentLocalSha,
+        remoteSha: record.remoteSha,
+        syncedAt: Date.now(),
+      };
+      await StorageManager.saveState(this.app, state);
 
-      if (record.id) this.resolvedRecordIds.add(record.id);
       await this.removeConflict(record.path);
+      this.markResolved(record.id);
       return {
         success: true,
         message: `Preserved both versions. Remote copy saved to: ${copyPath}`,
@@ -374,6 +561,7 @@ export class ConflictManager {
       };
     } finally {
       this.inFlightResolutions.delete(record.path);
+      releaseMutationLease(mutationLease);
     }
   }
 }

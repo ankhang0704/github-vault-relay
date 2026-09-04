@@ -18,13 +18,120 @@ import { calculateRawGitBlobSha, calculateCanonicalGitBlobSha } from "./hashUtil
 import { SyncStateData } from "./syncTypes";
 import { createEmptyState, deserializeState, serializeState } from "./syncState";
 import { normalizePath } from "./pathFilter";
+import { validatePathSafety } from "./pathSafety";
 
 export const PLUGIN_ID = "github-vault-relay";
 export const LEGACY_ROOT_DIR = "_vault-relay";
 export const LEGACY_STATE_FILE = "_vault-relay/state.json";
 export const LEGACY_CONFLICTS_DIR = "_vault-relay/conflicts";
 
+interface PullWriteRecoveryRecord {
+  version: 1;
+  path: string;
+  expectedLocalSha: string;
+  remoteSha: string;
+  originalLocalSha?: string;
+  backupPath?: string;
+  createdAt: number;
+}
+
+let recoverySequence = 0;
+
 export class StorageManager {
+  private static isStateValue(value: unknown): boolean {
+    if (!value || typeof value !== "object") return false;
+    const state = value as { version?: unknown; files?: unknown };
+    return typeof state.version === "number" && !!state.files && typeof state.files === "object";
+  }
+
+  private static async isValidJsonFile(
+    app: App,
+    path: string,
+    validator: (value: unknown) => boolean
+  ): Promise<boolean> {
+    if (!(await app.vault.adapter.exists(path))) return false;
+    try {
+      return validator(JSON.parse(await app.vault.adapter.read(path)));
+    } catch {
+      return false;
+    }
+  }
+
+  private static async recoverAtomicJsonFile(
+    app: App,
+    path: string,
+    validator: (value: unknown) => boolean
+  ): Promise<void> {
+    const tempPath = `${path}.tmp`;
+    const backupPath = `${path}.bak`;
+    const targetValid = await this.isValidJsonFile(app, path, validator);
+
+    if (targetValid) {
+      if (await app.vault.adapter.exists(tempPath)) await app.vault.adapter.remove(tempPath);
+      if (await app.vault.adapter.exists(backupPath)) await app.vault.adapter.remove(backupPath);
+      return;
+    }
+
+    const backupValid = await this.isValidJsonFile(app, backupPath, validator);
+    const tempValid = await this.isValidJsonFile(app, tempPath, validator);
+    const recoveryPath = backupValid ? backupPath : tempValid ? tempPath : undefined;
+    if (!recoveryPath) return;
+
+    if (await app.vault.adapter.exists(path)) await app.vault.adapter.remove(path);
+    await app.vault.adapter.rename(recoveryPath, path);
+    if (await app.vault.adapter.exists(tempPath)) await app.vault.adapter.remove(tempPath);
+    if (await app.vault.adapter.exists(backupPath)) await app.vault.adapter.remove(backupPath);
+  }
+
+  private static async writeAtomicJson(
+    app: App,
+    path: string,
+    content: string,
+    validator: (value: unknown) => boolean
+  ): Promise<void> {
+    const tempPath = `${path}.tmp`;
+    const backupPath = `${path}.bak`;
+    await this.recoverAtomicJsonFile(app, path, validator);
+
+    await app.vault.adapter.write(tempPath, content);
+    const tempContent = await app.vault.adapter.read(tempPath);
+    if (tempContent !== content || !validator(JSON.parse(tempContent))) {
+      throw new Error(`Verification failed while staging ${path}.`);
+    }
+
+    const hadTarget = await app.vault.adapter.exists(path);
+    if (hadTarget) await app.vault.adapter.rename(path, backupPath);
+    try {
+      await app.vault.adapter.rename(tempPath, path);
+      if (!(await this.isValidJsonFile(app, path, validator))) {
+        throw new Error(`Verification failed after replacing ${path}.`);
+      }
+      if (await app.vault.adapter.exists(backupPath)) {
+        try {
+          await app.vault.adapter.remove(backupPath);
+        } catch (cleanupErr) {
+          console.warn(`[Vault Relay] Deferred cleanup of atomic backup ${backupPath}:`, cleanupErr);
+        }
+      }
+    } catch (err) {
+      const backupExists = await app.vault.adapter.exists(backupPath);
+      const targetExists = await app.vault.adapter.exists(path);
+      const targetValid = targetExists && (await this.isValidJsonFile(app, path, validator));
+      if (backupExists && !targetValid) {
+        if (targetExists) await app.vault.adapter.remove(path);
+        await app.vault.adapter.rename(backupPath, path);
+      }
+      throw err;
+    }
+  }
+
+  public static async recoverAtomicStorage(app: App): Promise<void> {
+    const isConflictMetadata = (value: unknown): boolean => Array.isArray(value);
+
+    await this.recoverAtomicJsonFile(app, this.getStateFilePath(app), this.isStateValue);
+    await this.recoverAtomicJsonFile(app, this.getConflictsMetaFilePath(app), isConflictMetadata);
+  }
+
   /**
    * Returns the canonical internal plugin storage directory path.
    * Example: .obsidian/github-vault-relay
@@ -79,17 +186,190 @@ export class StorageManager {
     return `${this.getPluginStorageDir(app)}/conflicts_meta.json`;
   }
 
+  public static getPullRecoveryDirPath(app: App): string {
+    return `${this.getPluginStorageDir(app)}/pull-recovery`;
+  }
+
+  public static async beginPullWriteRecovery(
+    app: App,
+    path: string,
+    expectedLocalSha: string,
+    remoteSha: string,
+    originalBytes?: ArrayBuffer
+  ): Promise<string> {
+    const recoveryDir = this.getPullRecoveryDirPath(app);
+    if (!(await app.vault.adapter.exists(recoveryDir))) await app.vault.adapter.mkdir(recoveryDir);
+
+    recoverySequence++;
+    const id = `${Date.now()}_${recoverySequence}_${path.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const journalPath = `${recoveryDir}/${id}.json`;
+    let backupPath: string | undefined;
+    let originalLocalSha: string | undefined;
+
+    if (originalBytes) {
+      backupPath = `${recoveryDir}/${id}.bin`;
+      originalLocalSha = await calculateCanonicalGitBlobSha(originalBytes, path);
+      await app.vault.adapter.writeBinary(backupPath, originalBytes);
+      const verifiedBackup = await app.vault.adapter.readBinary(backupPath);
+      const verifiedSha = await calculateCanonicalGitBlobSha(verifiedBackup, path);
+      if (verifiedSha !== originalLocalSha) {
+        throw new Error(`Could not verify local recovery backup for ${path}.`);
+      }
+    }
+
+    const record: PullWriteRecoveryRecord = {
+      version: 1,
+      path,
+      expectedLocalSha,
+      remoteSha,
+      originalLocalSha,
+      backupPath,
+      createdAt: Date.now(),
+    };
+    await this.writeAtomicJson(app, journalPath, JSON.stringify(record, null, 2), (value) => {
+      if (!value || typeof value !== "object") return false;
+      const parsed = value as Partial<PullWriteRecoveryRecord>;
+      return (
+        parsed.version === 1 &&
+        typeof parsed.path === "string" &&
+        typeof parsed.expectedLocalSha === "string" &&
+        typeof parsed.remoteSha === "string"
+      );
+    });
+    return journalPath;
+  }
+
+  public static async completePullWriteRecovery(app: App, journalPath: string): Promise<void> {
+    const recoveryDir = normalizePath(this.getPullRecoveryDirPath(app));
+    const normalizedJournal = normalizePath(journalPath);
+    if (!normalizedJournal.startsWith(`${recoveryDir}/`) || normalizedJournal.includes("..")) return;
+
+    let backupPath: string | undefined;
+    if (await app.vault.adapter.exists(normalizedJournal)) {
+      try {
+        const record = JSON.parse(await app.vault.adapter.read(normalizedJournal)) as PullWriteRecoveryRecord;
+        backupPath = record.backupPath;
+      } catch {
+        return;
+      }
+    }
+    await app.vault.adapter.remove(normalizedJournal);
+    if (backupPath && normalizePath(backupPath).startsWith(`${recoveryDir}/`) && (await app.vault.adapter.exists(backupPath))) {
+      await app.vault.adapter.remove(backupPath);
+    }
+    for (const suffix of [".tmp", ".bak"]) {
+      const artifact = `${normalizedJournal}${suffix}`;
+      if (await app.vault.adapter.exists(artifact)) await app.vault.adapter.remove(artifact);
+    }
+  }
+
+  public static async recoverInterruptedPullWrites(
+    app: App
+  ): Promise<{ scanned: number; completed: number; rolledBack: number; preserved: number }> {
+    const recoveryDir = this.getPullRecoveryDirPath(app);
+    if (!(await app.vault.adapter.exists(recoveryDir))) {
+      return { scanned: 0, completed: 0, rolledBack: 0, preserved: 0 };
+    }
+
+    const listing = await app.vault.adapter.list(recoveryDir);
+    const journalPaths = listing.files.filter((path) => path.endsWith(".json"));
+    const state = await this.loadState(app);
+    const cleanupAfterStateSave: string[] = [];
+    const cleanupImmediately: string[] = [];
+    let stateModified = false;
+    let completed = 0;
+    let rolledBack = 0;
+    let preserved = 0;
+
+    for (const journalPath of journalPaths) {
+      try {
+        const record = JSON.parse(await app.vault.adapter.read(journalPath)) as PullWriteRecoveryRecord;
+        const safePath = validatePathSafety(record.path);
+        if (record.version !== 1 || !safePath.valid || typeof record.remoteSha !== "string") {
+          throw new Error("Invalid recovery journal.");
+        }
+
+        const current = app.vault.getAbstractFileByPath(record.path);
+        if (current instanceof TFile) {
+          const currentBytes = await app.vault.readBinary(current);
+          const currentSha = await calculateCanonicalGitBlobSha(currentBytes, record.path);
+          if (currentSha === record.expectedLocalSha) {
+            state.files[record.path] = {
+              localSha: record.expectedLocalSha,
+              remoteSha: record.remoteSha,
+              syncedAt: Date.now(),
+            };
+            stateModified = true;
+            completed++;
+            cleanupAfterStateSave.push(journalPath);
+            continue;
+          }
+        }
+
+        if (!record.backupPath || !record.originalLocalSha) {
+          preserved++;
+          cleanupImmediately.push(journalPath);
+          continue;
+        }
+        const normalizedBackup = normalizePath(record.backupPath);
+        const normalizedRecoveryDir = normalizePath(recoveryDir);
+        if (!normalizedBackup.startsWith(`${normalizedRecoveryDir}/`) || normalizedBackup.includes("..")) {
+          throw new Error("Invalid recovery backup path.");
+        }
+
+        const backup = await app.vault.adapter.readBinary(normalizedBackup);
+        const backupSha = await calculateCanonicalGitBlobSha(backup, record.path);
+        if (backupSha !== record.originalLocalSha) throw new Error("Recovery backup hash mismatch.");
+
+        const target = app.vault.getAbstractFileByPath(record.path);
+        if (target instanceof TFile) {
+          await app.vault.modifyBinary(target, backup);
+        } else {
+          await app.vault.createBinary(record.path, backup);
+        }
+        const restored = app.vault.getAbstractFileByPath(record.path);
+        if (!(restored instanceof TFile)) throw new Error("Recovered file is missing.");
+        const restoredSha = await calculateCanonicalGitBlobSha(await app.vault.readBinary(restored), record.path);
+        if (restoredSha !== record.originalLocalSha) throw new Error("Recovered file hash mismatch.");
+        rolledBack++;
+        cleanupImmediately.push(journalPath);
+      } catch (err) {
+        preserved++;
+        console.warn(`[Vault Relay] Preserving interrupted Pull evidence ${journalPath}:`, err);
+      }
+    }
+
+    if (stateModified) await this.saveState(app, state);
+    for (const journalPath of [...cleanupImmediately, ...cleanupAfterStateSave]) {
+      await this.completePullWriteRecovery(app, journalPath);
+    }
+
+    const remaining = await app.vault.adapter.list(recoveryDir);
+    for (const artifact of remaining.files) {
+      let journalPath: string | undefined;
+      if (artifact.endsWith(".bin")) journalPath = `${artifact.slice(0, -4)}.json`;
+      if (artifact.endsWith(".json.tmp")) journalPath = artifact.slice(0, -4);
+      if (artifact.endsWith(".json.bak")) journalPath = artifact.slice(0, -4);
+      if (journalPath && !(await app.vault.adapter.exists(journalPath))) {
+        await app.vault.adapter.remove(artifact);
+      }
+    }
+    return { scanned: journalPaths.length, completed, rolledBack, preserved };
+  }
+
   /**
    * Loads sync state from internal storage, falling back gracefully to intermediate
    * or legacy paths if not yet migrated.
    */
   public static async loadState(app: App): Promise<SyncStateData> {
     const canonicalPath = this.getStateFilePath(app);
+    await this.recoverAtomicStorage(app);
 
     // 1. Try reading from canonical internal storage (.obsidian/github-vault-relay/state.json)
     if (await app.vault.adapter.exists(canonicalPath)) {
       try {
         const content = await app.vault.adapter.read(canonicalPath);
+        if (!this.isStateValue(JSON.parse(content))) throw new Error("Canonical state schema is invalid.");
         return deserializeState(content);
       } catch (err) {
         console.warn(`[Vault Relay] Failed to read canonical state at ${canonicalPath}:`, err);
@@ -101,6 +381,7 @@ export class StorageManager {
     if (await app.vault.adapter.exists(interC4State)) {
       try {
         const content = await app.vault.adapter.read(interC4State);
+        if (!this.isStateValue(JSON.parse(content))) throw new Error("Intermediate state schema is invalid.");
         return deserializeState(content);
       } catch (err) {
         console.warn("[Vault Relay] Failed to read intermediate C4 state:", err);
@@ -112,6 +393,7 @@ export class StorageManager {
     if (await app.vault.adapter.exists(intermediatePath)) {
       try {
         const content = await app.vault.adapter.read(intermediatePath);
+        if (!this.isStateValue(JSON.parse(content))) throw new Error("Plugin-directory state schema is invalid.");
         return deserializeState(content);
       } catch (err) {
         console.warn("[Vault Relay] Failed to read intermediate plugin-dir state:", err);
@@ -122,6 +404,7 @@ export class StorageManager {
     if (await app.vault.adapter.exists(LEGACY_STATE_FILE)) {
       try {
         const content = await app.vault.adapter.read(LEGACY_STATE_FILE);
+        if (!this.isStateValue(JSON.parse(content))) throw new Error("Legacy state schema is invalid.");
         return deserializeState(content);
       } catch (err) {
         console.warn(`[Vault Relay] Failed to read legacy state at ${LEGACY_STATE_FILE}:`, err);
@@ -141,7 +424,18 @@ export class StorageManager {
       await app.vault.adapter.mkdir(dir);
     }
     const path = this.getStateFilePath(app);
-    await app.vault.adapter.write(path, serializeState(state));
+    await this.writeAtomicJson(app, path, serializeState(state), this.isStateValue);
+  }
+
+  public static async saveConflictRecords(app: App, records: unknown[]): Promise<void> {
+    const dir = this.getPluginStorageDir(app);
+    if (!(await app.vault.adapter.exists(dir))) await app.vault.adapter.mkdir(dir);
+    await this.writeAtomicJson(
+      app,
+      this.getConflictsMetaFilePath(app),
+      JSON.stringify(records, null, 2),
+      Array.isArray
+    );
   }
 
   /**
@@ -230,6 +524,7 @@ export class StorageManager {
   public static async cleanOrphanConflictPayloads(
     app: App
   ): Promise<{ scanned: number; removed: number; bytesReclaimed: number }> {
+    await this.recoverAtomicStorage(app);
     const conflictsDir = this.getConflictsDirPath(app);
     if (!(await app.vault.adapter.exists(conflictsDir))) {
       return { scanned: 0, removed: 0, bytesReclaimed: 0 };
@@ -330,6 +625,7 @@ export class StorageManager {
    */
   public static async migrateLegacyStorage(app: App): Promise<{ migrated: boolean; error?: string }> {
     try {
+      await this.recoverAtomicStorage(app);
       const canonicalDir = this.getPluginStorageDir(app);
       const canonicalConflictsDir = this.getConflictsDirPath(app);
       const canonicalStatePath = this.getStateFilePath(app);
@@ -355,8 +651,12 @@ export class StorageManager {
         await app.vault.adapter.mkdir(canonicalConflictsDir);
       }
 
-      let canonicalStateExists = await app.vault.adapter.exists(canonicalStatePath);
+      let canonicalStateExists = await this.isValidJsonFile(app, canonicalStatePath, this.isStateValue);
       let didMigrateSomething = false;
+      let cleanupIntermediateC4 = false;
+      let inspectLegacyRootAfterMigration = false;
+      const legacyConflictFilesToRemove: string[] = [];
+      const migratedConflictPaths = new Map<string, string>();
 
       // Helper for recursive file listing
       const listFilesRecursively = async (dir: string): Promise<string[]> => {
@@ -410,6 +710,41 @@ export class StorageManager {
         }
       };
 
+      const copyConflictFileVerified = async (source: string, preferredDestination: string): Promise<string> => {
+        const sourceBytes = new Uint8Array(await app.vault.adapter.readBinary(source));
+        const lastDot = preferredDestination.lastIndexOf(".");
+        const base = lastDot > preferredDestination.lastIndexOf("/")
+          ? preferredDestination.substring(0, lastDot)
+          : preferredDestination;
+        const ext = lastDot > preferredDestination.lastIndexOf("/")
+          ? preferredDestination.substring(lastDot)
+          : "";
+        let destination = preferredDestination;
+        let suffix = 1;
+
+        while (await app.vault.adapter.exists(destination)) {
+          const existing = new Uint8Array(await app.vault.adapter.readBinary(destination));
+          if (
+            existing.byteLength === sourceBytes.byteLength &&
+            existing.every((byte, index) => byte === sourceBytes[index])
+          ) {
+            return destination;
+          }
+          destination = `${base}_${suffix}${ext}`;
+          suffix++;
+        }
+
+        await app.vault.adapter.writeBinary(destination, sourceBytes.buffer as ArrayBuffer);
+        const verified = new Uint8Array(await app.vault.adapter.readBinary(destination));
+        if (
+          verified.byteLength !== sourceBytes.byteLength ||
+          !verified.every((byte, index) => byte === sourceBytes[index])
+        ) {
+          throw new Error(`Verification failed: Byte content mismatch for ${source}.`);
+        }
+        return destination;
+      };
+
       // Load existing metadata in canonical destination
       let metaRecords: Array<{
         id: string;
@@ -420,11 +755,11 @@ export class StorageManager {
         snapshotPath?: string;
       }> = [];
       if (await app.vault.adapter.exists(canonicalMetaPath)) {
-        try {
-          metaRecords = JSON.parse(await app.vault.adapter.read(canonicalMetaPath));
-        } catch (_e) {
-          console.warn("[Vault Relay] Failed to parse existing metadata:", _e);
+        const parsedMetadata = JSON.parse(await app.vault.adapter.read(canonicalMetaPath));
+        if (!Array.isArray(parsedMetadata)) {
+          throw new Error("Canonical conflicts metadata is invalid; migration was stopped to preserve evidence.");
         }
+        metaRecords = parsedMetadata;
       }
 
       // ==========================================
@@ -438,9 +773,11 @@ export class StorageManager {
         // 1.1 Migrate state.json if canonical does not exist
         if ((await app.vault.adapter.exists(interStatePath)) && !canonicalStateExists) {
           const content = await app.vault.adapter.read(interStatePath);
-          JSON.parse(content); // strict JSON validation
+          if (!this.isStateValue(JSON.parse(content))) {
+            throw new Error("Intermediate state schema is invalid; source storage was preserved.");
+          }
           const parsed = deserializeState(content);
-          await app.vault.adapter.write(canonicalStatePath, serializeState(parsed));
+          await this.saveState(app, parsed);
 
           const verifyContent = await app.vault.adapter.read(canonicalStatePath);
           const verifyParsed = deserializeState(verifyContent);
@@ -454,43 +791,37 @@ export class StorageManager {
         // 1.2 Migrate conflicts/
         if (await app.vault.adapter.exists(interConflictsDir)) {
           const interConflictFiles = await listFilesRecursively(interConflictsDir);
+          if (interConflictFiles.length > 0 && !(await app.vault.adapter.exists(interMetaPath))) {
+            throw new Error("Intermediate conflict payloads have no readable metadata; source storage was preserved for manual recovery.");
+          }
           for (const file of interConflictFiles) {
             const fileName = file.split("/").pop() || file;
-            const dest = `${canonicalConflictsDir}/${fileName}`;
-            if (!(await app.vault.adapter.exists(dest))) {
-              const buf = await app.vault.adapter.readBinary(file);
-              await app.vault.adapter.writeBinary(dest, buf);
-              const verifyBuf = await app.vault.adapter.readBinary(dest);
-              if (verifyBuf.byteLength !== buf.byteLength) {
-                throw new Error(`Verification failed: Byte length mismatch for ${file}`);
-              }
-            }
+            const dest = await copyConflictFileVerified(file, `${canonicalConflictsDir}/${fileName}`);
+            migratedConflictPaths.set(normalizePath(file), normalizePath(dest));
           }
           didMigrateSomething = true;
         }
 
         // 1.3 Migrate conflicts_meta.json
         if (await app.vault.adapter.exists(interMetaPath)) {
-          try {
-            const interMeta = JSON.parse(await app.vault.adapter.read(interMetaPath));
-            if (Array.isArray(interMeta)) {
-              for (const rec of interMeta) {
-                if (!metaRecords.some((r) => r.path === rec.path)) {
-                  if (rec.snapshotPath && rec.snapshotPath.includes(".obsidian/vault-relay/")) {
-                    rec.snapshotPath = rec.snapshotPath.replace(".obsidian/vault-relay/", `${canonicalDir}/`);
-                  }
-                  metaRecords.push(rec);
-                }
+          const interMeta = JSON.parse(await app.vault.adapter.read(interMetaPath));
+          if (!Array.isArray(interMeta)) {
+            throw new Error("Intermediate conflicts metadata is not an array; source storage was preserved.");
+          }
+          for (const rec of interMeta) {
+            if (!metaRecords.some((r) => r.id === rec.id)) {
+              if (rec.snapshotPath) {
+                const mappedPath = migratedConflictPaths.get(normalizePath(rec.snapshotPath));
+                rec.snapshotPath = mappedPath || rec.snapshotPath.replace(".obsidian/vault-relay/", `${canonicalDir}/`);
               }
+              metaRecords.push(rec);
             }
-          } catch (_e) {
-            console.warn("[Vault Relay] Failed to read intermediate conflicts metadata:", _e);
           }
           didMigrateSomething = true;
         }
 
-        // 1.4 Clean up intermediate C4 (.obsidian/vault-relay)
-        await deleteDirectoryRecursively(intermediateC4Dir);
+        // Cleanup is deferred until canonical conflict metadata is durably written.
+        cleanupIntermediateC4 = true;
       }
 
       // ==========================================
@@ -499,9 +830,11 @@ export class StorageManager {
       if (hasIntermediatePluginState) {
         if (!canonicalStateExists) {
           const content = await app.vault.adapter.read(intermediatePluginState);
-          JSON.parse(content);
+          if (!this.isStateValue(JSON.parse(content))) {
+            throw new Error("Plugin-directory state schema is invalid; source storage was preserved.");
+          }
           const parsed = deserializeState(content);
-          await app.vault.adapter.write(canonicalStatePath, serializeState(parsed));
+          await this.saveState(app, parsed);
           canonicalStateExists = true;
           didMigrateSomething = true;
         }
@@ -517,10 +850,10 @@ export class StorageManager {
           const legacyContent = await app.vault.adapter.read(LEGACY_STATE_FILE);
           // Strict JSON validation: throws on syntax corruption, ensuring legacy file is kept
           const parsedJson = JSON.parse(legacyContent);
-          if (parsedJson && typeof parsedJson.version === "number" && typeof parsedJson.files === "object") {
+          if (this.isStateValue(parsedJson)) {
             if (!canonicalStateExists) {
               const parsedState = deserializeState(legacyContent);
-              await app.vault.adapter.write(canonicalStatePath, serializeState(parsedState));
+              await this.saveState(app, parsedState);
               const verifyContent = await app.vault.adapter.read(canonicalStatePath);
               const verifyParsed = deserializeState(verifyContent);
               if (Object.keys(verifyParsed.files).length !== Object.keys(parsedState.files).length) {
@@ -558,27 +891,12 @@ export class StorageManager {
             const destFileName = segments.length > 1
               ? `${segments[0]}_${segments.slice(1).join("__")}`
               : segments[0];
-            const dest = `${canonicalConflictsDir}/${destFileName}`;
+            const dest = await copyConflictFileVerified(file, `${canonicalConflictsDir}/${destFileName}`);
 
-            if (!(await app.vault.adapter.exists(dest))) {
-              const buf = await app.vault.adapter.readBinary(file);
-              await app.vault.adapter.writeBinary(dest, buf);
-
-              // Byte-exact verification
-              const verifyBuf = await app.vault.adapter.readBinary(dest);
-              if (verifyBuf.byteLength !== buf.byteLength) {
-                throw new Error(`Verification failed: Byte length mismatch for ${file}`);
-              }
-              const srcBytes = new Uint8Array(buf);
-              const destBytes = new Uint8Array(verifyBuf);
-              for (let i = 0; i < srcBytes.length; i++) {
-                if (srcBytes[i] !== destBytes[i]) {
-                  throw new Error(`Verification failed: Byte content mismatch for ${file}`);
-                }
-              }
-
+            if (!metaRecords.some((r) => r.snapshotPath === dest)) {
               // Register metadata
-              const remoteSha = await calculateRawGitBlobSha(srcBytes);
+              const migratedBytes = new Uint8Array(await app.vault.adapter.readBinary(dest));
+              const remoteSha = await calculateRawGitBlobSha(migratedBytes);
               let localSha = "";
               const localFile = app.vault.getAbstractFileByPath(originalPath);
               if (localFile instanceof TFile) {
@@ -586,65 +904,46 @@ export class StorageManager {
                 localSha = await calculateCanonicalGitBlobSha(localBytes, originalPath);
               }
 
-              if (!metaRecords.some((r) => r.path === originalPath)) {
-                metaRecords.push({
-                  id: `legacy_${detectedAt}_${destFileName}`,
-                  path: originalPath,
-                  localSha: localSha || remoteSha,
-                  remoteSha,
-                  detectedAt,
-                  snapshotPath: dest,
-                });
-              }
+              metaRecords.push({
+                id: `legacy_${detectedAt}_${dest.split("/").pop() || destFileName}`,
+                path: originalPath,
+                localSha: localSha || remoteSha,
+                remoteSha,
+                detectedAt,
+                snapshotPath: dest,
+              });
             }
 
-            // Remove verified migrated legacy conflict file
-            await app.vault.adapter.remove(file);
+            legacyConflictFilesToRemove.push(file);
           }
-
-          // Delete recognized legacy conflicts directory
-          await deleteDirectoryRecursively(LEGACY_CONFLICTS_DIR);
           didMigrateSomething = true;
         }
 
-        // 3.3 Mixed Legacy + User Content Check:
-        // Inspect remaining items in _vault-relay/.
-        // If user files or folders exist: PRESERVE _vault-relay/!
-        // ONLY if completely empty: remove the directory.
-        if (await app.vault.adapter.exists(LEGACY_ROOT_DIR)) {
-          let hasRemainingContent = false;
-          if (app.vault.adapter.list) {
-            try {
-              const rootList = await app.vault.adapter.list(LEGACY_ROOT_DIR);
-              if ((rootList.files && rootList.files.length > 0) || (rootList.folders && rootList.folders.length > 0)) {
-                hasRemainingContent = true;
-              }
-            } catch (_e) {
-              /* ignore */
-            }
-          }
-          if (!hasRemainingContent) {
-            if (app.vault.adapter.rmdir) {
-              try { await app.vault.adapter.rmdir(LEGACY_ROOT_DIR, true); } catch (_e) { /* ignore */ }
-            }
-            try {
-              const abstract = app.vault.getAbstractFileByPath(LEGACY_ROOT_DIR);
-              const vaultWithDelete = app.vault as unknown as { delete?: (f: unknown, force?: boolean) => Promise<void> };
-              if (abstract && typeof vaultWithDelete.delete === "function") {
-                await vaultWithDelete.delete(abstract, true);
-              }
-            } catch (_e) {
-              /* ignore */
-            }
-          } else {
-            console.info("[Vault Relay] Preserving _vault-relay/ as user-owned content");
-          }
-        }
+        inspectLegacyRootAfterMigration = true;
       }
 
       // Save updated metadata to canonical storage
       if (metaRecords.length > 0) {
-        await app.vault.adapter.write(canonicalMetaPath, JSON.stringify(metaRecords, null, 2));
+        await this.saveConflictRecords(app, metaRecords);
+      }
+
+      for (const file of legacyConflictFilesToRemove) {
+        await app.vault.adapter.remove(file);
+      }
+      if (legacyConflictFilesToRemove.length > 0) {
+        await deleteDirectoryRecursively(LEGACY_CONFLICTS_DIR);
+      }
+      if (inspectLegacyRootAfterMigration && (await app.vault.adapter.exists(LEGACY_ROOT_DIR))) {
+        const rootList = await app.vault.adapter.list(LEGACY_ROOT_DIR);
+        const hasRemainingContent = rootList.files.length > 0 || rootList.folders.length > 0;
+        if (hasRemainingContent) {
+          console.info("[Vault Relay] Preserving _vault-relay/ as user-owned content");
+        } else {
+          await deleteDirectoryRecursively(LEGACY_ROOT_DIR);
+        }
+      }
+      if (cleanupIntermediateC4) {
+        await deleteDirectoryRecursively(intermediateC4Dir);
       }
 
       return { migrated: didMigrateSomething };

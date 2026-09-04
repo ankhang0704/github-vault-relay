@@ -1,0 +1,59 @@
+.vault-relay-modal {
+  box-sizing: border-box;
+  max-height: min(90vh, 900px);
+  max-height: min(90dvh, 900px);
+  max-width: calc(100vw - 16px) !important;
+  overscroll-behavior: contain;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+
+.vault-relay-modal button,
+.vault-relay-settings button {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 8px 12px;
+  white-space: normal;
+}
+
+.vault-relay-modal button:disabled,
+.vault-relay-settings button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.vault-relay-action-row,
+.vault-relay-filter-bar {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.vault-relay-modal,
+.vault-relay-modal *,
+.vault-relay-settings,
+.vault-relay-settings * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .vault-relay-modal {
+    width: calc(100vw - 12px) !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  .vault-relay-modal .setting-item,
+  .vault-relay-settings .setting-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .vault-relay-modal .setting-item-control,
+  .vault-relay-settings .setting-item-control {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    width: 100%;
+  }
+}

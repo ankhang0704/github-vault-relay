@@ -28,6 +28,7 @@ export class SyncPreviewModal extends Modal {
   }
 
   public onOpen(): void {
+    this.modalEl.addClass("vault-relay-modal");
     this.isModalOpen = true;
     this.modalEl.addClass("vault-relay-preview-modal");
     this.modalEl.style.maxWidth = "850px";
@@ -151,7 +152,10 @@ export class SyncPreviewModal extends Modal {
       attr: { style: "color: var(--text-muted); font-size: 0.85em;" },
     });
 
-    const actionArea = headerEl.createDiv({ attr: { style: "display: flex; gap: 8px;" } });
+    const actionArea = headerEl.createDiv({
+      cls: "vault-relay-action-row",
+      attr: { style: "display: flex; gap: 8px;" },
+    });
 
     const pullBtn = actionArea.createEl("button", { text: "Pull Safe Changes", cls: "mod-cta" });
       pullBtn.onclick = () => {
@@ -223,9 +227,10 @@ export class SyncPreviewModal extends Modal {
 
     // Filter Bar
     const filterBar = contentEl.createDiv({
+      cls: "vault-relay-filter-bar",
       attr: {
         style:
-          "display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--background-modifier-border);",
+          "display: flex; gap: 6px; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--background-modifier-border);",
       },
     });
 

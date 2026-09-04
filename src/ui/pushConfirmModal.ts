@@ -30,6 +30,7 @@ export class PushConfirmModal extends Modal {
   }
 
   public onOpen(): void {
+    this.modalEl.addClass("vault-relay-modal");
     this.modalEl.addClass("vault-relay-confirm-modal");
     this.modalEl.style.maxWidth = "600px";
     this.modalEl.style.width = "90vw";

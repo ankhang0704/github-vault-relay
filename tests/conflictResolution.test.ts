@@ -142,6 +142,28 @@ describe("Conflict Resolution Engine (CONFLICT-001..008)", () => {
     const remoteSha = await calculateRawGitBlobSha(new TextEncoder().encode(remoteContent));
 
     const fakeRequestFn = vi.fn(async (params: { url: string }) => {
+      if (params.url.includes("/branches/main")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { name: "main", commit: { sha: "commit_current" } },
+        };
+      }
+      if (params.url.includes("/git/trees/")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: {
+            sha: "tree_current",
+            truncated: false,
+            tree: [{ path: "Note.md", mode: "100644", type: "blob", sha: remoteSha }],
+          },
+        };
+      }
       if (params.url.includes("/git/blobs/" + remoteSha)) {
         return {
           status: 200,
@@ -167,6 +189,7 @@ describe("Conflict Resolution Engine (CONFLICT-001..008)", () => {
       path: "Note.md",
       localSha,
       remoteSha,
+      remoteCommitSha: "commit_current",
       detectedAt: Date.now(),
     };
 
@@ -188,6 +211,7 @@ describe("Conflict Resolution Engine (CONFLICT-001..008)", () => {
       path: "Note.md",
       localSha, // old localSha
       remoteSha,
+      remoteCommitSha: "commit_current",
       detectedAt: Date.now(),
     };
 
@@ -199,11 +223,37 @@ describe("Conflict Resolution Engine (CONFLICT-001..008)", () => {
   it("CONFLICT-006 & CONFLICT-007: resolveKeepBoth preserves local note and creates remote conflict copy with suffix", async () => {
     const localOriginal = "my local draft";
     const file = await app.vault.create("Essay.md", localOriginal);
+    const localSha = await calculateCanonicalGitBlobSha(
+      await app.vault.readBinary(file),
+      "Essay.md"
+    );
 
     const remoteContent = "someone else updated essay";
     const remoteSha = await calculateRawGitBlobSha(new TextEncoder().encode(remoteContent));
 
     const fakeRequestFn = vi.fn(async (params: { url: string }) => {
+      if (params.url.includes("/branches/main")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { name: "main", commit: { sha: "commit_current" } },
+        };
+      }
+      if (params.url.includes("/git/trees/")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: {
+            sha: "tree_current",
+            truncated: false,
+            tree: [{ path: "Essay.md", mode: "100644", type: "blob", sha: remoteSha }],
+          },
+        };
+      }
       if (params.url.includes("/git/blobs/" + remoteSha)) {
         return {
           status: 200,
@@ -227,8 +277,9 @@ describe("Conflict Resolution Engine (CONFLICT-001..008)", () => {
     const record: ConflictRecord = {
       id: "c_essay",
       path: "Essay.md",
-      localSha: "local_sha",
+      localSha,
       remoteSha,
+      remoteCommitSha: "commit_current",
       detectedAt: Date.now(),
     };
 
@@ -250,8 +301,34 @@ describe("Conflict Resolution Engine (CONFLICT-001..008)", () => {
     const remoteSha = await calculateRawGitBlobSha(remoteBytes);
 
     const file = await app.vault.createBinary("photo.png", localBytes.buffer as ArrayBuffer);
+    const localSha = await calculateCanonicalGitBlobSha(
+      await app.vault.readBinary(file),
+      "photo.png"
+    );
 
     const fakeRequestFn = vi.fn(async (params: { url: string }) => {
+      if (params.url.includes("/branches/main")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { name: "main", commit: { sha: "commit_current" } },
+        };
+      }
+      if (params.url.includes("/git/trees/")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: {
+            sha: "tree_current",
+            truncated: false,
+            tree: [{ path: "photo.png", mode: "100644", type: "blob", sha: remoteSha }],
+          },
+        };
+      }
       if (params.url.includes("/git/blobs/" + remoteSha)) {
         return {
           status: 200,
@@ -275,8 +352,9 @@ describe("Conflict Resolution Engine (CONFLICT-001..008)", () => {
     const record: ConflictRecord = {
       id: "c_binary",
       path: "photo.png",
-      localSha: "local_png_sha",
+      localSha,
       remoteSha,
+      remoteCommitSha: "commit_current",
       detectedAt: Date.now(),
     };
 

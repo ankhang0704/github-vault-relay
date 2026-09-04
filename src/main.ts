@@ -33,6 +33,13 @@ export default class VaultRelayPlugin extends Plugin {
       console.warn("[Vault Relay] Automatic storage migration warning:", migErr);
     }
 
+    // Recover or roll back any local Pull write interrupted before its baseline was durable.
+    try {
+      await StorageManager.recoverInterruptedPullWrites(this.app);
+    } catch (recoveryErr) {
+      console.warn("[Vault Relay] Interrupted Pull recovery warning:", recoveryErr);
+    }
+
     // C4 Automatic Conflict Orphan Garbage Collection:
     // Reconcile and safely remove unreferenced payload files in ${configDir}/github-vault-relay/conflicts/
     try {

@@ -16,6 +16,7 @@ export class ClearTokenConfirmModal extends Modal {
 
   public onOpen(): void {
     const { contentEl, modalEl } = this;
+    modalEl.addClass("vault-relay-modal");
     contentEl.empty();
     modalEl.addClass("vault-relay-confirm-modal");
     modalEl.style.maxWidth = "480px";
@@ -29,7 +30,7 @@ export class ClearTokenConfirmModal extends Modal {
     });
 
     contentEl.createEl("p", {
-      text: "Your configured repository and branch settings will remain intact, but synchronization and connection operations will require you to re-enter a token.",
+      text: "This action cannot be undone. Your repository and branch settings will remain, but synchronization will require you to re-enter a token.",
       attr: { style: "color: var(--text-muted); font-size: 0.9em; margin-bottom: 20px;" },
     });
 

@@ -92,6 +92,7 @@ export interface MockVault {
     exists: (path: string) => Promise<boolean>;
     mkdir: (path: string) => Promise<void>;
     remove: (path: string) => Promise<void>;
+    rename: (path: string, newPath: string) => Promise<void>;
     rmdir: (path: string, recursive?: boolean) => Promise<void>;
     list: (path: string) => Promise<{ files: string[]; folders: string[] }>;
     stat?: (path: string) => Promise<{ mtime: number; ctime: number; size: number } | null>;
@@ -275,6 +276,13 @@ export class App {
         },
         mkdir: async () => {},
         remove: async (path: string) => {
+          filesMap.delete(path);
+        },
+        rename: async (path: string, newPath: string) => {
+          const entry = filesMap.get(path);
+          if (!entry) throw new Error(`File not found: ${path}`);
+          if (filesMap.has(newPath)) throw new Error(`Destination already exists: ${newPath}`);
+          filesMap.set(newPath, entry);
           filesMap.delete(path);
         },
         rmdir: async (path: string) => {

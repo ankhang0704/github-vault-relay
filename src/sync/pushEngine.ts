@@ -36,6 +36,13 @@ import {
   SyncStateData,
 } from "./syncTypes";
 import { sanitizeErrorMessage } from "../security/redact";
+import {
+  acquireMutationLease,
+  getActiveMutationLabel,
+  MutationLease,
+  ownsMutationLease,
+  releaseMutationLease,
+} from "./mutationCoordinator";
 
 /**
  * Converts a Uint8Array into a base64 string safely across Node, Desktop, and Mobile.
@@ -117,7 +124,47 @@ export class PushEngine {
   /**
    * Executes the full conservative Safe Push workflow.
    */
-  public async executeSafePush(onProgress?: SyncProgressCallback): Promise<PushExecutionReport> {
+  public async executeSafePush(
+    onProgress?: SyncProgressCallback,
+    existingLease?: MutationLease
+  ): Promise<PushExecutionReport> {
+    const ownsExistingLease = ownsMutationLease(this.app, existingLease);
+    const mutationLease = ownsExistingLease ? existingLease : acquireMutationLease(this.app, "Safe Push");
+    if (!mutationLease) {
+      return this.createBlockedReport(
+        `Safe Push blocked because another vault mutation is in progress (${getActiveMutationLabel(this.app) || "unknown operation"}).`
+      );
+    }
+
+    try {
+      return await this.executeSafePushUnlocked(onProgress);
+    } finally {
+      if (!ownsExistingLease) releaseMutationLease(mutationLease);
+    }
+  }
+
+  private createBlockedReport(summaryMessage: string): PushExecutionReport {
+    return {
+      timestamp: Date.now(),
+      branch: this.settings.branch,
+      status: "ABORTED",
+      results: [],
+      counts: {
+        pushedCreated: 0,
+        pushedUpdated: 0,
+        unchanged: 0,
+        skippedRemoteOnly: 0,
+        skippedRemoteChanged: 0,
+        skippedConflicts: 0,
+        skippedOversized: 0,
+        skippedUnsafe: 0,
+        failed: 0,
+      },
+      summaryMessage,
+    };
+  }
+
+  private async executeSafePushUnlocked(onProgress?: SyncProgressCallback): Promise<PushExecutionReport> {
     const report: PushExecutionReport = {
       timestamp: Date.now(),
       branch: this.settings.branch,
@@ -387,7 +434,11 @@ export class PushEngine {
         try {
           await this.saveState(state);
         } catch (saveErr) {
-          console.warn("[Vault Relay] Failed to heal baseline state:", saveErr);
+          report.status = "PASS_WITH_WARNINGS";
+          report.counts.failed++;
+          report.summaryMessage = `Repository is unchanged, but local sync state could not be saved: ${sanitizeErrorMessage(saveErr)}. A fresh scan is required.`;
+          onProgress?.({ phase: "FAILED", completed: 0, total: 1, message: report.summaryMessage });
+          return report;
         }
       }
 
@@ -493,6 +544,25 @@ export class PushEngine {
     const newCommitSha = newCommitResp.sha;
     report.newCommitSha = newCommitSha;
 
+    // Local bytes may change while immutable Git objects are uploaded. Re-read every
+    // eligible file before moving the branch ref; stale objects may remain dangling,
+    // but unreviewed local bytes must never be committed.
+    for (const item of eligibleItems) {
+      const currentFile = this.app.vault.getAbstractFileByPath(item.path);
+      if (!(currentFile instanceof TFile)) {
+        report.status = "ABORTED";
+        report.summaryMessage = `Local file changed or disappeared during Push: ${item.path}. Branch update was not attempted.`;
+        return report;
+      }
+      const currentBytes = await this.app.vault.readBinary(currentFile);
+      const currentSha = await calculateCanonicalGitBlobSha(currentBytes, item.path);
+      if (currentSha.toLowerCase() !== item.localSha.toLowerCase()) {
+        report.status = "ABORTED";
+        report.summaryMessage = `Local file changed during Push: ${item.path}. Branch update was not attempted.`;
+        return report;
+      }
+    }
+
     onProgress?.({ phase: "UPDATING_REF", completed: 0, total: 1, message: "Updating remote branch..." });
     // 10. Optimistic Concurrency Ref Update (force: false)
     let patchRefResp;
@@ -501,10 +571,23 @@ export class PushEngine {
       console.info(`[Vault Relay:SafePush:T4] PATCH ref successful: ${patchRefResp.object?.sha}`);
     } catch (refErr) {
       const safeMsg = sanitizeErrorMessage(refErr);
-      // If remote HEAD changed during push (e.g. 422 Unprocessable Entity)
-      report.status = "ABORTED";
-      report.summaryMessage = `Optimistic concurrency check aborted ref update (remote branch HEAD was modified during push): ${safeMsg}`;
-      return report;
+      let recoveredLostResponse = false;
+      const responseWasAmbiguous = !(refErr instanceof GitHubError) || refErr.status === undefined || refErr.status === 0;
+      if (responseWasAmbiguous) {
+        try {
+          const authoritativeRef = await this.githubClient.getBranchRef(this.settings.branch);
+          recoveredLostResponse =
+            authoritativeRef.object?.sha?.toLowerCase() === newCommitSha.toLowerCase();
+        } catch {
+          // The update remains uncertain; keep the local baseline unchanged.
+        }
+      }
+      if (!recoveredLostResponse) {
+        report.status = "ABORTED";
+        report.summaryMessage = `Optimistic concurrency check aborted ref update or could not confirm it: ${safeMsg}`;
+        return report;
+      }
+      console.warn("[Vault Relay:SafePush:T4] PATCH response was lost, but the authoritative branch ref confirms the new commit.");
     }
 
     // 11. Authoritative Post-Push Verification (with bounded retry for edge replication)
@@ -602,7 +685,11 @@ export class PushEngine {
     try {
       await this.saveState(state);
     } catch (stateSaveErr) {
-      console.warn("[Vault Relay] Failed to save state.json after successful push:", stateSaveErr);
+      report.status = "PASS_WITH_WARNINGS";
+      report.counts.failed++;
+      report.summaryMessage = `Remote commit ${newCommitSha.substring(0, 7)} was verified, but local sync state could not be saved: ${sanitizeErrorMessage(stateSaveErr)}. A fresh scan is required.`;
+      onProgress?.({ phase: "FAILED", completed: 0, total: 1, message: report.summaryMessage });
+      return report;
     }
 
     if (report.counts.skippedConflicts > 0 || report.counts.skippedOversized > 0 || report.counts.skippedUnsafe > 0) {
@@ -631,6 +718,26 @@ export class PushEngine {
    * - Never fakes or modifies baseline state beforehand.
    */
   public async executeAuthorizedConflictPush(
+    resolution: AuthorizedConflictResolution,
+    onProgress?: SyncProgressCallback,
+    existingLease?: MutationLease
+  ): Promise<PushExecutionReport> {
+    const ownsExistingLease = ownsMutationLease(this.app, existingLease);
+    const mutationLease = ownsExistingLease ? existingLease : acquireMutationLease(this.app, "Keep Local conflict resolution");
+    if (!mutationLease) {
+      return this.createBlockedReport(
+        `Conflict resolution blocked because another vault mutation is in progress (${getActiveMutationLabel(this.app) || "unknown operation"}).`
+      );
+    }
+
+    try {
+      return await this.executeAuthorizedConflictPushUnlocked(resolution, onProgress);
+    } finally {
+      if (!ownsExistingLease) releaseMutationLease(mutationLease);
+    }
+  }
+
+  private async executeAuthorizedConflictPushUnlocked(
     resolution: AuthorizedConflictResolution,
     onProgress?: SyncProgressCallback
   ): Promise<PushExecutionReport> {
@@ -809,6 +916,20 @@ export class PushEngine {
     const newCommitSha = newCommitResp.sha;
     report.newCommitSha = newCommitSha;
 
+    const latestFile = this.app.vault.getAbstractFileByPath(resolution.path);
+    if (!(latestFile instanceof TFile)) {
+      report.status = "ABORTED";
+      report.summaryMessage = `Local file changed or disappeared during conflict resolution: ${resolution.path}. Branch update was not attempted.`;
+      return report;
+    }
+    const latestBytes = await this.app.vault.readBinary(latestFile);
+    const latestLocalSha = await calculateCanonicalGitBlobSha(latestBytes, resolution.path);
+    if (latestLocalSha.toLowerCase() !== currentLocalSha.toLowerCase()) {
+      report.status = "ABORTED";
+      report.summaryMessage = `Local file changed during conflict resolution: ${resolution.path}. Branch update was not attempted.`;
+      return report;
+    }
+
     // 8. Optimistic Concurrency Ref Update (force: false is MANDATORY)
     onProgress?.({ phase: "UPDATING_REF", completed: 0, total: 1, message: "Updating remote branch..." });
     try {
@@ -888,7 +1009,11 @@ export class PushEngine {
     try {
       await this.saveState(state);
     } catch (saveErr) {
-      console.warn("[Vault Relay] Failed to save state.json after authorized conflict push:", saveErr);
+      report.status = "PASS_WITH_WARNINGS";
+      report.counts.failed++;
+      report.summaryMessage = `Remote conflict resolution was verified, but local sync state could not be saved: ${sanitizeErrorMessage(saveErr)}. Conflict evidence was preserved.`;
+      onProgress?.({ phase: "FAILED", completed: 0, total: 1, message: report.summaryMessage });
+      return report;
     }
 
     report.status = "PASS";

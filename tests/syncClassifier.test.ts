@@ -160,6 +160,30 @@ describe("syncClassifier", () => {
     });
   });
 
+  it("classifies reviewed split local/remote baselines as UNCHANGED", () => {
+    const localFiles = new Map<string, LocalFileEntry>([
+      ["Notes/KeepBoth.md", { path: "Notes/KeepBoth.md", sha: "sha_local", size: 10 }],
+    ]);
+    const remoteBlobs = new Map<string, RemoteBlobEntry>([
+      ["Notes/KeepBoth.md", { path: "Notes/KeepBoth.md", sha: "sha_remote", size: 11 }],
+    ]);
+    const state: SyncStateData = {
+      version: 1,
+      files: {
+        "Notes/KeepBoth.md": {
+          localSha: "sha_local",
+          remoteSha: "sha_remote",
+          syncedAt: 1,
+        },
+      },
+    };
+
+    const result = classifySyncState({ localFiles, remoteBlobs, state });
+
+    expect(result.counts.UNCHANGED).toBe(1);
+    expect(result.counts.POTENTIAL_CONFLICT).toBe(0);
+  });
+
   it("accurately aggregates counts across multiple files of different categories", () => {
     const localFiles = new Map<string, LocalFileEntry>([
       ["1_local_only.md", { path: "1_local_only.md", sha: "l1", size: 10 }],

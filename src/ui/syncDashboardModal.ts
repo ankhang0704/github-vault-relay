@@ -40,6 +40,7 @@ export class SyncDashboardModal extends Modal {
 
   public onOpen(): void {
     this.isModalOpen = true;
+    this.modalEl.addClass("vault-relay-modal");
     this.modalEl.addClass("vault-relay-dashboard-modal");
     this.modalEl.style.maxWidth = "680px";
     this.modalEl.style.width = "92vw";

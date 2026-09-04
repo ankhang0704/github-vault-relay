@@ -6,7 +6,7 @@
  *
  * C4 Hardened:
  * - Uses authoritative, cache-safe Git ref reading (bypassing 60s edge/browser caches)
- * - Uses StorageManager for hidden plugin storage (.obsidian/plugins/github-vault-relay/)
+ * - Uses StorageManager for hidden plugin storage (.obsidian/github-vault-relay/)
  * - Incorporates high-performance LocalHashCache (mtime+size) for fast local scanning
  * - Collects truthful operation timings
  */
@@ -33,11 +33,13 @@ export interface HashCacheEntry {
   sha: string;
 }
 
+const localHashCaches = new WeakMap<App, Map<string, HashCacheEntry>>();
+
 export class SyncEngine {
   private app: App;
   private settings: VaultRelaySettings;
   private githubClient: GitHubClient;
-  private localHashCache = new Map<string, HashCacheEntry>();
+  private localHashCache: Map<string, HashCacheEntry>;
 
   constructor(app: App, settings: VaultRelaySettings, githubClient?: GitHubClient) {
     this.app = app;
@@ -50,27 +52,8 @@ export class SyncEngine {
         repo: settings.repo,
         branch: settings.branch,
       });
-
-    // Vault event invalidation: any file change in Obsidian immediately evicts stale hash cache
-    if (this.app?.vault?.on) {
-      try {
-        this.app.vault.on("modify", (file: unknown) => {
-          const path = (file as { path?: string })?.path;
-          if (path) this.localHashCache.delete(path);
-        });
-        this.app.vault.on("delete", (file: unknown) => {
-          const path = (file as { path?: string })?.path;
-          if (path) this.localHashCache.delete(path);
-        });
-        this.app.vault.on("rename", (file: unknown, oldPath?: string) => {
-          if (oldPath) this.localHashCache.delete(oldPath);
-          const path = (file as { path?: string })?.path;
-          if (path) this.localHashCache.delete(path);
-        });
-      } catch {
-        // Ignore if mock vault does not implement event emitter
-      }
-    }
+    this.localHashCache = localHashCaches.get(app) || new Map<string, HashCacheEntry>();
+    localHashCaches.set(app, this.localHashCache);
   }
 
   /**
@@ -80,6 +63,10 @@ export class SyncEngine {
     this.localHashCache.clear();
   }
 
+  public get localHashCacheSize(): number {
+    return this.localHashCache.size;
+  }
+
   /**
    * Scans local files in the Obsidian vault, computing canonical Git hashes.
    * Utilizes mtime + size cache to avoid redundant SHA calculations on unchanged local files.
@@ -87,11 +74,13 @@ export class SyncEngine {
   public async scanLocalVault(bypassCache = false): Promise<Map<string, LocalFileEntry>> {
     const localFiles = new Map<string, LocalFileEntry>();
     const allVaultFiles = this.app.vault.getFiles();
+    const livePaths = new Set<string>();
 
     for (const file of allVaultFiles) {
       if (isPathExcluded(file.path, this.settings.excludedPaths)) {
         continue;
       }
+      livePaths.add(file.path);
 
       try {
         const mtime = file.stat.mtime;
@@ -117,6 +106,10 @@ export class SyncEngine {
       } catch (err) {
         console.warn(`[Vault Relay] Failed to calculate hash for ${file.path}:`, err);
       }
+    }
+
+    for (const cachedPath of this.localHashCache.keys()) {
+      if (!livePaths.has(cachedPath)) this.localHashCache.delete(cachedPath);
     }
 
     return localFiles;

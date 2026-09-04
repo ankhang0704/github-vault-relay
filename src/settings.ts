@@ -59,6 +59,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
   public async display(): Promise<void> {
     const { containerEl } = this;
     containerEl.empty();
+    containerEl.addClass("vault-relay-settings");
 
     containerEl.createEl("h2", { text: "GitHub Vault Relay Settings" });
 

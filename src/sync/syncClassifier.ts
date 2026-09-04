@@ -111,6 +111,9 @@ export function classifySyncState(inputs: ClassificationInputs): ClassificationR
           } else if (!localModified && remoteModified) {
             category = "REMOTE_CHANGED";
             details = "Modified remotely on GitHub since last sync. Local is unchanged.";
+          } else if (!localModified && !remoteModified) {
+            category = "UNCHANGED";
+            details = "Local and remote versions match their reviewed sync baseline.";
           } else {
             category = "POTENTIAL_CONFLICT";
             details = "Both local and remote versions have diverged since last sync.";

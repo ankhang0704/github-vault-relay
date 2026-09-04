@@ -25,6 +25,11 @@ import { PullEngine } from "./pullEngine";
 import { PushEngine } from "./pushEngine";
 import { SyncPreviewReport, PullExecutionReport, PushExecutionReport } from "./syncTypes";
 import { SyncProgressCallback } from "./progressTypes";
+import {
+  acquireMutationLease,
+  getActiveMutationLabel,
+  releaseMutationLease,
+} from "./mutationCoordinator";
 
 export interface UnifiedSyncResult {
   status: "PASS" | "PASS_WITH_WARNINGS" | "FAIL" | "ABORTED";
@@ -66,6 +71,13 @@ export class UnifiedSyncEngine {
       throw new Error("A sync operation is already in progress. Please wait for it to complete.");
     }
 
+    const mutationLease = acquireMutationLease(this.app, "Unified Sync");
+    if (!mutationLease) {
+      throw new Error(
+        `Another vault mutation is already in progress (${getActiveMutationLabel(this.app) || "unknown operation"}). Please wait for it to complete.`
+      );
+    }
+
     this.isSyncing = true;
     const tStart = Date.now();
 
@@ -76,7 +88,7 @@ export class UnifiedSyncEngine {
 
       // 1. Initial Fresh Scan
       onProgress?.({ phase: "SCANNING", completed: 0, total: 1, message: "Scanning vault and remote repository..." });
-      const initialPreview = await syncEngine.generatePreview();
+      const initialPreview = await syncEngine.generatePreview(true);
 
       const pullItems = initialPreview.items.filter(
         (it) => it.category === "REMOTE_ONLY" || it.category === "REMOTE_CHANGED"
@@ -114,7 +126,7 @@ export class UnifiedSyncEngine {
       // 2. Safe Pull Phase (if remote changes exist)
       if (pullItems.length > 0) {
         onProgress?.({ phase: "PLANNING", completed: 0, total: pullItems.length, message: `Preparing to pull ${pullItems.length} file(s)...` });
-        pullReport = await pullEngine.executeSafePull(onProgress);
+        pullReport = await pullEngine.executeSafePull(onProgress, mutationLease);
         pulledCount = pullReport.counts.pulledCreated + pullReport.counts.pulledUpdated;
 
         if (pullReport.status === "FAIL" || pullReport.status === "ABORTED") {
@@ -135,7 +147,7 @@ export class UnifiedSyncEngine {
 
       // 3. Fresh Re-Scan before Push
       onProgress?.({ phase: "SCANNING", completed: 0, total: 1, message: "Revalidating state before Push phase..." });
-      const midPreview = await syncEngine.generatePreview();
+      const midPreview = await syncEngine.generatePreview(true);
 
       const freshPushItems = midPreview.items.filter(
         (it) => it.category === "LOCAL_ONLY" || it.category === "LOCAL_CHANGED"
@@ -147,7 +159,7 @@ export class UnifiedSyncEngine {
       // 4. Safe Push Phase (if local changes exist after pull)
       if (freshPushItems.length > 0) {
         onProgress?.({ phase: "PLANNING", completed: 0, total: freshPushItems.length, message: `Preparing to push ${freshPushItems.length} file(s)...` });
-        pushReport = await pushEngine.executeSafePush(onProgress);
+        pushReport = await pushEngine.executeSafePush(onProgress, mutationLease);
         pushedCount = pushReport.counts.pushedCreated + pushReport.counts.pushedUpdated;
 
         if (pushReport.status === "FAIL" || pushReport.status === "ABORTED") {
@@ -169,7 +181,7 @@ export class UnifiedSyncEngine {
 
       // 5. Final Fresh Scan to confirm convergence
       onProgress?.({ phase: "SCANNING", completed: 0, total: 1, message: "Finalizing sync report..." });
-      const finalReport = await syncEngine.generatePreview();
+      const finalReport = await syncEngine.generatePreview(true);
 
       onProgress?.({ phase: "COMPLETE", completed: 1, total: 1, message: "Sync complete." });
 
@@ -202,6 +214,7 @@ export class UnifiedSyncEngine {
       };
     } finally {
       this.isSyncing = false;
+      releaseMutationLease(mutationLease);
     }
   }
 }

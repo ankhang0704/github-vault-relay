@@ -91,7 +91,8 @@ export type PullActionType =
   | "SKIP_LOCAL_ONLY"
   | "SKIP_LOCAL_CHANGED"
   | "SKIP_OVERSIZED"
-  | "SKIP_UNSAFE";
+  | "SKIP_UNSAFE"
+  | "UPDATE_STATE";
 
 export type PullItemStatus =
   | "SUCCESS"

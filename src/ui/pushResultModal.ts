@@ -16,6 +16,7 @@ export class PushResultModal extends Modal {
   }
 
   public onOpen(): void {
+    this.modalEl.addClass("vault-relay-modal");
     const { contentEl } = this;
     this.modalEl.addClass("vault-relay-result-modal");
     this.modalEl.style.maxWidth = "750px";

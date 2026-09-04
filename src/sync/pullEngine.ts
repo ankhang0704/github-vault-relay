@@ -28,6 +28,13 @@ import { StorageManager } from "./storageManager";
 import { ConflictManager } from "./conflictManager";
 import { SyncProgressCallback } from "./progressTypes";
 import {
+  acquireMutationLease,
+  getActiveMutationLabel,
+  MutationLease,
+  ownsMutationLease,
+  releaseMutationLease,
+} from "./mutationCoordinator";
+import {
   LocalFileEntry,
   PullExecutionReport,
   PullFileResult,
@@ -119,7 +126,42 @@ export class PullEngine {
   /**
    * Executes the complete Safe Pull process.
    */
-  public async executeSafePull(onProgress?: SyncProgressCallback): Promise<PullExecutionReport> {
+  public async executeSafePull(
+    onProgress?: SyncProgressCallback,
+    existingLease?: MutationLease
+  ): Promise<PullExecutionReport> {
+    const ownsExistingLease = ownsMutationLease(this.app, existingLease);
+    const mutationLease = ownsExistingLease ? existingLease : acquireMutationLease(this.app, "Safe Pull");
+
+    if (!mutationLease) {
+      return {
+        timestamp: Date.now(),
+        branch: this.settings.branch || "main",
+        status: "ABORTED",
+        results: [],
+        counts: {
+          pulledCreated: 0,
+          pulledUpdated: 0,
+          conflictsPreserved: 0,
+          unchanged: 0,
+          skippedLocalOnly: 0,
+          skippedLocalChanged: 0,
+          skippedOversized: 0,
+          skippedUnsafe: 0,
+          failed: 0,
+        },
+        summaryMessage: `Safe Pull blocked because another vault mutation is in progress (${getActiveMutationLabel(this.app) || "unknown operation"}).`,
+      };
+    }
+
+    try {
+      return await this.executeSafePullUnlocked(onProgress);
+    } finally {
+      if (!ownsExistingLease) releaseMutationLease(mutationLease);
+    }
+  }
+
+  private async executeSafePullUnlocked(onProgress?: SyncProgressCallback): Promise<PullExecutionReport> {
     const timestamp = Date.now();
     const branchName = this.settings.branch || "main";
 
@@ -251,6 +293,8 @@ export class PullEngine {
     };
 
     let stateModified = false;
+    const pendingRecoveryJournals: string[] = [];
+    let statePersisted = false;
     let processedCount = 0;
     onProgress?.({ phase: "PLANNING", completed: 0, total: classification.items.length, message: "Planning safe pull..." });
 
@@ -360,12 +404,20 @@ export class PullEngine {
         try {
           const rawBytes = await this.githubClient.getRawBlobBytes(remoteBlob.sha, remoteBlob.size);
           const contentBytes = prepareContentBytesForPath(rawBytes, path);
+          const expectedLocalSha = await calculateRawGitBlobSha(contentBytes);
 
           // Verify no concurrent local file creation occurred
           const existingFile = this.app.vault.getAbstractFileByPath(path);
           if (existingFile) {
             // Divert to conflict
-            const conflictPath = await this.preserveConflictCopy(path, rawBytes, timestamp, undefined, item.remoteSha);
+            const conflictPath = await this.preserveConflictCopy(
+              path,
+              rawBytes,
+              timestamp,
+              undefined,
+              item.remoteSha,
+              remoteCommitSha
+            );
             counts.conflictsPreserved++;
             results.push({
               path,
@@ -381,6 +433,13 @@ export class PullEngine {
           // Ensure parent folders exist
           await this.ensureParentFolderExists(path);
 
+          const recoveryJournal = await StorageManager.beginPullWriteRecovery(
+            this.app,
+            path,
+            expectedLocalSha,
+            remoteBlob.sha
+          );
+
           // Create local file
           await this.app.vault.createBinary(path, contentBytes.buffer);
 
@@ -391,6 +450,9 @@ export class PullEngine {
           }
           const verifiedBytes = await this.app.vault.readBinary(writtenFile);
           const verifiedLocalSha = await calculateCanonicalGitBlobSha(verifiedBytes, path);
+          if (verifiedLocalSha.toLowerCase() !== expectedLocalSha.toLowerCase()) {
+            throw new Error("Post-write verification failed: local content does not match the verified remote blob.");
+          }
 
           // Update baseline state
           state.files[path] = {
@@ -399,6 +461,7 @@ export class PullEngine {
             syncedAt: timestamp,
           };
           stateModified = true;
+          pendingRecoveryJournals.push(recoveryJournal);
 
           counts.pulledCreated++;
           results.push({
@@ -424,9 +487,14 @@ export class PullEngine {
 
       // 7.8 Handle REMOTE_CHANGED (Safe Update)
       if (item.category === "REMOTE_CHANGED") {
+        let originalBytes: ArrayBuffer | undefined;
+        let writeAttempted = false;
+        let recoveryJournal: string | undefined;
+        let rollbackSucceeded = false;
         try {
           const rawBytes = await this.githubClient.getRawBlobBytes(remoteBlob.sha, remoteBlob.size);
           const contentBytes = prepareContentBytesForPath(rawBytes, path);
+          const expectedLocalSha = await calculateRawGitBlobSha(contentBytes);
 
           const existingAbstract = this.app.vault.getAbstractFileByPath(path);
           if (!(existingAbstract instanceof TFile)) {
@@ -435,11 +503,19 @@ export class PullEngine {
 
           // Immediate pre-write verification: Ensure local file was NOT modified since planning!
           const currentDiskBytes = await this.app.vault.readBinary(existingAbstract);
+          originalBytes = currentDiskBytes.slice(0);
           const currentLocalSha = await calculateCanonicalGitBlobSha(currentDiskBytes, path);
 
           if (currentLocalSha !== item.localSha) {
             // Local file was edited concurrently -> PRESERVE BOTH
-            const conflictPath = await this.preserveConflictCopy(path, rawBytes, timestamp, item.localSha, remoteBlob.sha);
+            const conflictPath = await this.preserveConflictCopy(
+              path,
+              rawBytes,
+              timestamp,
+              item.localSha,
+              remoteBlob.sha,
+              remoteCommitSha
+            );
             counts.conflictsPreserved++;
             results.push({
               path,
@@ -454,11 +530,22 @@ export class PullEngine {
           }
 
           // Modify existing local file
+          recoveryJournal = await StorageManager.beginPullWriteRecovery(
+            this.app,
+            path,
+            expectedLocalSha,
+            remoteBlob.sha,
+            originalBytes
+          );
+          writeAttempted = true;
           await this.app.vault.modifyBinary(existingAbstract, contentBytes.buffer);
 
           // Post-write verification
           const verifiedBytes = await this.app.vault.readBinary(existingAbstract);
           const verifiedLocalSha = await calculateCanonicalGitBlobSha(verifiedBytes, path);
+          if (verifiedLocalSha.toLowerCase() !== expectedLocalSha.toLowerCase()) {
+            throw new Error("Post-write verification failed: local content does not match the verified remote blob.");
+          }
 
           // Update baseline state
           state.files[path] = {
@@ -467,6 +554,7 @@ export class PullEngine {
             syncedAt: timestamp,
           };
           stateModified = true;
+          pendingRecoveryJournals.push(recoveryJournal);
 
           counts.pulledUpdated++;
           results.push({
@@ -478,13 +566,32 @@ export class PullEngine {
             message: "Updated local file from remote repository.",
           });
         } catch (err) {
+          let rollbackMessage = "";
+          if (writeAttempted && originalBytes) {
+            try {
+              const current = this.app.vault.getAbstractFileByPath(path);
+              if (!(current instanceof TFile)) throw new Error("target disappeared during rollback");
+              await this.app.vault.modifyBinary(current, originalBytes);
+              const restored = await this.app.vault.readBinary(current);
+              const restoredSha = await calculateCanonicalGitBlobSha(restored, path);
+              const originalSha = await calculateCanonicalGitBlobSha(originalBytes, path);
+              if (restoredSha !== originalSha) throw new Error("restored content hash mismatch");
+              rollbackMessage = " Original local content was restored.";
+              rollbackSucceeded = true;
+            } catch (rollbackErr) {
+              rollbackMessage = ` Automatic rollback failed: ${sanitizeErrorMessage(rollbackErr)}.`;
+            }
+          }
+          if (rollbackSucceeded && recoveryJournal) {
+            await StorageManager.completePullWriteRecovery(this.app, recoveryJournal);
+          }
           counts.failed++;
           results.push({
             path,
             action: "PULL_UPDATE",
             status: "FAILED",
             remoteSha: remoteBlob.sha,
-            message: `Failed to update file: ${sanitizeErrorMessage(err)}`,
+            message: `Failed to update file: ${sanitizeErrorMessage(err)}.${rollbackMessage}`,
           });
         }
         continue;
@@ -522,7 +629,14 @@ export class PullEngine {
           }
 
           // Content actually differs or is binary: preserve remote version in conflict folder
-          const conflictPath = await this.preserveConflictCopy(path, rawBytes, timestamp, item.localSha, remoteBlob.sha);
+          const conflictPath = await this.preserveConflictCopy(
+            path,
+            rawBytes,
+            timestamp,
+            item.localSha,
+            remoteBlob.sha,
+            remoteCommitSha
+          );
           counts.conflictsPreserved++;
           results.push({
             path,
@@ -547,11 +661,31 @@ export class PullEngine {
     }
 
     // Step 8: Persist state if modified
-    if (stateModified || !state.lastSyncedCommitSha) {
+    if (stateModified || (!state.lastSyncedCommitSha && counts.failed === 0)) {
       onProgress?.({ phase: "UPDATING_STATE", completed: 0, total: 1, message: "Updating sync state..." });
-      state.lastSyncedCommitSha = remoteCommitSha;
-      state.lastSyncedAt = timestamp;
-      await this.saveState(state);
+      if (counts.failed === 0) {
+        state.lastSyncedCommitSha = remoteCommitSha;
+        state.lastSyncedAt = timestamp;
+      }
+      try {
+        await this.saveState(state);
+        statePersisted = true;
+      } catch (stateErr) {
+        counts.failed++;
+        results.push({
+          path: StorageManager.getStateFilePath(this.app),
+          action: "UPDATE_STATE",
+          status: "FAILED",
+          message: `Failed to persist sync state: ${sanitizeErrorMessage(stateErr)}`,
+        });
+        onProgress?.({ phase: "FAILED", completed: 0, total: 1, message: "Local changes were applied, but sync state could not be saved." });
+      }
+    }
+
+    if (statePersisted) {
+      for (const journalPath of pendingRecoveryJournals) {
+        await StorageManager.completePullWriteRecovery(this.app, journalPath);
+      }
     }
 
     // Step 9: Determine overall execution status
@@ -573,7 +707,12 @@ export class PullEngine {
     const summaryMessage =
       summaryParts.length > 0 ? `Safe Pull completed: ${summaryParts.join(", ")}.` : "Safe Pull completed: Vault is in sync.";
 
-    onProgress?.({ phase: "COMPLETE", completed: 1, total: 1, message: summaryMessage });
+    onProgress?.({
+      phase: status === "FAIL" ? "FAILED" : "COMPLETE",
+      completed: status === "FAIL" ? 0 : 1,
+      total: 1,
+      message: summaryMessage,
+    });
     return {
       timestamp,
       branch: branchName,
@@ -595,7 +734,8 @@ export class PullEngine {
     rawBytes: Uint8Array,
     timestamp: number,
     localSha?: string,
-    remoteSha?: string
+    remoteSha?: string,
+    remoteCommitSha?: string
   ): Promise<string> {
     const conflictPath = await StorageManager.saveConflictPayload(this.app, originalPath, rawBytes.buffer as ArrayBuffer);
 
@@ -611,7 +751,14 @@ export class PullEngine {
           effLocalSha = await calculateCanonicalGitBlobSha(localBytes, originalPath);
         }
       }
-      await conflictManager.recordConflict(originalPath, effLocalSha, effRemoteSha, undefined, undefined, conflictPath);
+      await conflictManager.recordConflict(
+        originalPath,
+        effLocalSha,
+        effRemoteSha,
+        remoteCommitSha,
+        undefined,
+        conflictPath
+      );
     } catch (recordErr) {
       console.warn(`[Vault Relay] Failed to record conflict metadata for ${originalPath}:`, recordErr);
     }
