@@ -156,15 +156,19 @@ On a representative 30-file fixture (`FRESH-005`, `FRESH-008`):
 | **MIG-010** | Migrates intermediate plugin-dir state to permanent .obsidian/vault-relay | **PASS** |
 | **MIG-011** | Binary conflict migration verifies byte-exact equality | **PASS** |
 
-### 6.7 Mobile Attachment Importer (`tests/attachmentImport.test.ts`)
+### 6.7 Attachment Import Scope Decision (`tests/attachmentRemoval.test.ts`)
+
+**Attachment Import = REMOVED FROM PRODUCT SCOPE**
+- **Reason**: Content acquisition belongs to Obsidian / iOS / OS workflows (files app, camera roll, share sheet, Obsidian drag-and-drop). Vault Relay starts responsibility once content exists in the vault.
+- **Core Binary Sync Preserved**: Existing binary files in the vault (images, PDFs, audio, etc.) continue to be classified and synchronized 100% byte-exact across Safe Pull, Safe Push, and Unified Sync.
+
 | Requirement ID | Test Description | Status |
 | :--- | :--- | :--- |
-| **IMPORT-001** | Imports binary file (PNG/PDF) into vault using standard arrayBuffer | **PASS** |
-| **IMPORT-002** | Generates collision-safe name without overwriting when destination exists | **PASS** |
-| **IMPORT-003** | Uses configured Obsidian attachment folder path when present | **PASS** |
-| **IMPORT-004** | Rejects files exceeding the 25 MiB safety ceiling | **PASS** |
-| **IMPORT-005** | Zero Node fs dependencies in attachmentImporter.ts | **PASS** |
-| **IMPORT-006** | Imported attachment becomes normal LOCAL_ONLY file and is discoverable by SyncEngine | **PASS** |
+| **REMOVE-001** | No Import Attachment UI, commands, or buttons remain | **PASS** |
+| **REMOVE-002** | No attachment-import production module remains | **PASS** |
+| **REMOVE-003** | Existing binary file in vault still classifies correctly | **PASS** |
+| **REMOVE-004** | Existing binary file still Safe/Unified Pushes correctly | **PASS** |
+| **REMOVE-005** | Remote binary file still Pulls correctly | **PASS** |
 
 ---
 

@@ -6,7 +6,6 @@
  * - Prominent, truthful change metrics (local changes, remote changes, conflicts)
  * - Single-click Unified Safe Sync [Sync] with live progress
  * - Conflict review banner and launcher
- * - Attachment import trigger
  * - Collapsible Advanced engineering view for raw classifications and individual Pull/Push
  */
 
@@ -20,7 +19,6 @@ import { getStoredPat } from "../security/secretStore";
 import { sanitizeErrorMessage } from "../security/redact";
 import { getPhaseLabel, SyncProgressEvent } from "../sync/progressTypes";
 import { ConflictResolutionModal } from "./conflictResolutionModal";
-import { AttachmentImporter } from "../sync/attachmentImporter";
 import { PullConfirmModal } from "./pullConfirmModal";
 import { PushConfirmModal } from "./pushConfirmModal";
 
@@ -210,24 +208,10 @@ export class SyncDashboardModal extends Modal {
       };
     }
 
-    // 5. Utility Actions: Attachment Import & Advanced Toggle
+    // 5. Utility Actions: Advanced Toggle
     const actionsRow = contentEl.createDiv({
-      attr: { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;" },
+      attr: { style: "display: flex; justify-content: flex-end; align-items: center; margin-bottom: 12px;" },
     });
-
-    const importBtn = actionsRow.createEl("button", { text: "+ Import Attachment" });
-    importBtn.disabled = this.isSyncing;
-    importBtn.onclick = async () => {
-      const importer = new AttachmentImporter(this.app);
-      const results = await importer.promptFileSelection();
-      if (results.length > 0) {
-        const successes = results.filter((r) => r.success);
-        if (successes.length > 0) {
-          new Notice(`Imported ${successes.length} file(s) successfully.`);
-          await this.runScanAndRender();
-        }
-      }
-    };
 
     const advancedToggle = actionsRow.createEl("button", {
       text: this.showAdvanced ? "Hide Advanced Details ▲" : "View Advanced Details ▼",

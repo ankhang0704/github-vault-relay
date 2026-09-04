@@ -42,7 +42,6 @@ GitHub Vault Relay is architected around an asymmetric sync model designed for u
 - GitHub Vault Relay communicates directly with GitHub's REST and Git Data APIs over HTTPS using Obsidian's native `requestUrl()` API.
 - **Unified Safe Sync**: Combines Safe Pull and Safe Push into a single `[ Sync ]` action.
 - **Clean Vault Storage**: Sync metadata and conflict snapshots are kept completely hidden from your notes in internal plugin storage (`.obsidian/plugins/github-vault-relay/`).
-- **Mobile Attachment Import**: Import images and PDFs directly into your vault with automatic collision avoidance and zero Node `fs` dependencies.
 
 ---
 

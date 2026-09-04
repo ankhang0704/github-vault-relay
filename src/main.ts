@@ -13,7 +13,6 @@ import { GitHubClient } from "./github/githubClient";
 import { sanitizeErrorMessage } from "./security/redact";
 import { getStoredPat } from "./security/secretStore";
 import { StorageManager } from "./sync/storageManager";
-import { AttachmentImporter } from "./sync/attachmentImporter";
 
 export default class VaultRelayPlugin extends Plugin {
   public settings: VaultRelaySettings = DEFAULT_SETTINGS;
@@ -42,22 +41,6 @@ export default class VaultRelayPlugin extends Plugin {
       name: "Open Sync Dashboard",
       callback: () => {
         new SyncDashboardModal(this.app, this).open();
-      },
-    });
-
-    // Register Command: Import Attachment (Mobile-friendly)
-    this.addCommand({
-      id: "github-vault-relay-import-attachment",
-      name: "Import attachment (Image/PDF)",
-      callback: async () => {
-        const importer = new AttachmentImporter(this.app);
-        const results = await importer.promptFileSelection();
-        if (results.length > 0) {
-          const successes = results.filter((r) => r.success);
-          if (successes.length > 0) {
-            new Notice(`Imported ${successes.length} file(s) successfully.`);
-          }
-        }
       },
     });
 
