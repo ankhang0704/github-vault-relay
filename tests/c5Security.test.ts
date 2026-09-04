@@ -16,7 +16,8 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { App } from "obsidian";
-import { readFileSync, readdirSync, statSync } from "fs";
+import { readFileSync, readdirSync, statSync, existsSync } from "fs";
+import { execSync } from "child_process";
 import { join } from "path";
 import { GitHubClient } from "../src/github/githubClient";
 import { redactTokens, sanitizeErrorMessage } from "../src/security/redact";
@@ -235,7 +236,11 @@ describe("C5-SEC: Security Final Audit (C5-SEC-001..013)", () => {
   });
 
   it("C5-SEC-013: production bundle contains no secret or forbidden persistence/write surface", () => {
-    const bundle = readFileSync(join(process.cwd(), "main.js"), "utf8");
+    const bundlePath = join(process.cwd(), "main.js");
+    if (!existsSync(bundlePath)) {
+      execSync("node esbuild.config.mjs production", { stdio: "pipe" });
+    }
+    const bundle = readFileSync(bundlePath, "utf8");
 
     expect(bundle).not.toMatch(/localStorage\s*\.\s*setItem\s*\(/);
     expect(bundle).not.toMatch(/sessionStorage\s*\.\s*setItem\s*\(/);
