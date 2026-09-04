@@ -195,7 +195,7 @@ All P0 and P1 items identified during C5 hardening have been resolved and verifi
 
 ### Runtime Acceptance Status:
 - **C5 Automated Verification**: **PASS**
-- **C5 CI (Node 20 & 22)**: Pending Git push
+- **C5 CI (Node 20 & 22)**: **GREEN** (Run ID `33890627082` - Node 20.x SUCCESS, Node 22.x SUCCESS)
 - **C5 Real Windows Acceptance**: **NOT RUN** (Awaiting real Obsidian desktop validation)
 - **C5 Real iPhone Acceptance**: **NOT RUN** (Awaiting real iOS BRAT / Obsidian Mobile validation)
 
