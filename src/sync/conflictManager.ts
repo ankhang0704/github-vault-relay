@@ -30,11 +30,17 @@ export class ConflictManager {
   private app: App;
   private settings: VaultRelaySettings;
   private githubClient: GitHubClient;
+  private inFlightResolutions: Set<string> = new Set();
+  private resolvedRecordIds: Set<string> = new Set();
 
   constructor(app: App, settings: VaultRelaySettings, githubClient: GitHubClient) {
     this.app = app;
     this.settings = settings;
     this.githubClient = githubClient;
+  }
+
+  public isResolving(path: string): boolean {
+    return this.inFlightResolutions.has(path);
   }
 
   private getMetadataPath(): string {
@@ -161,7 +167,6 @@ export class ConflictManager {
     return records;
   }
 
-
   /**
    * Removes a conflict record after resolution.
    */
@@ -178,28 +183,47 @@ export class ConflictManager {
    * Uses verified Safe Push path to update remote.
    */
   public async resolveKeepLocal(record: ConflictRecord): Promise<{ success: boolean; message: string }> {
-    // 1. Revalidate remote state
-    const branchInfo = await this.githubClient.getBranch(this.settings.branch, true);
-    if (record.remoteCommitSha && branchInfo.commit.sha !== record.remoteCommitSha) {
+    if (this.inFlightResolutions.has(record.path)) {
       return {
         success: false,
-        message: "Remote branch changed concurrently since conflict was reviewed. Please refresh and review again.",
+        message: `Resolution already in progress for ${record.path}.`,
+      };
+    }
+    if (record.id && this.resolvedRecordIds.has(record.id)) {
+      return {
+        success: false,
+        message: `Conflict for ${record.path} has already been resolved or does not exist.`,
       };
     }
 
-    // 2. Push local version via PushEngine
-    const pushEngine = new PushEngine(this.app, this.settings, this.githubClient);
-    const report = await pushEngine.executeSafePush();
+    this.inFlightResolutions.add(record.path);
+    try {
+      // 1. Revalidate remote state
+      const branchInfo = await this.githubClient.getBranch(this.settings.branch, true);
+      if (record.remoteCommitSha && branchInfo.commit.sha !== record.remoteCommitSha) {
+        return {
+          success: false,
+          message: "Remote branch changed concurrently since conflict was reviewed. Please refresh and review again.",
+        };
+      }
 
-    if (report.status === "PASS" || report.status === "PASS_WITH_WARNINGS") {
-      await this.removeConflict(record.path);
-      return { success: true, message: `Successfully pushed local version for ${record.path}.` };
+      // 2. Push local version via PushEngine
+      const pushEngine = new PushEngine(this.app, this.settings, this.githubClient);
+      const report = await pushEngine.executeSafePush();
+
+      if (report.status === "PASS" || report.status === "PASS_WITH_WARNINGS") {
+        if (record.id) this.resolvedRecordIds.add(record.id);
+        await this.removeConflict(record.path);
+        return { success: true, message: `Successfully pushed local version for ${record.path}.` };
+      }
+
+      return {
+        success: false,
+        message: `Failed to push local resolution: ${report.summaryMessage}`,
+      };
+    } finally {
+      this.inFlightResolutions.delete(record.path);
     }
-
-    return {
-      success: false,
-      message: `Failed to push local resolution: ${report.summaryMessage}`,
-    };
   }
 
   /**
@@ -208,39 +232,58 @@ export class ConflictManager {
    * Pre-write check: verifies current local bytes still match reviewed localSha.
    */
   public async resolveUseRemote(record: ConflictRecord): Promise<{ success: boolean; message: string }> {
-    const file = this.app.vault.getAbstractFileByPath(record.path);
-    if (file instanceof TFile) {
-      const currentBytes = await this.app.vault.readBinary(file);
-      const currentLocalSha = await calculateCanonicalGitBlobSha(currentBytes, file.path);
-      if (currentLocalSha.toLowerCase() !== record.localSha.toLowerCase()) {
-        return {
-          success: false,
-          message: "Local file was modified since conflict was reviewed. Aborted to prevent data loss.",
-        };
+    if (this.inFlightResolutions.has(record.path)) {
+      return {
+        success: false,
+        message: `Resolution already in progress for ${record.path}.`,
+      };
+    }
+    if (record.id && this.resolvedRecordIds.has(record.id)) {
+      return {
+        success: false,
+        message: `Conflict for ${record.path} has already been resolved or does not exist.`,
+      };
+    }
+
+    this.inFlightResolutions.add(record.path);
+    try {
+      const file = this.app.vault.getAbstractFileByPath(record.path);
+      if (file instanceof TFile) {
+        const currentBytes = await this.app.vault.readBinary(file);
+        const currentLocalSha = await calculateCanonicalGitBlobSha(currentBytes, file.path);
+        if (currentLocalSha.toLowerCase() !== record.localSha.toLowerCase()) {
+          return {
+            success: false,
+            message: "Local file was modified since conflict was reviewed. Aborted to prevent data loss.",
+          };
+        }
       }
+
+      // Fetch remote blob using verified getRawBlobBytes (integrity + 25 MiB ceiling checked)
+      const bytes = await this.githubClient.getRawBlobBytes(record.remoteSha);
+
+      // Overwrite local file
+      if (file instanceof TFile) {
+        await this.app.vault.modifyBinary(file, bytes.buffer as ArrayBuffer);
+      } else {
+        await this.app.vault.createBinary(record.path, bytes.buffer as ArrayBuffer);
+      }
+
+      // Update baseline in state
+      const state = await StorageManager.loadState(this.app);
+      state.files[record.path] = {
+        localSha: record.remoteSha,
+        remoteSha: record.remoteSha,
+        syncedAt: Date.now(),
+      };
+      await StorageManager.saveState(this.app, state);
+
+      if (record.id) this.resolvedRecordIds.add(record.id);
+      await this.removeConflict(record.path);
+      return { success: true, message: `Local file updated to remote version for ${record.path}.` };
+    } finally {
+      this.inFlightResolutions.delete(record.path);
     }
-
-    // Fetch remote blob using verified getRawBlobBytes (integrity + 25 MiB ceiling checked)
-    const bytes = await this.githubClient.getRawBlobBytes(record.remoteSha);
-
-    // Overwrite local file
-    if (file instanceof TFile) {
-      await this.app.vault.modifyBinary(file, bytes.buffer as ArrayBuffer);
-    } else {
-      await this.app.vault.createBinary(record.path, bytes.buffer as ArrayBuffer);
-    }
-
-    // Update baseline in state
-    const state = await StorageManager.loadState(this.app);
-    state.files[record.path] = {
-      localSha: record.remoteSha,
-      remoteSha: record.remoteSha,
-      syncedAt: Date.now(),
-    };
-    await StorageManager.saveState(this.app, state);
-
-    await this.removeConflict(record.path);
-    return { success: true, message: `Local file updated to remote version for ${record.path}.` };
   }
 
   /**
@@ -248,43 +291,62 @@ export class ConflictManager {
    * Preserves local file untouched and saves remote version as a conflict copy.
    */
   public async resolveKeepBoth(record: ConflictRecord): Promise<{ success: boolean; message: string; copyPath?: string }> {
-    // Fetch remote blob using verified getRawBlobBytes (integrity + 25 MiB ceiling checked)
-    const bytes = await this.githubClient.getRawBlobBytes(record.remoteSha);
-
-    // Generate deterministic collision-safe second filename
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
-
-    const lastDot = record.path.lastIndexOf(".");
-    const base = lastDot !== -1 ? record.path.substring(0, lastDot) : record.path;
-    const ext = lastDot !== -1 ? record.path.substring(lastDot) : "";
-
-    let copyPath = `${base} (remote conflict ${dateStr})${ext}`;
-    let suffix = 1;
-    while (this.app.vault.getAbstractFileByPath(copyPath)) {
-      copyPath = `${base} (remote conflict ${dateStr}_${suffix})${ext}`;
-      suffix++;
-    }
-
-    await this.app.vault.createBinary(copyPath, bytes.buffer as ArrayBuffer);
-
-    // Update baseline state for local note
-    const state = await StorageManager.loadState(this.app);
-    if (!state.files[record.path]) {
-      state.files[record.path] = {
-        localSha: record.localSha,
-        remoteSha: record.localSha,
-        syncedAt: Date.now(),
+    if (this.inFlightResolutions.has(record.path)) {
+      return {
+        success: false,
+        message: `Resolution already in progress for ${record.path}.`,
       };
-      await StorageManager.saveState(this.app, state);
+    }
+    if (record.id && this.resolvedRecordIds.has(record.id)) {
+      return {
+        success: false,
+        message: `Conflict for ${record.path} has already been resolved or does not exist.`,
+      };
     }
 
-    await this.removeConflict(record.path);
-    return {
-      success: true,
-      message: `Preserved both versions. Remote copy saved to: ${copyPath}`,
-      copyPath,
-    };
+    this.inFlightResolutions.add(record.path);
+    try {
+      // Fetch remote blob using verified getRawBlobBytes (integrity + 25 MiB ceiling checked)
+      const bytes = await this.githubClient.getRawBlobBytes(record.remoteSha);
+
+      // Generate deterministic collision-safe second filename
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+
+      const lastDot = record.path.lastIndexOf(".");
+      const base = lastDot !== -1 ? record.path.substring(0, lastDot) : record.path;
+      const ext = lastDot !== -1 ? record.path.substring(lastDot) : "";
+
+      let copyPath = `${base} (remote conflict ${dateStr})${ext}`;
+      let suffix = 1;
+      while (this.app.vault.getAbstractFileByPath(copyPath)) {
+        copyPath = `${base} (remote conflict ${dateStr}_${suffix})${ext}`;
+        suffix++;
+      }
+
+      await this.app.vault.createBinary(copyPath, bytes.buffer as ArrayBuffer);
+
+      // Update baseline state for local note
+      const state = await StorageManager.loadState(this.app);
+      if (!state.files[record.path]) {
+        state.files[record.path] = {
+          localSha: record.localSha,
+          remoteSha: record.localSha,
+          syncedAt: Date.now(),
+        };
+        await StorageManager.saveState(this.app, state);
+      }
+
+      if (record.id) this.resolvedRecordIds.add(record.id);
+      await this.removeConflict(record.path);
+      return {
+        success: true,
+        message: `Preserved both versions. Remote copy saved to: ${copyPath}`,
+        copyPath,
+      };
+    } finally {
+      this.inFlightResolutions.delete(record.path);
+    }
   }
 }

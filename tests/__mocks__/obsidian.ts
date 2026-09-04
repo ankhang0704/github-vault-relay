@@ -358,24 +358,92 @@ export class Setting {
   addButton(_cb: (button: unknown) => void): this { return this; }
 }
 
+export class MockElement {
+  tag: string;
+  classes: Set<string> = new Set();
+  style: Record<string, string> = {};
+  attributes: Record<string, string> = {};
+  textContent: string = "";
+  children: MockElement[] = [];
+  disabled: boolean = false;
+  onclick?: (e?: unknown) => void | Promise<void>;
+
+  constructor(tag = "div") {
+    this.tag = tag;
+  }
+
+  addClass(cls: string): void {
+    this.classes.add(cls);
+  }
+
+  removeClass(cls: string): void {
+    this.classes.delete(cls);
+  }
+
+  hasClass(cls: string): boolean {
+    return this.classes.has(cls);
+  }
+
+  empty(): void {
+    this.children = [];
+    this.textContent = "";
+  }
+
+  setText(text: string): void {
+    this.textContent = text;
+  }
+
+  createEl(tag: string, options?: { text?: string; cls?: string; attr?: Record<string, string> }): MockElement {
+    const el = new MockElement(tag);
+    if (options?.text) el.setText(options.text);
+    if (options?.cls) el.addClass(options.cls);
+    if (options?.attr) Object.assign(el.attributes, options.attr);
+    this.children.push(el);
+    return el;
+  }
+
+  createDiv(options?: { text?: string; cls?: string; attr?: Record<string, string> }): MockElement {
+    return this.createEl("div", options);
+  }
+
+  createSpan(options?: { text?: string; cls?: string; attr?: Record<string, string> }): MockElement {
+    return this.createEl("span", options);
+  }
+
+  findAll(predicate: (el: MockElement) => boolean): MockElement[] {
+    const results: MockElement[] = [];
+    if (predicate(this)) {
+      results.push(this);
+    }
+    for (const child of this.children) {
+      results.push(...child.findAll(predicate));
+    }
+    return results;
+  }
+}
+
 export class Modal {
   app: App;
-  modalEl: { addClass: (cls: string) => void; style: Record<string, string> } = {
-    addClass: () => {},
-    style: {},
-  };
-  contentEl: { empty: () => void; createDiv: () => HTMLElement; createEl: () => HTMLElement } = {
-    empty: () => {},
-    createDiv: () => ({}) as HTMLElement,
-    createEl: () => ({}) as HTMLElement,
-  };
+  modalEl: MockElement = new MockElement("div");
+  contentEl: MockElement = new MockElement("div");
+  isOpen: boolean = false;
+
   constructor(app: App) {
     this.app = app;
   }
-  open(): void {}
-  close(): void {}
-  onOpen(): void {}
-  onClose(): void {}
+
+  open(): void | Promise<void> {
+    this.isOpen = true;
+    return this.onOpen();
+  }
+
+  close(): void {
+    this.isOpen = false;
+    this.onClose();
+  }
+
+  onOpen(): void | Promise<void> {}
+  onClose(): void | Promise<void> {}
 }
 
 export class Notice {
