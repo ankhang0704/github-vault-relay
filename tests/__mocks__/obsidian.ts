@@ -131,15 +131,32 @@ if (typeof (globalThis as unknown as { window?: { localStorage: Storage } }).win
 export class MockSecretStorage {
   private secrets: Map<string, string> = new Map();
 
+  private validateId(id: string): boolean {
+    return /^[a-z0-9-]+$/.test(id) && id.length <= 64;
+  }
+
   async getSecret(key: string): Promise<string | null> {
+    if (!this.validateId(key)) {
+      throw new Error(`Invalid secret ID: "${key}". IDs must be lowercase alphanumeric with optional dashes and <= 64 characters.`);
+    }
     return this.secrets.get(key) || null;
   }
 
-  async setSecret(key: string, value: string): Promise<void> {
-    this.secrets.set(key, value);
+  async setSecret(key: string, value: string | null): Promise<void> {
+    if (!this.validateId(key)) {
+      throw new Error(`Invalid secret ID: "${key}". IDs must be lowercase alphanumeric with optional dashes and <= 64 characters.`);
+    }
+    if (value === null || value === undefined) {
+      this.secrets.delete(key);
+    } else {
+      this.secrets.set(key, value);
+    }
   }
 
   async deleteSecret(key: string): Promise<void> {
+    if (!this.validateId(key)) {
+      throw new Error(`Invalid secret ID: "${key}". IDs must be lowercase alphanumeric with optional dashes and <= 64 characters.`);
+    }
     this.secrets.delete(key);
   }
 

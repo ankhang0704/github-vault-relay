@@ -7,8 +7,10 @@
  *    plaintext stores, or synchronized via vault sync.
  * 3. Zero plaintext fallback. If SecretStorage is unavailable or fails,
  *    system fails closed.
- * 4. Legacy localStorage tokens (if any exist from earlier versions) are
- *    migrated ONCE to SecretStorage, verified, and immediately purged from localStorage.
+ * 4. Obsidian SecretStorage enforces key validation: /^[a-z0-9-]+$/ with length <= 64.
+ *    The canonical plugin SecretStorage key is "github-vault-relay-pat".
+ * 5. Legacy credentials (from localStorage or older key schemas) are migrated ONCE
+ *    to SecretStorage under CANONICAL_SECRET_KEY, verified, and immediately purged.
  */
 
 import { App } from "obsidian";
@@ -29,15 +31,24 @@ export interface AppWithSecretStorage {
 export type StorageBackendType = "SECRET_STORAGE" | "UNAVAILABLE";
 
 /**
- * Generates the namespaced secret key for a repository.
+ * Canonical plugin-global SecretStorage key.
+ * Strictly conforms to Obsidian's SecretStorage ID validation: /^[a-z0-9-]+$/ && length <= 64.
  */
-export function getSecretKeyForRepo(owner: string, repo: string): string {
-  const cleanOwner = (owner || "").trim().toLowerCase();
-  const cleanRepo = (repo || "").trim().toLowerCase();
-  if (cleanOwner && cleanRepo) {
-    return `github-vault-relay:pat:${cleanOwner}:${cleanRepo}`;
-  }
-  return "github-vault-relay:pat";
+export const CANONICAL_SECRET_KEY = "github-vault-relay-pat";
+
+/**
+ * Validates whether a key satisfies Obsidian's SecretStorage ID requirements.
+ */
+export function isValidSecretId(id: string): boolean {
+  return /^[a-z0-9-]+$/.test(id) && id.length <= 64;
+}
+
+/**
+ * Generates the namespaced secret key for a repository.
+ * In the unified/global storage model, this maps to CANONICAL_SECRET_KEY.
+ */
+export function getSecretKeyForRepo(_owner?: string, _repo?: string): string {
+  return CANONICAL_SECRET_KEY;
 }
 
 /**
@@ -93,6 +104,7 @@ export function isSecureStorageAvailable(app: App): boolean {
  * Helper to delete a secret from SecretStorage using available API methods.
  */
 async function deleteFromSecretStorage(secretStorage: SecretStorageAPI, key: string): Promise<void> {
+  if (!isValidSecretId(key)) return;
   try {
     if (typeof secretStorage.deleteSecret === "function") {
       await secretStorage.deleteSecret(key);
@@ -109,16 +121,37 @@ async function deleteFromSecretStorage(secretStorage: SecretStorageAPI, key: str
 /**
  * Helper to purge legacy keys from localStorage to guarantee no plaintext retention.
  */
-export function purgeLegacyLocalStorageKeys(owner: string, repo: string): void {
+export function purgeLegacyLocalStorageKeys(owner?: string, repo?: string): void {
   const localStorage = getDeviceLocalStorage();
   if (!localStorage) return;
   try {
-    const key = getSecretKeyForRepo(owner, repo);
-    const legacyKey = `vault-relay:pat:${(owner || "").trim().toLowerCase()}:${(repo || "").trim().toLowerCase()}`;
-    localStorage.removeItem(key);
-    localStorage.removeItem(legacyKey);
-    localStorage.removeItem("github-vault-relay:pat");
-    localStorage.removeItem("vault-relay:pat");
+    const cleanOwner = (owner || "").trim().toLowerCase();
+    const cleanRepo = (repo || "").trim().toLowerCase();
+    const knownKeys = [
+      CANONICAL_SECRET_KEY,
+      "vault-relay-pat",
+      "github-vault-relay:pat",
+      "vault-relay:pat",
+    ];
+    if (cleanOwner && cleanRepo) {
+      knownKeys.push(`github-vault-relay:pat:${cleanOwner}:${cleanRepo}`);
+      knownKeys.push(`vault-relay:pat:${cleanOwner}:${cleanRepo}`);
+    }
+    for (const k of knownKeys) {
+      localStorage.removeItem(k);
+    }
+
+    // Also scan all keys in localStorage to purge any remaining legacy patterns
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && /vault-relay.*pat/i.test(k)) {
+        toRemove.push(k);
+      }
+    }
+    for (const k of toRemove) {
+      localStorage.removeItem(k);
+    }
   } catch {
     // Ignore localStorage cleanup errors
   }
@@ -131,71 +164,80 @@ export function purgeLegacyLocalStorageKeys(owner: string, repo: string): void {
  * verifies the write, immediately deletes it from localStorage, and returns it.
  * If SecretStorage is unavailable, FAILS CLOSED and returns null.
  */
-export async function getStoredPat(app: App, owner: string, repo: string): Promise<string | null> {
+export async function getStoredPat(app: App, owner?: string, repo?: string): Promise<string | null> {
   const secretStorage = getSecretStorage(app);
   if (!secretStorage) {
     // FAIL CLOSED: No SecretStorage available, never read from plaintext fallback
     return null;
   }
 
-  const key = getSecretKeyForRepo(owner, repo);
-  const legacyKey = `vault-relay:pat:${(owner || "").trim().toLowerCase()}:${(repo || "").trim().toLowerCase()}`;
-
-  // 1. Read from SecretStorage (canonical key)
+  // 1. Read from SecretStorage using canonical key ("github-vault-relay-pat")
   try {
-    let secret = await secretStorage.getSecret(key);
+    const secret = await secretStorage.getSecret(CANONICAL_SECRET_KEY);
     if (typeof secret === "string" && secret.trim().length > 0) {
-      // Purge any stale legacy localStorage entries as a safety hygiene measure
+      // Purge any stale legacy localStorage entries as safety hygiene
       purgeLegacyLocalStorageKeys(owner, repo);
       return secret.trim();
     }
-
-    // 2. Read from SecretStorage (legacy key within SecretStorage)
-    secret = await secretStorage.getSecret(legacyKey);
-    if (typeof secret === "string" && secret.trim().length > 0) {
-      const trimmed = secret.trim();
-      // Migrate within SecretStorage to canonical key
-      await secretStorage.setSecret(key, trimmed);
-      const verified = await secretStorage.getSecret(key);
-      if (verified === trimmed) {
-        await deleteFromSecretStorage(secretStorage, legacyKey);
-      }
-      purgeLegacyLocalStorageKeys(owner, repo);
-      return trimmed;
-    }
-
-    // 3. Read from SecretStorage (global fallback key)
-    if (key !== "github-vault-relay:pat") {
-      const fallbackSecret = await secretStorage.getSecret("github-vault-relay:pat");
-      if (typeof fallbackSecret === "string" && fallbackSecret.trim().length > 0) {
-        purgeLegacyLocalStorageKeys(owner, repo);
-        return fallbackSecret.trim();
-      }
-    }
   } catch (err) {
     console.warn("[GitHub Vault Relay] Failed to read from SecretStorage:", sanitizeErrorMessage(err));
-    return null;
   }
 
-  // 4. One-time migration from legacy localStorage (ONLY if SecretStorage is active and empty)
+  // 2. Read from SecretStorage using valid legacy keys if any (e.g., "vault-relay-pat")
+  const legacySecretKeys = ["vault-relay-pat"];
+  for (const legKey of legacySecretKeys) {
+    try {
+      if (isValidSecretId(legKey)) {
+        const legVal = await secretStorage.getSecret(legKey);
+        if (typeof legVal === "string" && legVal.trim().length > 0) {
+          const trimmed = legVal.trim();
+          await secretStorage.setSecret(CANONICAL_SECRET_KEY, trimmed);
+          const verified = await secretStorage.getSecret(CANONICAL_SECRET_KEY);
+          if (verified === trimmed) {
+            await deleteFromSecretStorage(secretStorage, legKey);
+            purgeLegacyLocalStorageKeys(owner, repo);
+            return trimmed;
+          }
+        }
+      }
+    } catch {
+      // Ignore legacy SecretStorage query issues
+    }
+  }
+
+  // 3. One-time migration from legacy localStorage (ONLY if SecretStorage is active and empty)
   const localStorage = getDeviceLocalStorage();
   if (localStorage) {
     try {
-      const candidates = [
-        key,
-        legacyKey,
-        "github-vault-relay:pat",
-        "vault-relay:pat",
-      ];
+      const cleanOwner = (owner || "").trim().toLowerCase();
+      const cleanRepo = (repo || "").trim().toLowerCase();
+      const candidates: string[] = [];
+
+      if (cleanOwner && cleanRepo) {
+        candidates.push(`github-vault-relay:pat:${cleanOwner}:${cleanRepo}`);
+        candidates.push(`vault-relay:pat:${cleanOwner}:${cleanRepo}`);
+      }
+      candidates.push("github-vault-relay:pat");
+      candidates.push("vault-relay:pat");
+      candidates.push(CANONICAL_SECRET_KEY);
+      candidates.push("vault-relay-pat");
+
+      // Also scan all localStorage keys for any match
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && /vault-relay.*pat/i.test(k) && !candidates.includes(k)) {
+          candidates.push(k);
+        }
+      }
 
       for (const candidateKey of candidates) {
         const rawLegacy = localStorage.getItem(candidateKey);
         if (typeof rawLegacy === "string" && rawLegacy.trim().length > 0) {
           const cleanLegacy = rawLegacy.trim();
-          // Write into SecretStorage
-          await secretStorage.setSecret(key, cleanLegacy);
+          // Write into SecretStorage under canonical key
+          await secretStorage.setSecret(CANONICAL_SECRET_KEY, cleanLegacy);
           // Verify SecretStorage write
-          const verified = await secretStorage.getSecret(key);
+          const verified = await secretStorage.getSecret(CANONICAL_SECRET_KEY);
           if (verified === cleanLegacy) {
             // Immediately purge legacy value and all related keys from localStorage
             purgeLegacyLocalStorageKeys(owner, repo);
@@ -227,7 +269,6 @@ export async function setStoredPat(
   token: string
 ): Promise<void> {
   const cleanToken = (token || "").trim();
-  const key = getSecretKeyForRepo(owner, repo);
 
   if (!cleanToken) {
     await clearStoredPat(app, owner, repo);
@@ -243,11 +284,11 @@ export async function setStoredPat(
   }
 
   try {
-    // Write ONLY to SecretStorage
-    await secretStorage.setSecret(key, cleanToken);
+    // Write ONLY to SecretStorage using CANONICAL_SECRET_KEY
+    await secretStorage.setSecret(CANONICAL_SECRET_KEY, cleanToken);
 
     // Verify write
-    const verified = await secretStorage.getSecret(key);
+    const verified = await secretStorage.getSecret(CANONICAL_SECRET_KEY);
     if (verified !== cleanToken) {
       throw new Error("SecretStorage write verification failed: stored value did not match.");
     }
@@ -263,18 +304,12 @@ export async function setStoredPat(
  * Clears/removes the stored PAT from device storage.
  * Deletes from SecretStorage and purges any legacy localStorage entries.
  */
-export async function clearStoredPat(app: App, owner: string, repo: string): Promise<void> {
-  const key = getSecretKeyForRepo(owner, repo);
-  const legacyKey = `vault-relay:pat:${(owner || "").trim().toLowerCase()}:${(repo || "").trim().toLowerCase()}`;
-
+export async function clearStoredPat(app: App, owner?: string, repo?: string): Promise<void> {
   // 1. Clear from SecretStorage if present
   const secretStorage = getSecretStorage(app);
   if (secretStorage) {
-    await deleteFromSecretStorage(secretStorage, key);
-    await deleteFromSecretStorage(secretStorage, legacyKey);
-    if (key !== "github-vault-relay:pat") {
-      await deleteFromSecretStorage(secretStorage, "github-vault-relay:pat");
-    }
+    await deleteFromSecretStorage(secretStorage, CANONICAL_SECRET_KEY);
+    await deleteFromSecretStorage(secretStorage, "vault-relay-pat");
   }
 
   // 2. Always purge any legacy entries from localStorage as safety hygiene
@@ -284,8 +319,7 @@ export async function clearStoredPat(app: App, owner: string, repo: string): Pro
 /**
  * Checks if a PAT is configured for this repository.
  */
-export async function hasStoredPat(app: App, owner: string, repo: string): Promise<boolean> {
+export async function hasStoredPat(app: App, owner?: string, repo?: string): Promise<boolean> {
   const token = await getStoredPat(app, owner, repo);
   return !!token;
 }
-

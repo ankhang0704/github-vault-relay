@@ -17,10 +17,10 @@ describe("Device Secret Storage Integration (src/security/secretStore.ts)", () =
     }
   });
 
-  it("generates correct namespaced key for repo with github-vault-relay prefix", () => {
-    expect(getSecretKeyForRepo("octocat", "my-vault")).toBe("github-vault-relay:pat:octocat:my-vault");
-    expect(getSecretKeyForRepo("Owner", "Repo")).toBe("github-vault-relay:pat:owner:repo");
-    expect(getSecretKeyForRepo("", "")).toBe("github-vault-relay:pat");
+  it("uses canonical plugin-global secret key complying with Obsidian SecretStorage regex", () => {
+    expect(getSecretKeyForRepo("octocat", "my-vault")).toBe("github-vault-relay-pat");
+    expect(getSecretKeyForRepo("Owner", "Repo")).toBe("github-vault-relay-pat");
+    expect(getSecretKeyForRepo("", "")).toBe("github-vault-relay-pat");
   });
 
   it("stores, retrieves, and clears PAT via SecretStorage when available", async () => {
@@ -74,12 +74,12 @@ describe("Device Secret Storage Integration (src/security/secretStore.ts)", () =
     const retrieved = await getStoredPat(app, "legacyowner", "legacyrepo");
     expect(retrieved).toBe(token);
 
-    // Verified written to SecretStorage
-    const inSecretStorage = await app.secretStorage.getSecret("github-vault-relay:pat:legacyowner:legacyrepo");
+    // Verified written to SecretStorage under canonical key
+    const inSecretStorage = await app.secretStorage.getSecret("github-vault-relay-pat");
     expect(inSecretStorage).toBe(token);
 
     // Verified purged immediately from localStorage
     expect(window.localStorage.getItem("vault-relay:pat:legacyowner:legacyrepo")).toBeNull();
-    expect(window.localStorage.getItem("github-vault-relay:pat:legacyowner:legacyrepo")).toBeNull();
+    expect(window.localStorage.getItem("github-vault-relay-pat")).toBeNull();
   });
 });

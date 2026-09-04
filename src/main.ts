@@ -11,7 +11,7 @@ import { PullConfirmModal } from "./ui/pullConfirmModal";
 import { PushConfirmModal } from "./ui/pushConfirmModal";
 import { GitHubClient } from "./github/githubClient";
 import { sanitizeErrorMessage } from "./security/redact";
-import { getStoredPat } from "./security/secretStore";
+import { CANONICAL_SECRET_KEY, getStoredPat } from "./security/secretStore";
 import { StorageManager } from "./sync/storageManager";
 
 export default class VaultRelayPlugin extends Plugin {
@@ -127,6 +127,10 @@ export default class VaultRelayPlugin extends Plugin {
 
   public async loadSettings(): Promise<void> {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    if (this.settings.secretKey && this.settings.secretKey !== CANONICAL_SECRET_KEY) {
+      this.settings.secretKey = CANONICAL_SECRET_KEY;
+      await this.saveSettings();
+    }
   }
 
   public async saveSettings(): Promise<void> {
