@@ -12,7 +12,10 @@ export type SyncPhase =
   | "DOWNLOADING"
   | "WRITING_LOCAL"
   | "VERIFYING_LOCAL"
+  | "REMOVING_LOCAL"
+  | "APPLYING_MOVES"
   | "UPLOADING"
+  | "DELETING_REMOTE"
   | "CREATING_TREE"
   | "CREATING_COMMIT"
   | "UPDATING_REF"
@@ -49,8 +52,14 @@ export function getPhaseLabel(phase: SyncPhase): string {
       return "Writing local files...";
     case "VERIFYING_LOCAL":
       return "Verifying local files...";
+    case "REMOVING_LOCAL":
+      return "Removing local files...";
+    case "APPLYING_MOVES":
+      return "Applying moves...";
     case "UPLOADING":
       return "Uploading local changes...";
+    case "DELETING_REMOTE":
+      return "Deleting files from GitHub...";
     case "CREATING_TREE":
       return "Creating Git tree...";
     case "CREATING_COMMIT":

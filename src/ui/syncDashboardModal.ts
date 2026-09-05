@@ -18,9 +18,11 @@ import { SyncCategory, SyncPreviewReport } from "../sync/syncTypes";
 import { getStoredPat } from "../security/secretStore";
 import { sanitizeErrorMessage } from "../security/redact";
 import { getPhaseLabel, SyncProgressEvent } from "../sync/progressTypes";
+import { computeSemanticPreview } from "../sync/semanticSummary";
 import { ConflictResolutionModal } from "./conflictResolutionModal";
 import { PullConfirmModal } from "./pullConfirmModal";
 import { PushConfirmModal } from "./pushConfirmModal";
+import { SyncPreviewModal } from "./syncPreviewModal";
 
 export class SyncDashboardModal extends Modal {
   private plugin: VaultRelayPlugin;
@@ -116,6 +118,8 @@ export class SyncDashboardModal extends Modal {
 
     const refreshBtn = header.createEl("button", { text: "↻ Refresh" });
     refreshBtn.disabled = this.isLoading || this.isSyncing;
+    refreshBtn.style.minHeight = "44px";
+    refreshBtn.style.minWidth = "44px";
     refreshBtn.onclick = () => this.runScanAndRender();
 
     if (this.isLoading) {
@@ -131,43 +135,84 @@ export class SyncDashboardModal extends Modal {
       return;
     }
 
-    // 2. Metrics Grid
-    const counts = this.report.counts;
-    const localChanges = counts.LOCAL_ONLY + counts.LOCAL_CHANGED + counts.LOCAL_DELETED;
-    const remoteChanges = counts.REMOTE_ONLY + counts.REMOTE_CHANGED + counts.REMOTE_DELETED;
-    const conflicts = counts.POTENTIAL_CONFLICT + counts.DELETE_CONFLICT;
+    // 2. Semantic Metrics Grid
+    const sem = computeSemanticPreview(this.report.items);
+    const totalCreates = sem.pushCreate + sem.pullCreate;
+    const totalUpdates = sem.pushUpdate + sem.pullUpdate;
 
     const metricsGrid = contentEl.createDiv({
       attr: {
         style:
-          "display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 16px;",
+          "display: grid; grid-template-columns: repeat(auto-fit, minmax(95px, 1fr)); gap: 8px; margin-bottom: 14px;",
       },
     });
 
-    this.renderMetricBadge(metricsGrid, "Local", localChanges, localChanges > 0 ? "var(--interactive-accent)" : "var(--text-muted)");
-    this.renderMetricBadge(metricsGrid, "Remote", remoteChanges, remoteChanges > 0 ? "var(--interactive-accent)" : "var(--text-muted)");
-    this.renderMetricBadge(metricsGrid, "Conflicts", conflicts, conflicts > 0 ? "var(--color-red, #e74c3c)" : "var(--text-muted)");
-    this.renderMetricBadge(metricsGrid, "Unchanged", counts.UNCHANGED, "var(--color-green, #2ecc71)");
+    this.renderMetricBadge(metricsGrid, "Create", totalCreates, totalCreates > 0 ? "var(--interactive-accent)" : "var(--text-muted)");
+    this.renderMetricBadge(metricsGrid, "Update", totalUpdates, totalUpdates > 0 ? "var(--interactive-accent)" : "var(--text-muted)");
+    this.renderMetricBadge(metricsGrid, "Delete from GitHub", sem.pushDeleteRemote, sem.pushDeleteRemote > 0 ? "var(--color-red, #e74c3c)" : "var(--text-muted)");
+    this.renderMetricBadge(metricsGrid, "Remove locally", sem.pullRemoveLocal, sem.pullRemoveLocal > 0 ? "var(--color-red, #e74c3c)" : "var(--text-muted)");
+    this.renderMetricBadge(metricsGrid, "Moves", sem.totalSemanticMoves, sem.totalSemanticMoves > 0 ? "var(--color-purple, #9b59b6)" : "var(--text-muted)");
+    this.renderMetricBadge(metricsGrid, "Conflicts", sem.contentConflicts, sem.contentConflicts > 0 ? "var(--color-red, #e74c3c)" : "var(--text-muted)");
+    this.renderMetricBadge(metricsGrid, "Delete Conflicts", sem.deleteConflicts, sem.deleteConflicts > 0 ? "var(--color-red, #e74c3c)" : "var(--text-muted)");
+    this.renderMetricBadge(metricsGrid, "Unchanged", sem.unchanged, "var(--color-green, #2ecc71)");
 
-    // 3. Conflict Banner (if any)
-    if (conflicts > 0) {
+    // 3. Explanatory Destructive Operations Notice (if any deletions pending)
+    const hasDeletions = sem.pushDeleteRemote > 0 || sem.pullRemoveLocal > 0;
+    if (hasDeletions) {
+      const delNotice = contentEl.createDiv({
+        attr: {
+          style:
+            "margin-bottom: 14px; padding: 10px 14px; border-radius: 6px; background-color: rgba(231, 76, 60, 0.08); border: 1px solid var(--color-red, #e74c3c); font-size: 0.86em; line-height: 1.4;",
+        },
+      });
+      delNotice.createEl("div", {
+        text: "⚠ Destructive Operations Pending:",
+        attr: { style: "font-weight: 600; color: var(--color-red, #e74c3c); margin-bottom: 4px;" },
+      });
+      if (sem.pushDeleteRemote > 0) {
+        delNotice.createEl("div", {
+          text: `• ${sem.pushDeleteRemote} file(s) will be deleted from GitHub (previous versions remain available in Git history).`,
+          attr: { style: "color: var(--text-normal); margin-bottom: 2px;" },
+        });
+      }
+      if (sem.pullRemoveLocal > 0) {
+        delNotice.createEl("div", {
+          text: `• ${sem.pullRemoveLocal} file(s) will be removed locally (moved to trash according to Obsidian Files & links trash settings).`,
+          attr: { style: "color: var(--text-normal);" },
+        });
+      }
+    }
+
+    // 4. Conflict Banner (if any)
+    if (sem.totalConflicts > 0) {
       const banner = contentEl.createDiv({
         attr: {
           style:
-            "display: flex; justify-content: space-between; align-items: center; background-color: rgba(231, 76, 60, 0.12); border: 1px solid var(--color-red, #e74c3c); border-radius: 6px; padding: 10px 14px; margin-bottom: 16px;",
+            "display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; background-color: rgba(231, 76, 60, 0.12); border: 1px solid var(--color-red, #e74c3c); border-radius: 6px; padding: 10px 14px; margin-bottom: 14px;",
         },
       });
+      const conflictText =
+        sem.deleteConflicts > 0 && sem.contentConflicts > 0
+          ? `⚠ ${sem.totalConflicts} conflict(s) require review (${sem.deleteConflicts} delete conflict(s))`
+          : sem.deleteConflicts > 0
+          ? `⚠ ${sem.deleteConflicts} delete conflict(s) require review`
+          : `⚠ ${sem.contentConflicts} conflict(s) require review`;
+
       banner.createDiv({
-        text: `⚠ ${conflicts} conflict(s) require review`,
+        text: conflictText,
         attr: { style: "font-weight: 500; font-size: 0.9em; color: var(--color-red, #e74c3c);" },
       });
-      const reviewBtn = banner.createEl("button", { text: "Review Conflicts", cls: "mod-warning" });
+      const reviewBtn = banner.createEl("button", {
+        text: "Review Conflicts",
+        cls: "mod-warning",
+        attr: { style: "min-height: 44px; min-width: 44px;" },
+      });
       reviewBtn.onclick = () => {
         new ConflictResolutionModal(this.app, this.plugin, () => this.runScanAndRender(), this.report).open();
       };
     }
 
-    // 4. Primary Sync Action Area
+    // 5. Primary Sync Action Area
     const syncCard = contentEl.createDiv({
       attr: {
         style:
@@ -197,10 +242,10 @@ export class SyncDashboardModal extends Modal {
       const syncBtn = syncCard.createEl("button", {
         text: "Sync Now",
         cls: "mod-cta",
-        attr: { style: "width: 100%; height: 44px; font-size: 1.05em; font-weight: 600; cursor: pointer;" },
+        attr: { style: "width: 100%; min-height: 44px; font-size: 1.05em; font-weight: 600; cursor: pointer;" },
       });
 
-      const hasChanges = localChanges > 0 || remoteChanges > 0;
+      const hasChanges = sem.totalPushMutations > 0 || sem.totalPullMutations > 0 || sem.totalConflicts > 0;
       if (!hasChanges) {
         syncBtn.setText("Repository Up to Date (Sync)");
       }
@@ -210,21 +255,29 @@ export class SyncDashboardModal extends Modal {
       };
     }
 
-    // 5. Utility Actions: Advanced Toggle
+    // 6. Utility Actions: Preview Details + Advanced Toggle
     const actionsRow = contentEl.createDiv({
-      attr: { style: "display: flex; justify-content: flex-end; align-items: center; margin-bottom: 12px;" },
+      attr: { style: "display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;" },
     });
+
+    const previewBtn = actionsRow.createEl("button", {
+      text: "🔍 Preview Details",
+      attr: { style: "min-height: 44px; min-width: 44px;" },
+    });
+    previewBtn.onclick = () => {
+      new SyncPreviewModal(this.app, this.plugin).open();
+    };
 
     const advancedToggle = actionsRow.createEl("button", {
       text: this.showAdvanced ? "Hide Advanced Details ▲" : "View Advanced Details ▼",
-      attr: { style: "background: transparent; border: none; font-size: 0.82em; color: var(--text-muted); cursor: pointer;" },
+      attr: { style: "min-height: 44px; min-width: 44px; background: transparent; border: none; font-size: 0.82em; color: var(--text-muted); cursor: pointer;" },
     });
     advancedToggle.onclick = () => {
       this.showAdvanced = !this.showAdvanced;
       this.render();
     };
 
-    // 6. Collapsible Advanced Section
+    // 7. Collapsible Advanced Section
     if (this.showAdvanced) {
       this.renderAdvancedSection(contentEl);
     }
@@ -234,16 +287,16 @@ export class SyncDashboardModal extends Modal {
     const badge = container.createDiv({
       attr: {
         style:
-          "padding: 10px 8px; border-radius: 6px; background-color: var(--background-secondary); border: 1px solid var(--background-modifier-border); text-align: center;",
+          "padding: 10px 8px; border-radius: 6px; background-color: var(--background-secondary); border: 1px solid var(--background-modifier-border); text-align: center; display: flex; flex-direction: column; justify-content: center; min-height: 54px;",
       },
     });
     badge.createDiv({
       text: String(count),
-      attr: { style: `font-size: 1.3em; font-weight: 700; color: ${color};` },
+      attr: { style: `font-size: 1.25em; font-weight: 700; color: ${color}; line-height: 1.2;` },
     });
     badge.createDiv({
       text: label,
-      attr: { style: "font-size: 0.75em; color: var(--text-muted); margin-top: 2px;" },
+      attr: { style: "font-size: 0.72em; color: var(--text-muted); margin-top: 3px; line-height: 1.2; word-break: break-word;" },
     });
   }
 
@@ -288,13 +341,13 @@ export class SyncDashboardModal extends Modal {
     adv.createEl("h3", { text: "Engineering Diagnostics & Individual Operations", attr: { style: "font-size: 0.95em; margin-bottom: 8px;" } });
 
     // Buttons for manual Safe Pull / Safe Push
-    const opBtns = adv.createDiv({ attr: { style: "display: flex; gap: 8px; margin-bottom: 12px;" } });
-    const pullBtn = opBtns.createEl("button", { text: "Safe Pull Only" });
+    const opBtns = adv.createDiv({ attr: { style: "display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;" } });
+    const pullBtn = opBtns.createEl("button", { text: "Safe Pull Only", attr: { style: "min-height: 44px; min-width: 44px;" } });
     pullBtn.onclick = () => {
       new PullConfirmModal(this.app, this.plugin, () => this.runScanAndRender()).open();
     };
 
-    const pushBtn = opBtns.createEl("button", { text: "Safe Push Only" });
+    const pushBtn = opBtns.createEl("button", { text: "Safe Push Only", attr: { style: "min-height: 44px; min-width: 44px;" } });
     pushBtn.onclick = () => {
       new PushConfirmModal(this.app, this.plugin, () => this.runScanAndRender()).open();
     };
@@ -308,8 +361,13 @@ export class SyncDashboardModal extends Modal {
         const row = itemsList.createDiv({
           attr: { style: "display: flex; justify-content: space-between; font-size: 0.8em; padding: 4px 6px; border-bottom: 1px solid var(--background-modifier-border);" },
         });
+        const label = item.isMove && item.movedTo
+          ? `Move → ${item.movedTo}`
+          : item.isMove && item.movedFrom
+          ? `Move ← ${item.movedFrom}`
+          : item.category;
         row.createDiv({ text: item.path, attr: { style: "word-break: break-all; font-family: var(--font-monospace);" } });
-        row.createDiv({ text: item.category, attr: { style: "font-weight: 600; color: var(--text-muted);" } });
+        row.createDiv({ text: label, attr: { style: "font-weight: 600; color: var(--text-muted);" } });
       }
     }
   }

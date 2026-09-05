@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Safe Push Result Modal for Vault Relay
  *
  * Displays honest, detailed execution reports following a Safe Push operation.
@@ -6,6 +6,7 @@
 
 import { App, Modal } from "obsidian";
 import { PushExecutionReport, PushFileResult } from "../sync/syncTypes";
+import { computeSemanticPushResults } from "../sync/semanticSummary";
 
 export class PushResultModal extends Modal {
   private report: PushExecutionReport;
@@ -17,19 +18,25 @@ export class PushResultModal extends Modal {
 
   public onOpen(): void {
     this.modalEl.addClass("vault-relay-modal");
-    const { contentEl } = this;
     this.modalEl.addClass("vault-relay-result-modal");
-    this.modalEl.style.maxWidth = "750px";
+    this.modalEl.style.maxWidth = "600px";
     this.modalEl.style.width = "90vw";
+    this.render();
+  }
 
+  public onClose(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+
+  private render(): void {
+    const { contentEl } = this;
     contentEl.empty();
 
-    // Header
-    const headerEl = contentEl.createDiv({ attr: { style: "margin-bottom: 16px;" } });
-    headerEl.createEl("h2", { text: "GitHub Vault Relay - Safe Push Report", attr: { style: "margin: 0 0 6px 0;" } });
+    contentEl.createEl("h2", { text: "Safe Push Results" });
 
     // Status Banner
-    const counts = this.report.counts;
+    const counts = computeSemanticPushResults(this.report);
     let statusBg = "rgba(46, 204, 113, 0.15)";
     let statusFg = "var(--color-green, #2ecc71)";
     let statusIcon = "✅";
@@ -78,11 +85,17 @@ export class PushResultModal extends Modal {
       },
     });
 
-    this.createBadge(statsGrid, "Created", counts.pushedCreated, "var(--color-green, #2ecc71)");
-    this.createBadge(statsGrid, "Updated", counts.pushedUpdated, "var(--color-cyan, #00b4d8)");
-    this.createBadge(statsGrid, "Conflicts", counts.skippedConflicts, "var(--color-red, #e74c3c)");
-    this.createBadge(statsGrid, "Oversized", counts.skippedOversized, "var(--color-purple, #9b59b6)");
-    this.createBadge(statsGrid, "Unsafe", counts.skippedUnsafe, "var(--color-orange, #e67e22)");
+    this.createBadge(statsGrid, "Created", counts.created, "var(--color-green, #2ecc71)");
+    this.createBadge(statsGrid, "Updated", counts.updated, "var(--color-cyan, #00b4d8)");
+    if (counts.deleted > 0) {
+      this.createBadge(statsGrid, "Deleted from GitHub", counts.deleted, "var(--color-red, #e74c3c)");
+    }
+    if (counts.moved > 0) {
+      this.createBadge(statsGrid, "Moved", counts.moved, "var(--color-purple, #9b59b6)");
+    }
+    this.createBadge(statsGrid, "Conflicts", counts.conflicts, "var(--color-red, #e74c3c)");
+    this.createBadge(statsGrid, "Oversized", counts.oversized, "var(--color-purple, #9b59b6)");
+    this.createBadge(statsGrid, "Unsafe", counts.unsafe, "var(--color-orange, #e67e22)");
     this.createBadge(statsGrid, "Failed", counts.failed, "var(--color-red, #c0392b)");
 
     // Actions Detail List
@@ -115,7 +128,10 @@ export class PushResultModal extends Modal {
       attr: { style: "display: flex; justify-content: flex-end; margin-top: 16px;" },
     });
 
-    const closeBtn = actions.createEl("button", { text: "Done" });
+    const closeBtn = actions.createEl("button", {
+      text: "Done",
+      attr: { style: "min-height: 44px; min-width: 44px; padding: 10px 16px;" },
+    });
     closeBtn.onclick = () => this.close();
   }
 
@@ -146,7 +162,7 @@ export class PushResultModal extends Modal {
     });
 
     const header = row.createDiv({
-      attr: { style: "display: flex; justify-content: space-between; align-items: center; gap: 8px;" },
+      attr: { style: "display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;" },
     });
 
     header.createDiv({
@@ -154,12 +170,23 @@ export class PushResultModal extends Modal {
       attr: { style: "font-weight: 500; word-break: break-all; color: var(--text-normal);" },
     });
 
+    const badgeGroup = header.createDiv({ attr: { style: "display: flex; gap: 6px; align-items: center;" } });
+
+    if (res.action === "PUSH_DELETE") {
+      badgeGroup.createSpan({
+        text: "Deleted from GitHub",
+        attr: {
+          style: "padding: 2px 6px; border-radius: 3px; font-size: 0.72em; font-weight: 600; background-color: rgba(231, 76, 60, 0.15); color: var(--color-red, #e74c3c);",
+        },
+      });
+    }
+
     let badgeColor = "#27ae60";
     if (res.status === "FAILED") badgeColor = "#e74c3c";
     if (res.status === "BLOCKED_CONFLICT") badgeColor = "#e67e22";
     if (res.status === "SKIPPED") badgeColor = "#95a5a6";
 
-    header.createSpan({
+    badgeGroup.createSpan({
       text: res.status,
       attr: {
         style: `padding: 2px 6px; border-radius: 3px; font-size: 0.72em; font-weight: 600; background-color: rgba(0,0,0,0.1); color: ${badgeColor};`,

@@ -137,17 +137,21 @@ export class ConflictResolutionModal extends Modal {
 
     if (isDeleteConflict) {
       const isLocalDel = conflict.conflictType === "DELETE_LOCAL_REMOTE_MODIFIED";
-      card.createDiv({
-        text: isLocalDel
-          ? "File was deleted locally, but modified on GitHub."
-          : "File was deleted on GitHub, but modified locally.",
-        attr: { style: "font-size: 0.82em; color: var(--color-red, #e74c3c); font-weight: 500; margin-bottom: 4px;" },
+      const statusDesc = card.createDiv({
+        attr: { style: "margin-bottom: 8px; font-size: 0.85em; line-height: 1.4;" },
       });
-      card.createDiv({
+      statusDesc.createEl("div", {
         text: isLocalDel
-          ? "Keep File restores the remote version locally. Delete File deletes the file from GitHub."
-          : "Keep File pushes your local changes to GitHub. Delete File removes the local file.",
-        attr: { style: "font-size: 0.8em; color: var(--text-muted); margin-bottom: 10px;" },
+          ? "Deleted on this device, modified on GitHub."
+          : "Modified on this device, deleted on GitHub.",
+        attr: { style: "color: var(--color-red, #e74c3c); font-weight: 600; margin-bottom: 4px;" },
+      });
+      const explanation = isLocalDel
+        ? "• Keep File: Restore the GitHub version locally.\n• Delete File: Delete the GitHub version in a new commit."
+        : "• Keep File: Push local modifications to GitHub in a new commit.\n• Delete File: Move the local file to Obsidian trash.";
+      statusDesc.createEl("div", {
+        text: explanation,
+        attr: { style: "color: var(--text-muted); font-size: 0.85em; white-space: pre-line;" },
       });
     } else {
       card.createDiv({
@@ -168,8 +172,21 @@ export class ConflictResolutionModal extends Modal {
     });
 
     if (isDeleteConflict) {
-      const keepFileBtn = btnRow.createEl("button", { text: "Keep File", cls: "mod-cta" });
-      const deleteFileBtn = btnRow.createEl("button", { text: "Delete File" });
+      const keepFileBtn = btnRow.createEl("button", {
+        text: "Keep File",
+        cls: "mod-cta",
+        attr: { style: "min-height: 44px; min-width: 44px;" },
+      });
+      const deleteFileBtn = btnRow.createEl("button", {
+        text: "Delete File",
+        cls: "mod-warning",
+        attr: { style: "min-height: 44px; min-width: 44px;" },
+      });
+      const cancelBtn = btnRow.createEl("button", {
+        text: "Cancel",
+        attr: { style: "min-height: 44px; min-width: 44px;" },
+      });
+      cancelBtn.onclick = () => this.close();
 
       const handleDeleteConflictAction = async (action: "keepFile" | "deleteFile") => {
         if (!this.conflictManager) return;
@@ -178,6 +195,7 @@ export class ConflictResolutionModal extends Modal {
         this.resolvingPaths.add(conflict.path);
         keepFileBtn.disabled = true;
         deleteFileBtn.disabled = true;
+        cancelBtn.disabled = true;
 
         statusDiv.setText(`⏳ Resolving: ${action === "keepFile" ? "Keeping file..." : "Deleting file..."}`);
         statusDiv.style.color = "var(--text-normal)";
@@ -207,6 +225,7 @@ export class ConflictResolutionModal extends Modal {
             statusDiv.style.color = "var(--color-red, #e74c3c)";
             keepFileBtn.disabled = false;
             deleteFileBtn.disabled = false;
+            cancelBtn.disabled = false;
           }
         } catch (err) {
           new Notice(`Unexpected resolution error: ${String(err)}`, 8000);
@@ -214,6 +233,7 @@ export class ConflictResolutionModal extends Modal {
           statusDiv.style.color = "var(--color-red, #e74c3c)";
           keepFileBtn.disabled = false;
           deleteFileBtn.disabled = false;
+          cancelBtn.disabled = false;
         } finally {
           this.resolvingPaths.delete(conflict.path);
         }
@@ -222,9 +242,24 @@ export class ConflictResolutionModal extends Modal {
       keepFileBtn.onclick = () => handleDeleteConflictAction("keepFile");
       deleteFileBtn.onclick = () => handleDeleteConflictAction("deleteFile");
     } else {
-      const keepLocalBtn = btnRow.createEl("button", { text: "Keep Local" });
-      const useRemoteBtn = btnRow.createEl("button", { text: "Use Remote" });
-      const keepBothBtn = btnRow.createEl("button", { text: "Keep Both", cls: "mod-cta" });
+      const keepBothBtn = btnRow.createEl("button", {
+        text: "Keep Both",
+        cls: "mod-cta",
+        attr: { style: "min-height: 44px; min-width: 44px;" },
+      });
+      const keepLocalBtn = btnRow.createEl("button", {
+        text: "Keep Local",
+        attr: { style: "min-height: 44px; min-width: 44px;" },
+      });
+      const useRemoteBtn = btnRow.createEl("button", {
+        text: "Use Remote",
+        attr: { style: "min-height: 44px; min-width: 44px;" },
+      });
+      const cancelBtn = btnRow.createEl("button", {
+        text: "Cancel",
+        attr: { style: "min-height: 44px; min-width: 44px;" },
+      });
+      cancelBtn.onclick = () => this.close();
 
       const handleAction = async (action: "keepLocal" | "useRemote" | "keepBoth") => {
         if (!this.conflictManager) return;

@@ -288,6 +288,7 @@ export class PullEngine {
       pulledCreated: 0,
       pulledUpdated: 0,
       pulledDeleted: 0,
+      pulledMoved: 0,
       conflictsPreserved: 0,
       unchanged: 0,
       skippedLocalOnly: 0,
@@ -314,7 +315,32 @@ export class PullEngine {
     // Step 7: Process each item safely
     for (const item of orderedItems) {
       processedCount++;
-      onProgress?.({ phase: "DOWNLOADING", completed: processedCount, total: orderedItems.length, currentPath: item.path });
+      if (item.category === "REMOTE_DELETED") {
+        if (item.isMove) {
+          onProgress?.({
+            phase: "APPLYING_MOVES",
+            completed: processedCount,
+            total: orderedItems.length,
+            currentPath: item.path,
+            message: `Applying move (${processedCount} / ${orderedItems.length})`,
+          });
+        } else {
+          onProgress?.({
+            phase: "REMOVING_LOCAL",
+            completed: processedCount,
+            total: orderedItems.length,
+            currentPath: item.path,
+            message: `Removing local file (${processedCount} / ${orderedItems.length})`,
+          });
+        }
+      } else {
+        onProgress?.({
+          phase: "DOWNLOADING",
+          completed: processedCount,
+          total: orderedItems.length,
+          currentPath: item.path,
+        });
+      }
       const path = item.path;
 
       // 7.1 Path safety check
@@ -479,6 +505,9 @@ export class PullEngine {
           pendingDeleteRecoveryJournals.push(deleteJournal);
 
           counts.pulledDeleted++;
+          if (item.isMove && item.movedTo) {
+            counts.pulledMoved = (counts.pulledMoved || 0) + 1;
+          }
           results.push({
             path,
             action: "PULL_DELETE",

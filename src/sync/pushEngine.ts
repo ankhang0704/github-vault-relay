@@ -154,6 +154,7 @@ export class PushEngine {
         pushedCreated: 0,
         pushedUpdated: 0,
         pushedDeleted: 0,
+        pushedMoved: 0,
         unchanged: 0,
         skippedRemoteOnly: 0,
         skippedRemoteChanged: 0,
@@ -176,6 +177,7 @@ export class PushEngine {
         pushedCreated: 0,
         pushedUpdated: 0,
         pushedDeleted: 0,
+        pushedMoved: 0,
         unchanged: 0,
         skippedRemoteOnly: 0,
         skippedRemoteChanged: 0,
@@ -272,6 +274,9 @@ export class PushEngine {
       localFile?: TFile;
       rawBytes?: Uint8Array;
       remotePriorSha?: string;
+      isMove?: boolean;
+      movedTo?: string;
+      movedFrom?: string;
     }
 
     const eligibleItems: EligiblePushItem[] = [];
@@ -330,6 +335,9 @@ export class PushEngine {
                 localSha: localEntry.sha,
                 localFile: file,
                 rawBytes,
+                isMove: previewItem.isMove,
+                movedFrom: previewItem.movedFrom,
+                movedTo: previewItem.movedTo,
               });
             } catch (err) {
               report.results.push({
@@ -377,6 +385,9 @@ export class PushEngine {
             category: "LOCAL_DELETED",
             localSha: "",
             remotePriorSha: remoteEntry?.sha,
+            isMove: previewItem.isMove,
+            movedTo: previewItem.movedTo,
+            movedFrom: previewItem.movedFrom,
           });
           break;
         }
@@ -502,6 +513,7 @@ export class PushEngine {
       localSha: string;
       remoteBlobSha: string;
       action: "PUSH_CREATE" | "PUSH_UPDATE" | "PUSH_DELETE";
+      isMove?: boolean;
     }
     const uploadedRecords: UploadedFileRecord[] = [];
 
@@ -509,9 +521,25 @@ export class PushEngine {
     let uploadIndex = 0;
     for (const item of eligibleItems) {
       uploadIndex++;
-      onProgress?.({ phase: "UPLOADING", completed: uploadIndex, total: eligibleItems.length, currentPath: item.path });
 
       if (item.category === "LOCAL_DELETED") {
+        if (item.isMove) {
+          onProgress?.({
+            phase: "APPLYING_MOVES",
+            completed: uploadIndex,
+            total: eligibleItems.length,
+            currentPath: item.path,
+            message: `Applying move (${uploadIndex} / ${eligibleItems.length})`,
+          });
+        } else {
+          onProgress?.({
+            phase: "DELETING_REMOTE",
+            completed: uploadIndex,
+            total: eligibleItems.length,
+            currentPath: item.path,
+            message: `Deleting file from GitHub (${uploadIndex} / ${eligibleItems.length})`,
+          });
+        }
         treeItemsToPush.push({
           path: item.path,
           mode: "100644",
@@ -523,9 +551,12 @@ export class PushEngine {
           localSha: "",
           remoteBlobSha: "",
           action: "PUSH_DELETE",
+          isMove: item.isMove,
         });
         continue;
       }
+
+      onProgress?.({ phase: "UPLOADING", completed: uploadIndex, total: eligibleItems.length, currentPath: item.path });
 
       try {
         let bytesToUpload = item.rawBytes!;
@@ -748,6 +779,9 @@ export class PushEngine {
           status: "SUCCESS",
         });
         report.counts.pushedDeleted++;
+        if (rec.isMove) {
+          report.counts.pushedMoved = (report.counts.pushedMoved || 0) + 1;
+        }
         continue;
       }
 

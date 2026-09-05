@@ -133,6 +133,7 @@ export interface PullExecutionReport {
     pulledCreated: number;
     pulledUpdated: number;
     pulledDeleted: number;
+    pulledMoved?: number;
     conflictsPreserved: number;
     unchanged: number;
     skippedLocalOnly: number;
@@ -183,6 +184,7 @@ export interface PushExecutionReport {
     pushedCreated: number;
     pushedUpdated: number;
     pushedDeleted: number;
+    pushedMoved?: number;
     unchanged: number;
     skippedRemoteOnly: number;
     skippedRemoteChanged: number;

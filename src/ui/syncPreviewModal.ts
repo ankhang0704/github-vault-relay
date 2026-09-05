@@ -10,6 +10,7 @@ import type VaultRelayPlugin from "../main";
 import { GitHubClient } from "../github/githubClient";
 import { SyncEngine } from "../sync/syncEngine";
 import { SyncCategory, SyncPreviewItem, SyncPreviewReport } from "../sync/syncTypes";
+import { computeSemanticPreview } from "../sync/semanticSummary";
 import { getStoredPat } from "../security/secretStore";
 import { sanitizeErrorMessage } from "../security/redact";
 import { PullConfirmModal } from "./pullConfirmModal";
@@ -18,7 +19,7 @@ import { PushConfirmModal } from "./pushConfirmModal";
 export class SyncPreviewModal extends Modal {
   private plugin: VaultRelayPlugin;
   private report: SyncPreviewReport | null = null;
-  private activeCategoryFilter: SyncCategory | "ALL" = "ALL";
+  private activeCategoryFilter: SyncCategory | "ALL" | "MOVES" = "ALL";
   private isLoading = false;
   public isModalOpen = false;
 
@@ -156,29 +157,39 @@ export class SyncPreviewModal extends Modal {
 
     const actionArea = headerEl.createDiv({
       cls: "vault-relay-action-row",
-      attr: { style: "display: flex; gap: 8px;" },
+      attr: { style: "display: flex; gap: 8px; flex-wrap: wrap;" },
     });
 
-    const pullBtn = actionArea.createEl("button", { text: "Pull Safe Changes", cls: "mod-cta" });
-      pullBtn.onclick = () => {
-        new PullConfirmModal(this.app, this.plugin, async () => {
-          if (this.isModalOpen) {
-            await this.runScanAndRender();
-          }
-        }).open();
-      };
+    const pullBtn = actionArea.createEl("button", {
+      text: "Pull Safe Changes",
+      cls: "mod-cta",
+      attr: { style: "min-height: 44px; min-width: 44px; padding: 10px 16px;" },
+    });
+    pullBtn.onclick = () => {
+      new PullConfirmModal(this.app, this.plugin, async () => {
+        if (this.isModalOpen) {
+          await this.runScanAndRender();
+        }
+      }).open();
+    };
 
-      const pushBtn = actionArea.createEl("button", { text: "Push Safe Changes" });
-      pushBtn.onclick = () => {
-        new PushConfirmModal(this.app, this.plugin, async () => {
-          if (this.isModalOpen) {
-            await this.runScanAndRender();
-          }
-        }).open();
-      };
+    const pushBtn = actionArea.createEl("button", {
+      text: "Push Safe Changes",
+      attr: { style: "min-height: 44px; min-width: 44px; padding: 10px 16px;" },
+    });
+    pushBtn.onclick = () => {
+      new PushConfirmModal(this.app, this.plugin, async () => {
+        if (this.isModalOpen) {
+          await this.runScanAndRender();
+        }
+      }).open();
+    };
 
-      const refreshBtn = actionArea.createEl("button", { text: "Refresh" });
-      refreshBtn.onclick = () => this.runScanAndRender();
+    const refreshBtn = actionArea.createEl("button", {
+      text: "Refresh",
+      attr: { style: "min-height: 44px; min-width: 44px; padding: 10px 16px;" },
+    });
+    refreshBtn.onclick = () => this.runScanAndRender();
 
     // Truncated tree warning banner (TRUNCATED_TREE_POLICY)
     if (this.report.truncatedRemoteTree) {
@@ -211,8 +222,8 @@ export class SyncPreviewModal extends Modal {
       });
     }
 
-    // Summary Badges Grid
-    const counts = this.report.counts;
+    // Semantic Summary Badges Grid
+    const semantic = computeSemanticPreview(this.report.items);
     const statsGrid = contentEl.createDiv({
       attr: {
         style:
@@ -220,14 +231,17 @@ export class SyncPreviewModal extends Modal {
       },
     });
 
-    this.createStatBadge(statsGrid, "Local Only", counts.LOCAL_ONLY, "var(--color-cyan, #00b4d8)", "LOCAL_ONLY");
-    this.createStatBadge(statsGrid, "Remote Only", counts.REMOTE_ONLY, "var(--color-blue, #0077b6)", "REMOTE_ONLY");
-    this.createStatBadge(statsGrid, "Local Changed", counts.LOCAL_CHANGED, "var(--color-orange, #f39c12)", "LOCAL_CHANGED");
-    this.createStatBadge(statsGrid, "Remote Changed", counts.REMOTE_CHANGED, "var(--color-purple, #9b59b6)", "REMOTE_CHANGED");
-    this.createStatBadge(statsGrid, "Local Del", counts.LOCAL_DELETED, "var(--color-red, #e74c3c)", "LOCAL_DELETED");
-    this.createStatBadge(statsGrid, "Remote Del", counts.REMOTE_DELETED, "var(--color-pink, #e84393)", "REMOTE_DELETED");
-    this.createStatBadge(statsGrid, "Conflicts", counts.POTENTIAL_CONFLICT + counts.DELETE_CONFLICT, "var(--color-red, #d63031)", "POTENTIAL_CONFLICT");
-    this.createStatBadge(statsGrid, "Unchanged", counts.UNCHANGED, "var(--color-green, #2ecc71)", "UNCHANGED");
+    this.createStatBadge(statsGrid, "Local Only", semantic.pushCreate, "var(--color-cyan, #00b4d8)", "LOCAL_ONLY");
+    this.createStatBadge(statsGrid, "Remote Only", semantic.pullCreate, "var(--color-blue, #0077b6)", "REMOTE_ONLY");
+    this.createStatBadge(statsGrid, "Local Changed", semantic.pushUpdate, "var(--color-orange, #f39c12)", "LOCAL_CHANGED");
+    this.createStatBadge(statsGrid, "Remote Changed", semantic.pullUpdate, "var(--color-purple, #9b59b6)", "REMOTE_CHANGED");
+    this.createStatBadge(statsGrid, "Delete from GitHub", semantic.pushDeleteRemote, "var(--color-red, #e74c3c)", "LOCAL_DELETED");
+    this.createStatBadge(statsGrid, "Remove locally", semantic.pullRemoveLocal, "var(--color-pink, #e84393)", "REMOTE_DELETED");
+    if (semantic.totalSemanticMoves > 0) {
+      this.createStatBadge(statsGrid, "Moves", semantic.totalSemanticMoves, "var(--color-purple, #8e44ad)", "MOVES");
+    }
+    this.createStatBadge(statsGrid, "Conflicts", semantic.totalConflicts, "var(--color-red, #d63031)", "POTENTIAL_CONFLICT");
+    this.createStatBadge(statsGrid, "Unchanged", semantic.unchanged, "var(--color-green, #2ecc71)", "UNCHANGED");
 
     // Filter Bar
     const filterBar = contentEl.createDiv({
@@ -238,23 +252,36 @@ export class SyncPreviewModal extends Modal {
       },
     });
 
-    const totalCount = this.report.items.length;
-    this.createFilterTab(filterBar, `All (${totalCount})`, "ALL");
-    this.createFilterTab(filterBar, `Local Only (${counts.LOCAL_ONLY})`, "LOCAL_ONLY");
-    this.createFilterTab(filterBar, `Remote Only (${counts.REMOTE_ONLY})`, "REMOTE_ONLY");
-    this.createFilterTab(filterBar, `Local Changed (${counts.LOCAL_CHANGED})`, "LOCAL_CHANGED");
-    this.createFilterTab(filterBar, `Remote Changed (${counts.REMOTE_CHANGED})`, "REMOTE_CHANGED");
-    if (counts.LOCAL_DELETED > 0) this.createFilterTab(filterBar, `Local Del (${counts.LOCAL_DELETED})`, "LOCAL_DELETED");
-    if (counts.REMOTE_DELETED > 0) this.createFilterTab(filterBar, `Remote Del (${counts.REMOTE_DELETED})`, "REMOTE_DELETED");
-    if (counts.DELETE_CONFLICT > 0) this.createFilterTab(filterBar, `Del Conflict (${counts.DELETE_CONFLICT})`, "DELETE_CONFLICT");
-    this.createFilterTab(filterBar, `Conflicts (${counts.POTENTIAL_CONFLICT})`, "POTENTIAL_CONFLICT");
-    this.createFilterTab(filterBar, `Unchanged (${counts.UNCHANGED})`, "UNCHANGED");
+    const displayTotalCount = this.report.items.filter((it) => !(it.isMove && it.movedFrom)).length;
+    this.createFilterTab(filterBar, `All (${displayTotalCount})`, "ALL");
+    this.createFilterTab(filterBar, `Local Only (${semantic.pushCreate})`, "LOCAL_ONLY");
+    this.createFilterTab(filterBar, `Remote Only (${semantic.pullCreate})`, "REMOTE_ONLY");
+    this.createFilterTab(filterBar, `Local Changed (${semantic.pushUpdate})`, "LOCAL_CHANGED");
+    this.createFilterTab(filterBar, `Remote Changed (${semantic.pullUpdate})`, "REMOTE_CHANGED");
+    if (semantic.pushDeleteRemote > 0) this.createFilterTab(filterBar, `Delete from GitHub (${semantic.pushDeleteRemote})`, "LOCAL_DELETED");
+    if (semantic.pullRemoveLocal > 0) this.createFilterTab(filterBar, `Remove locally (${semantic.pullRemoveLocal})`, "REMOTE_DELETED");
+    if (semantic.totalSemanticMoves > 0) this.createFilterTab(filterBar, `Moves (${semantic.totalSemanticMoves})`, "MOVES");
+    if (semantic.deleteConflicts > 0) this.createFilterTab(filterBar, `Delete Conflict (${semantic.deleteConflicts})`, "DELETE_CONFLICT");
+    this.createFilterTab(filterBar, `Conflicts (${semantic.contentConflicts})`, "POTENTIAL_CONFLICT");
+    this.createFilterTab(filterBar, `Unchanged (${semantic.unchanged})`, "UNCHANGED");
 
     // File List
-    const filteredItems =
-      this.activeCategoryFilter === "ALL"
-        ? this.report.items
-        : this.report.items.filter((item) => item.category === this.activeCategoryFilter);
+    let filteredItems: SyncPreviewItem[];
+    if (this.activeCategoryFilter === "ALL") {
+      filteredItems = this.report.items.filter((item) => !(item.isMove && item.movedFrom));
+    } else if (this.activeCategoryFilter === "MOVES") {
+      filteredItems = this.report.items.filter((item) => item.isMove && (item.movedTo || !item.movedFrom));
+    } else if (this.activeCategoryFilter === "LOCAL_ONLY") {
+      filteredItems = this.report.items.filter((item) => item.category === "LOCAL_ONLY" && !item.isMove);
+    } else if (this.activeCategoryFilter === "REMOTE_ONLY") {
+      filteredItems = this.report.items.filter((item) => item.category === "REMOTE_ONLY" && !item.isMove);
+    } else if (this.activeCategoryFilter === "LOCAL_DELETED") {
+      filteredItems = this.report.items.filter((item) => item.category === "LOCAL_DELETED" && !item.isMove);
+    } else if (this.activeCategoryFilter === "REMOTE_DELETED") {
+      filteredItems = this.report.items.filter((item) => item.category === "REMOTE_DELETED" && !item.isMove);
+    } else {
+      filteredItems = this.report.items.filter((item) => item.category === this.activeCategoryFilter);
+    }
 
     const listContainer = contentEl.createDiv({
       attr: {
@@ -280,7 +307,7 @@ export class SyncPreviewModal extends Modal {
     label: string,
     count: number,
     color: string,
-    category: SyncCategory
+    category: SyncCategory | "MOVES"
   ): void {
     const isSelected = this.activeCategoryFilter === category;
     const card = parent.createDiv({
@@ -306,7 +333,7 @@ export class SyncPreviewModal extends Modal {
     });
   }
 
-  private createFilterTab(parent: HTMLElement, label: string, filter: SyncCategory | "ALL"): void {
+  private createFilterTab(parent: HTMLElement, label: string, filter: SyncCategory | "ALL" | "MOVES"): void {
     const isSelected = this.activeCategoryFilter === filter;
     const tab = parent.createEl("button", {
       text: label,
@@ -333,14 +360,26 @@ export class SyncPreviewModal extends Modal {
     });
 
     const left = row.createDiv({ attr: { style: "overflow: hidden; text-overflow: ellipsis; flex: 1;" } });
-    left.createDiv({
-      text: item.path,
-      attr: { style: "font-weight: 500; word-break: break-all; color: var(--text-normal);" },
-    });
-
-    if (item.isMove) {
+    if (item.isMove && item.movedTo) {
+      const moveTitle = left.createDiv({
+        attr: {
+          style:
+            "font-weight: 500; word-break: break-all; overflow-wrap: anywhere; color: var(--text-normal); display: flex; flex-wrap: wrap; align-items: center; gap: 4px;",
+        },
+      });
+      moveTitle.createSpan({ text: item.path, attr: { style: "text-decoration: line-through; opacity: 0.75;" } });
+      moveTitle.createSpan({ text: " → ", attr: { style: "font-weight: bold; color: var(--color-purple, #9b59b6);" } });
+      moveTitle.createSpan({ text: item.movedTo, attr: { style: "font-weight: 600;" } });
+    } else {
       left.createDiv({
-        text: item.movedFrom ? `📦 Moved from: ${item.movedFrom}` : `📦 Moved to: ${item.movedTo}`,
+        text: item.path,
+        attr: { style: "font-weight: 500; word-break: break-all; overflow-wrap: anywhere; color: var(--text-normal);" },
+      });
+    }
+
+    if (item.isMove && !item.movedTo && item.movedFrom) {
+      left.createDiv({
+        text: `📦 Move destination from: ${item.movedFrom}`,
         attr: { style: "font-size: 0.8em; color: var(--color-purple, #9b59b6); margin-top: 2px; font-weight: 500;" },
       });
     }
@@ -381,11 +420,12 @@ export class SyncPreviewModal extends Modal {
 
     // Category badge
     right.createSpan({
-      text: this.getCategoryLabel(item.category),
+      text: this.getCategoryLabel(item.category, item.isMove),
       attr: {
         style: `padding: 2px 6px; border-radius: 3px; font-size: 0.75em; font-weight: 600; background-color: ${this.getCategoryBg(
-          item.category
-        )}; color: ${this.getCategoryFg(item.category)};`,
+          item.category,
+          item.isMove
+        )}; color: ${this.getCategoryFg(item.category, item.isMove)};`,
       },
     });
 
@@ -402,7 +442,8 @@ export class SyncPreviewModal extends Modal {
     }
   }
 
-  private getCategoryLabel(category: SyncCategory): string {
+  private getCategoryLabel(category: SyncCategory, isMove?: boolean): string {
+    if (isMove) return "Move";
     switch (category) {
       case "LOCAL_ONLY":
         return "Local Only";
@@ -413,21 +454,22 @@ export class SyncPreviewModal extends Modal {
       case "REMOTE_CHANGED":
         return "Remote Changed";
       case "LOCAL_DELETED":
-        return "Local Deleted";
+        return "Delete from GitHub";
       case "REMOTE_DELETED":
-        return "Remote Deleted";
+        return "Remove locally";
       case "POTENTIAL_CONFLICT":
         return "Conflict";
       case "DELETE_CONFLICT":
         return "Delete Conflict";
       case "DELETED":
-        return "Deleted";
+        return "Both Deleted";
       case "UNCHANGED":
         return "Unchanged";
     }
   }
 
-  private getCategoryFg(category: SyncCategory): string {
+  private getCategoryFg(category: SyncCategory, isMove?: boolean): string {
+    if (isMove) return "#8e44ad";
     switch (category) {
       case "LOCAL_ONLY":
         return "#0077b6";
@@ -451,7 +493,8 @@ export class SyncPreviewModal extends Modal {
     }
   }
 
-  private getCategoryBg(category: SyncCategory): string {
+  private getCategoryBg(category: SyncCategory, isMove?: boolean): string {
+    if (isMove) return "rgba(155, 89, 182, 0.15)";
     switch (category) {
       case "LOCAL_ONLY":
         return "rgba(0, 180, 216, 0.15)";

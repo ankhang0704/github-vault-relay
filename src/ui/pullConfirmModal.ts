@@ -13,6 +13,7 @@ import { SyncEngine } from "../sync/syncEngine";
 import { PullExecutionReport, SyncPreviewReport } from "../sync/syncTypes";
 import { getStoredPat } from "../security/secretStore";
 import { sanitizeErrorMessage } from "../security/redact";
+import { computeSemanticPreview } from "../sync/semanticSummary";
 import { PullResultModal } from "./pullResultModal";
 
 export type OnPullCompleteCallback = (report: PullExecutionReport) => Promise<void> | void;
@@ -144,6 +145,9 @@ export class PullConfirmModal extends Modal {
       return;
     }
 
+    // Semantic Summary
+    const semantic = computeSemanticPreview(this.previewReport.items);
+
     // Safety Description Notice
     const notice = contentEl.createDiv({
       attr: {
@@ -151,12 +155,13 @@ export class PullConfirmModal extends Modal {
           "padding: 10px 14px; border-radius: 4px; background-color: var(--background-secondary); border-left: 4px solid var(--interactive-accent); font-size: 0.88em; margin-bottom: 16px; line-height: 1.4;",
       },
     });
-    notice.createEl("div", {
-      text: "Vault Relay will pull new and updated notes from GitHub to your local Obsidian vault. Local modifications are never silently overwritten; conflicting versions are preserved safely in internal conflict storage.",
-    });
+    let noticeText = "Vault Relay will pull new and updated notes from GitHub to your local Obsidian vault. Local modifications are never silently overwritten; conflicting versions are preserved safely in internal conflict storage.";
+    if (semantic.pullRemoveLocal > 0) {
+      noticeText += " Files to remove locally will be moved to trash according to your Obsidian trash settings.";
+    }
+    notice.createEl("div", { text: noticeText });
 
     // Summary of Actions
-    const counts = this.previewReport.counts;
     const summaryBox = contentEl.createDiv({
       attr: {
         style:
@@ -167,22 +172,60 @@ export class PullConfirmModal extends Modal {
     summaryBox.createEl("h4", { text: "Planned Actions Summary", attr: { style: "margin: 0 0 10px 0;" } });
 
     const list = summaryBox.createEl("div", { attr: { style: "font-size: 0.9em; line-height: 1.6;" } });
-    list.createEl("div", { text: `• New files to create locally: ${counts.REMOTE_ONLY}` });
-    list.createEl("div", { text: `• Files to update locally: ${counts.REMOTE_CHANGED}` });
-    list.createEl("div", { text: `• Potential conflicts (preserved to internal conflict storage): ${counts.POTENTIAL_CONFLICT}` });
-    list.createEl("div", { text: `• Oversized files (>25 MiB, skipped): ${counts.OVERSIZED}` });
-    list.createEl("div", { text: `• Local changes / local-only files (kept untouched): ${counts.LOCAL_CHANGED + counts.LOCAL_ONLY}` });
-    list.createEl("div", { text: `• Unchanged files: ${counts.UNCHANGED}` });
+    list.createEl("div", { text: `• New files to create locally: ${semantic.pullCreate}` });
+    list.createEl("div", { text: `• Files to update locally: ${semantic.pullUpdate}` });
+
+    // Explicit Destructive Section
+    if (semantic.pullRemoveLocal > 0) {
+      const delRow = list.createDiv({
+        attr: {
+          style:
+            "color: var(--color-red, #e74c3c); font-weight: 600; padding: 4px 8px; margin: 4px 0; border-radius: 4px; background-color: rgba(231, 76, 60, 0.1); border-left: 3px solid var(--color-red, #e74c3c);",
+        },
+      });
+      delRow.createDiv({ text: `⚠️ Files to remove locally: ${semantic.pullRemoveLocal}` });
+      delRow.createDiv({
+        text: "Files are moved to trash according to your Obsidian trash settings.",
+        attr: { style: "font-size: 0.82em; font-weight: normal; color: var(--text-muted); margin-top: 2px;" },
+      });
+    }
+
+    if (semantic.pullMoves > 0) {
+      list.createEl("div", {
+        text: `• Moves to apply locally: ${semantic.pullMoves}`,
+        attr: { style: "color: var(--color-purple, #9b59b6); font-weight: 500;" },
+      });
+    }
+
+    if (semantic.deleteConflicts > 0) {
+      list.createEl("div", {
+        text: `• Delete conflicts (require review): ${semantic.deleteConflicts}`,
+        attr: { style: "color: var(--color-red, #e74c3c); font-weight: 500;" },
+      });
+    }
+
+    list.createEl("div", { text: `• Potential conflicts (preserved to internal conflict storage): ${semantic.contentConflicts}` });
+    list.createEl("div", { text: `• Oversized files (>25 MiB, skipped): ${semantic.oversized}` });
+    list.createEl("div", { text: `• Local changes / notes kept untouched: ${semantic.totalPushMutations}` });
+    list.createEl("div", { text: `• Unchanged files: ${semantic.unchanged}` });
 
     // Action Buttons
     const actions = contentEl.createDiv({
-      attr: { style: "display: flex; justify-content: flex-end; gap: 10px;" },
+      cls: "vault-relay-action-row",
+      attr: { style: "display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap;" },
     });
 
-    const cancelBtn = actions.createEl("button", { text: "Cancel" });
+    const cancelBtn = actions.createEl("button", {
+      text: "Cancel",
+      attr: { style: "min-height: 44px; min-width: 44px; padding: 10px 16px;" },
+    });
     cancelBtn.onclick = () => this.close();
 
-    const confirmBtn = actions.createEl("button", { text: "Confirm Safe Pull", cls: "mod-cta" });
+    const confirmBtn = actions.createEl("button", {
+      text: "Confirm Safe Pull",
+      cls: "mod-cta",
+      attr: { style: "min-height: 44px; min-width: 44px; padding: 10px 16px;" },
+    });
     confirmBtn.onclick = async () => {
       confirmBtn.disabled = true;
       confirmBtn.textContent = "Pulling...";

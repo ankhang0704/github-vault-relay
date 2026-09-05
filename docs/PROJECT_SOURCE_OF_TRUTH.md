@@ -209,12 +209,12 @@ Tested across 12 upgrade paths (`tests/c5UpgradeMigration.test.ts`):
 ---
 
 ## 19. Test & CI Evidence
-- **Total Test Suites:** 37 test files.
-- **Total Passing Tests:** 359 tests (0 skipped, 0 failing).
+- **Total Test Suites:** 40 test files.
+- **Total Passing Tests:** 426 tests (0 skipped, 0 failing).
 - **Linters:** ESLint (0 errors, 0 warnings with `--max-warnings 0`).
 - **Typechecker:** TypeScript `tsc --noEmit` (0 errors).
 - **CI Matrix:** GitHub Actions running on Node 20.x and Node 22.x (Run ID `33892492722` - GREEN).
-- **Production Bundle:** `main.js` (130,200 bytes, SHA-256: `0CB10C17459EF22826CA9E1134D479CF66DF66D759CE9914C4BC922BD58A64FD`).
+- **Production Bundle:** `main.js` (161,552 bytes, SHA-256: `8D7799BE84AAEFCD5C2A910F30125E074FD84F8D78702448271110F902DB3EE4`).
 
 ---
 
@@ -248,6 +248,7 @@ Tested across 12 upgrade paths (`tests/c5UpgradeMigration.test.ts`):
 - **2026-09-02:** C3 Conservative Safe Push (Git Data API, optimistic concurrency `force: false`, ref verification).
 - **2026-09-03 → 09-04:** C4 Unified Sync & Conflict Resolution (Single-action sync, Connection Wizard, 3-way conflict review, canonical internal storage).
 - **2026-09-04:** C5 Production Hardening (Mutation lease, fail-closed mutations, pull rollback journal, 12-scenario migration matrix, 359 tests, 0.5.0 RC prerelease).
+- **2026-09-05:** C6 Safe Deletion, Exact Moves & Mobile-Safe UI Transparency (Git tree sha:null remote delete, Obsidian trash local delete, delete-recovery journal, exact-SHA move pairing, semantic summary layer suppressing move double-counting, explicit delete/move confirm/result modals, 426 tests across 40 suites, 0.6.0 RC).
 
 ---
 

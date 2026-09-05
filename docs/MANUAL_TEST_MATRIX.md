@@ -4,10 +4,26 @@
 > **Target Release:** `0.6.0` Release Candidate (Pre-release)  
 > **Build Identity:**  
 > - Version: `0.6.0`  
-> - `main.js` Length: 150,127 bytes  
-> - `main.js` SHA-256: `44F0A1EB266A9A3AFE41BEE2850C142BA8DABEE7FBFE135B2499C8077D4F800E`  
-> - `styles.css` Length: 1,256 bytes  
-> - `styles.css` SHA-256: `F4E2C982B2237A0EC6EA3956C3C9C759385F19765E1759FAD7DA0FFE544584E8`  
+> - `main.js` Length: 161,552 bytes  
+> - `main.js` SHA-256: `8D7799BE84AAEFCD5C2A910F30125E074FD84F8D78702448271110F902DB3EE4`  
+> - `styles.css` Length: 1,633 bytes  
+> - `styles.css` SHA-256: `2A659A4B6B35A72EE3EF616B6202393197D39680478B961FD68A44D140954EED`  
+
+---
+
+## Focused Windows UI Retest Suite (UI-W1 .. UI-W7)
+
+Execute this focused UI validation first before resuming runtime acceptance:
+
+| ID | Focus Scenario | Action | Expected Result | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **UI-W1** | Local Delete Preview Wording | Delete a synced local note; click Preview / Dashboard | Preview clearly states **"Delete from GitHub"** (not "Local Del" or "LOCAL_DELETED"). | **NOT RUN** |
+| **UI-W2** | Remote Delete Preview Wording | Delete a synced note on GitHub; click Preview / Dashboard | Preview clearly states **"Remove locally"** (not "Remote Del" or "REMOTE_DELETED"). | **NOT RUN** |
+| **UI-W3** | Push/Pull Confirmation Delete Count | Open Pull Confirm or Push Confirm with pending deletions | Shows explicit destructive warning box with delete count and trash / Git history explanation before execution. | **NOT RUN** |
+| **UI-W4** | Delete Result Badge & Count | Complete a sync that deletes a file | Pull Result displays **"Removed locally: N"**; Push Result displays **"Deleted from GitHub: N"**. Zero-delete runs do not show deletion badges. | **NOT RUN** |
+| **UI-W5** | Exact Paired Move Transparency | Rename a note in Obsidian; open Preview / Dashboard | Displays primarily as **1 Move (`old → new`)**; does not double-count simultaneously as 1 Create + 1 Delete in user totals. | **NOT RUN** |
+| **UI-W6** | Delete Conflict UX | Inspect a delete conflict card in Conflict Review Modal | Displays explicit side descriptions ("Deleted on this device, modified on GitHub"); actions are `[ Keep File ]`, `[ Delete File ]`, `[ Cancel ]`. | **NOT RUN** |
+| **UI-W7** | Narrow Viewport & Mobile Safety | Resize Obsidian window to narrow mobile width (< 480px) | Action buttons wrap cleanly with >=44px touch targets; long paths wrap with `overflow-wrap: anywhere`; no horizontal modal overflow. | **NOT RUN** |
 
 ---
 
@@ -18,6 +34,8 @@
 2. Do **NOT** mark any test as `PASS` or `FAIL` until physically tested on the real device.
 3. Every test starts in the `NOT RUN` state.
 4. Record actual outcomes, timestamps, and device details in the `ACTUAL RESULT` and `NOTES` columns.
+
+---
 
 ---
 
