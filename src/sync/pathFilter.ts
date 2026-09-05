@@ -9,6 +9,7 @@ export const DEFAULT_EXCLUSIONS: string[] = [
   ".obsidian/",
   ".git/",
   "_fit/",
+  ".trash/",
 ];
 
 /**

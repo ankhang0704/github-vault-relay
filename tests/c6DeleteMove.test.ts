@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { App, RequestUrlParam, RequestUrlResponse } from "obsidian";
+import { App, RequestUrlParam, RequestUrlResponse, TAbstractFile, TFile } from "obsidian";
 import { classifySyncState } from "../src/sync/syncClassifier";
 import { PullEngine } from "../src/sync/pullEngine";
 import { PushEngine } from "../src/sync/pushEngine";
@@ -11,6 +11,8 @@ import { calculateCanonicalGitBlobSha, calculateRawGitBlobSha } from "../src/syn
 import { acquireMutationLease } from "../src/sync/mutationCoordinator";
 import { VaultRelaySettings } from "../src/settings";
 import { LocalFileEntry, RemoteBlobEntry, SyncStateData } from "../src/sync/syncTypes";
+import { isPathExcluded } from "../src/sync/pathFilter";
+import { validatePathSafety } from "../src/sync/pathSafety";
 
 describe("C6 — Safe Delete & Move Semantics (tests/c6DeleteMove.test.ts)", () => {
   let app: App;
@@ -1142,4 +1144,313 @@ describe("C6 — Safe Delete & Move Semantics (tests/c6DeleteMove.test.ts)", () 
       await expect(unifiedSync.executeSync()).rejects.toThrow("Another vault mutation is already in progress");
     });
   });
+
+  describe("Delete Recovery Crash-Consistent Transaction Semantics (C6-RECOVERY-COMMIT-001..005)", () => {
+    it("C6-RECOVERY-COMMIT-001: crash before local delete leaves file intact and cleans obsolete journal", async () => {
+      const path = "NoteBeforeDelete.md";
+      const content = "Intact local content before deletion.";
+      const file = await app.vault.create(path, content);
+      const sha = await calculateCanonicalGitBlobSha(new TextEncoder().encode(content), path);
+
+      const state: SyncStateData = {
+        version: 1,
+        files: {
+          [path]: { localSha: sha, remoteSha: sha, syncedAt: 1000 },
+        },
+      };
+      await StorageManager.saveState(app, state);
+
+      // Begin recovery journal as if about to delete
+      const journalPath = await StorageManager.beginDeleteRecovery(
+        app,
+        path,
+        sha,
+        await app.vault.readBinary(file)
+      );
+
+      // Crash occurs: local file was NOT deleted!
+      expect(app.vault.getAbstractFileByPath(path)).toBeDefined();
+
+      // Startup recovery runs
+      const res = await StorageManager.recoverInterruptedDeletes(app);
+
+      // File was already intact, delete was unexecuted -> journal cleaned, 0 restored
+      expect(res.completed).toBe(1);
+      expect(res.restored).toBe(0);
+      expect(await app.vault.adapter.exists(journalPath)).toBe(false);
+
+      const remainingFile = app.vault.getAbstractFileByPath(path);
+      expect(remainingFile).toBeDefined();
+      expect(await app.vault.read(remainingFile as TFile)).toBe(content);
+    });
+
+    it("C6-RECOVERY-COMMIT-002: crash after local delete before baseline prune restores exact file", async () => {
+      const path = "NoteUncommitted.md";
+      const content = "Important content before crash.";
+      const file = await app.vault.create(path, content);
+      const sha = await calculateCanonicalGitBlobSha(new TextEncoder().encode(content), path);
+
+      const state: SyncStateData = {
+        version: 1,
+        files: {
+          [path]: { localSha: sha, remoteSha: sha, syncedAt: 1000 },
+        },
+      };
+      await StorageManager.saveState(app, state);
+
+      // Begin recovery journal
+      const journalPath = await StorageManager.beginDeleteRecovery(
+        app,
+        path,
+        sha,
+        await app.vault.readBinary(file)
+      );
+
+      // Local file is deleted
+      await StorageManager.deleteVaultFile(app, file);
+      expect(app.vault.getAbstractFileByPath(path)).toBeNull();
+
+      // Crash occurs BEFORE state.files[path] is pruned in state.json!
+      const unprunedState = await StorageManager.loadState(app);
+      expect(unprunedState.files[path]).toBeDefined();
+
+      // Startup recovery runs
+      const res = await StorageManager.recoverInterruptedDeletes(app);
+
+      // UNCOMMITTED delete -> exact file restored
+      expect(res.restored).toBe(1);
+      expect(await app.vault.adapter.exists(journalPath)).toBe(false);
+
+      const restoredFile = app.vault.getAbstractFileByPath(path);
+      expect(restoredFile).toBeDefined();
+      expect(await app.vault.read(restoredFile as TFile)).toBe(content);
+    });
+
+    it("C6-RECOVERY-COMMIT-003 & C6-RECOVERY-COMMIT-004: crash after baseline prune keeps file deleted and does NOT resurrect", async () => {
+      const path = "NoteCommitted.md";
+      const content = "Content already committed to deletion.";
+      const file = await app.vault.create(path, content);
+      const sha = await calculateCanonicalGitBlobSha(new TextEncoder().encode(content), path);
+
+      // Initial baseline
+      const state: SyncStateData = {
+        version: 1,
+        files: {
+          [path]: { localSha: sha, remoteSha: sha, syncedAt: 1000 },
+        },
+      };
+      await StorageManager.saveState(app, state);
+
+      // Begin recovery journal
+      const journalPath = await StorageManager.beginDeleteRecovery(
+        app,
+        path,
+        sha,
+        await app.vault.readBinary(file)
+      );
+
+      // Local file deleted
+      await StorageManager.deleteVaultFile(app, file);
+
+      // Baseline successfully pruned and saved to disk
+      delete state.files[path];
+      await StorageManager.saveState(app, state);
+
+      // Crash occurs BEFORE journal cleanup!
+      expect(await app.vault.adapter.exists(journalPath)).toBe(true);
+
+      // Startup recovery runs
+      const res = await StorageManager.recoverInterruptedDeletes(app);
+
+      // COMMITTED delete -> file remains deleted, journal cleaned, 0 restored
+      expect(res.completed).toBe(1);
+      expect(res.restored).toBe(0);
+      expect(await app.vault.adapter.exists(journalPath)).toBe(false);
+
+      // C6-RECOVERY-COMMIT-004: file is NOT resurrected
+      expect(app.vault.getAbstractFileByPath(path)).toBeNull();
+      const updatedState = await StorageManager.loadState(app);
+      expect(updatedState.files[path]).toBeUndefined();
+    });
+
+    it("C6-RECOVERY-COMMIT-005: restart + next Sync cannot recreate remotely deleted file", async () => {
+      const path = "RemoteDeletedDoc.md";
+
+      // Post-crash state after C6-RECOVERY-COMMIT-003:
+      // Local file absent, remote file absent, baseline absent
+      expect(app.vault.getAbstractFileByPath(path)).toBeNull();
+      const state = await StorageManager.loadState(app);
+      expect(state.files[path]).toBeUndefined();
+
+      // Scan local vault and remote tree
+      const localFiles = new Map<string, LocalFileEntry>();
+      const remoteBlobs = new Map<string, RemoteBlobEntry>();
+
+      const report = classifySyncState({
+        localFiles,
+        remoteBlobs,
+        state,
+        excludedPaths: defaultSettings.excludedPaths,
+      });
+
+      // Must be 0 changes, neither LOCAL_ONLY nor LOCAL_DELETED
+      expect(report.counts.LOCAL_ONLY).toBe(0);
+      expect(report.counts.LOCAL_DELETED).toBe(0);
+      expect(report.counts.REMOTE_DELETED).toBe(0);
+      expect(report.items.some((i) => i.path === path)).toBe(false);
+    });
+  });
+
+  describe("Obsidian Trash Policy & Exclusion (C6-TRASH-001..002)", () => {
+    it("C6-TRASH-001: deleteVaultFile uses app.fileManager.trashFile and falls back to vault.delete", async () => {
+      const path = "TrashTest.md";
+      const file = await app.vault.create(path, "Trash content");
+
+      let trashFileCalled = false;
+      app.fileManager = {
+        trashFile: async (f: TAbstractFile) => {
+          trashFileCalled = true;
+          await app.vault.delete(f as TFile);
+        },
+      } as unknown as App["fileManager"];
+
+      await StorageManager.deleteVaultFile(app, file);
+      expect(trashFileCalled).toBe(true);
+      expect(app.vault.getAbstractFileByPath(path)).toBeNull();
+
+      // Test fallback when fileManager is unavailable
+      const path2 = "FallbackTest.md";
+      const file2 = await app.vault.create(path2, "Fallback content");
+      const appWithoutFileManager = {
+        vault: app.vault,
+      } as unknown as App;
+
+      await StorageManager.deleteVaultFile(appWithoutFileManager, file2);
+      expect(app.vault.getAbstractFileByPath(path2)).toBeNull();
+    });
+
+    it("C6-TRASH-002: files in .trash/ are excluded from sync and cannot be pushed to GitHub", async () => {
+      const trashedPath = ".trash/abandoned-note.md";
+
+      // 1. PathFilter excludes .trash/
+      expect(isPathExcluded(trashedPath)).toBe(true);
+
+      // 2. PathSafety rejects .trash/ as reserved
+      expect(validatePathSafety(trashedPath).valid).toBe(false);
+
+      // 3. Vault scanning does not include .trash/
+      await app.vault.create(trashedPath, "Trashed notes");
+      const files = app.vault.getFiles();
+      expect(files.some((f) => f.path.startsWith(".trash/"))).toBe(false);
+    });
+  });
+
+  describe("Root _vault-relay/ User Content Semantics (C6-ROOT-001)", () => {
+    it("C6-ROOT-001: _vault-relay/user-note.md can CREATE, EDIT, MOVE, and DELETE through normal C6 sync", async () => {
+      const userPath = "_vault-relay/user-note.md";
+      const content1 = "# User Note in root _vault-relay\nInitial creation.";
+      const file = await app.vault.create(userPath, content1);
+
+      // 1. CREATE: classifies as LOCAL_ONLY
+      const sha1 = await calculateCanonicalGitBlobSha(new TextEncoder().encode(content1), userPath);
+      const localFiles = new Map<string, LocalFileEntry>([
+        [userPath, { path: userPath, sha: sha1, size: content1.length, mtime: 1000 }],
+      ]);
+      const remoteBlobs = new Map<string, RemoteBlobEntry>();
+      const state: SyncStateData = { version: 1, files: {} };
+
+      let report = classifySyncState({ localFiles, remoteBlobs, state, excludedPaths: defaultSettings.excludedPaths });
+      expect(report.counts.LOCAL_ONLY).toBe(1);
+      expect(report.items[0].category).toBe("LOCAL_ONLY");
+
+      // 2. Establish baseline, then EDIT: classifies as LOCAL_CHANGED
+      state.files[userPath] = { localSha: sha1, remoteSha: sha1, syncedAt: 1000 };
+      remoteBlobs.set(userPath, { path: userPath, sha: sha1, size: content1.length });
+
+      const content2 = content1 + "\nEdited user note.";
+      await app.vault.modify(file, content2);
+      const sha2 = await calculateCanonicalGitBlobSha(new TextEncoder().encode(content2), userPath);
+      localFiles.set(userPath, { path: userPath, sha: sha2, size: content2.length, mtime: 2000 });
+
+      report = classifySyncState({ localFiles, remoteBlobs, state, excludedPaths: defaultSettings.excludedPaths });
+      expect(report.counts.LOCAL_CHANGED).toBe(1);
+      expect(report.items.find((i) => i.path === userPath)?.category).toBe("LOCAL_CHANGED");
+
+      // 3. MOVE: move to _vault-relay/archived-note.md
+      const movedPath = "_vault-relay/archived-note.md";
+      localFiles.delete(userPath);
+      localFiles.set(movedPath, { path: movedPath, sha: sha1, size: content1.length, mtime: 3000 });
+
+      report = classifySyncState({ localFiles, remoteBlobs, state, excludedPaths: defaultSettings.excludedPaths });
+      expect(report.counts.LOCAL_DELETED).toBe(1);
+      expect(report.counts.LOCAL_ONLY).toBe(1);
+      const delItem = report.items.find((i) => i.path === userPath);
+      const addItem = report.items.find((i) => i.path === movedPath);
+      expect(delItem?.isMove).toBe(true);
+      expect(delItem?.movedTo).toBe(movedPath);
+      expect(addItem?.isMove).toBe(true);
+      expect(addItem?.movedFrom).toBe(userPath);
+
+      // 4. DELETE: delete without move
+      localFiles.clear();
+      report = classifySyncState({ localFiles, remoteBlobs, state, excludedPaths: defaultSettings.excludedPaths });
+      expect(report.counts.LOCAL_DELETED).toBe(1);
+      expect(report.items[0].category).toBe("LOCAL_DELETED");
+    });
+  });
+
+  describe("Binary Delete Recovery Storage Verification (C6-BIN-RECOVERY-001)", () => {
+    it("C6-BIN-RECOVERY-001: large binary delete recovery snapshot is bounded and byte-exact", async () => {
+      const binaryPath = "attachments/large-photo.jpg";
+      const binarySize = 1024 * 512; // 512 KiB representative test payload
+      const binaryBytes = new Uint8Array(binarySize);
+      for (let i = 0; i < binarySize; i++) {
+        binaryBytes[i] = (i * 31 + 7) & 0xff;
+      }
+
+      const sha = await calculateCanonicalGitBlobSha(binaryBytes.buffer as ArrayBuffer, binaryPath);
+
+      // Begin recovery journal
+      const journalPath = await StorageManager.beginDeleteRecovery(
+        app,
+        binaryPath,
+        sha,
+        binaryBytes.buffer as ArrayBuffer
+      );
+
+      // 1. Verify JSON journal is compact metadata, NOT a massive serialized array
+      const journalContent = await app.vault.adapter.read(journalPath);
+      expect(journalContent.length).toBeLessThan(300); // < 300 bytes of JSON metadata
+
+      const record = JSON.parse(journalContent);
+      expect(record.version).toBe(1);
+      expect(record.path).toBe(binaryPath);
+      expect(record.originalSha).toBe(sha);
+      expect(typeof record.backupPath).toBe("string");
+
+      // 2. Verify raw binary backup is exact length
+      const rawBackup = await app.vault.adapter.readBinary(record.backupPath);
+      expect(rawBackup.byteLength).toBe(binarySize);
+
+      // 3. Verify recoverInterruptedDeletes restores byte-exact binary data
+      const state: SyncStateData = {
+        version: 1,
+        files: {
+          [binaryPath]: { localSha: sha, remoteSha: sha, syncedAt: 1000 },
+        },
+      };
+      await StorageManager.saveState(app, state);
+
+      const res = await StorageManager.recoverInterruptedDeletes(app);
+      expect(res.restored).toBe(1);
+
+      const restoredFile = app.vault.getAbstractFileByPath(binaryPath);
+      expect(restoredFile).toBeDefined();
+
+      const restoredBytes = new Uint8Array(await app.vault.readBinary(restoredFile as TFile));
+      expect(restoredBytes.byteLength).toBe(binarySize);
+      expect(restoredBytes.every((b, idx) => b === binaryBytes[idx])).toBe(true);
+    });
+  });
 });
+

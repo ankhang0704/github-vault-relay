@@ -30,6 +30,7 @@ describe("Path Safety & Case Collisions (src/sync/pathSafety.ts)", () => {
       expect(validatePathSafety(".obsidian/plugins/test.js").valid).toBe(false);
       expect(validatePathSafety(".git/HEAD").valid).toBe(false);
       expect(validatePathSafety("_fit/conflict.md").valid).toBe(false);
+      expect(validatePathSafety(".trash/old.md").valid).toBe(false);
       expect(validatePathSafety("_vault-relay/note.md").valid).toBe(true);
     });
   });

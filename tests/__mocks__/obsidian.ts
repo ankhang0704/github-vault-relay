@@ -170,16 +170,25 @@ export class MockSecretStorage {
 export class App {
   secretStorage: MockSecretStorage = new MockSecretStorage();
   vault: MockVault;
+  fileManager: {
+    trashFile: (file: TFile) => Promise<void>;
+  };
 
   constructor() {
     const filesMap = new Map<string, { content: ArrayBuffer; mtime: number }>();
+
+    this.fileManager = {
+      trashFile: async (file: TFile) => {
+        await this.vault.delete(file);
+      },
+    };
 
     this.vault = {
       getFiles: () => {
         const result: TFile[] = [];
         const cfg = (this.vault as unknown as { configDir?: string }).configDir || ".obsidian";
         for (const [p, data] of filesMap.entries()) {
-          if (p.startsWith(cfg + "/") || p.startsWith(".obsidian/")) {
+          if (p.startsWith(cfg + "/") || p.startsWith(".obsidian/") || p.startsWith(".trash/")) {
             continue;
           }
           const tf = new TFile();

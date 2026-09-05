@@ -299,6 +299,7 @@ export class PullEngine {
 
     let stateModified = false;
     const pendingRecoveryJournals: string[] = [];
+    const pendingDeleteRecoveryJournals: string[] = [];
     let statePersisted = false;
     let processedCount = 0;
 
@@ -461,8 +462,8 @@ export class PullEngine {
             currentBytes
           );
 
-          // Delete file via canonical Obsidian vault API
-          await this.app.vault.delete(file);
+          // Delete file via canonical Obsidian trash/vault API
+          await StorageManager.deleteVaultFile(this.app, file);
 
           // Verify absence
           const stillExists = await this.app.vault.adapter.exists(path);
@@ -474,8 +475,8 @@ export class PullEngine {
           delete state.files[path];
           stateModified = true;
 
-          // Complete recovery cleanup
-          await StorageManager.completeDeleteRecovery(this.app, deleteJournal);
+          // Defer recovery cleanup until state is safely committed to disk
+          pendingDeleteRecoveryJournals.push(deleteJournal);
 
           counts.pulledDeleted++;
           results.push({
@@ -829,6 +830,9 @@ export class PullEngine {
     if (statePersisted) {
       for (const journalPath of pendingRecoveryJournals) {
         await StorageManager.completePullWriteRecovery(this.app, journalPath);
+      }
+      for (const journalPath of pendingDeleteRecoveryJournals) {
+        await StorageManager.completeDeleteRecovery(this.app, journalPath);
       }
     }
 

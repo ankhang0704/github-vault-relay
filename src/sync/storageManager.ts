@@ -441,6 +441,18 @@ export class StorageManager {
     }
   }
 
+  /**
+   * Safely deletes a file from the vault, respecting the user's Obsidian trash preference
+   * via app.fileManager.trashFile. Falls back to app.vault.delete if fileManager is unavailable.
+   */
+  public static async deleteVaultFile(app: App, file: TFile): Promise<void> {
+    if (app.fileManager && typeof app.fileManager.trashFile === "function") {
+      await app.fileManager.trashFile(file);
+    } else {
+      await app.vault.delete(file);
+    }
+  }
+
   public static async recoverInterruptedDeletes(
     app: App
   ): Promise<{ scanned: number; completed: number; restored: number; preserved: number }> {
@@ -469,14 +481,16 @@ export class StorageManager {
         const fileOnDisk = app.vault.getAbstractFileByPath(record.path);
 
         if (!isStillInState) {
-          // State was already updated to delete this path. The delete was successful.
+          // COMMITTED DELETE: Baseline was already successfully updated to prune this path.
+          // The delete is committed; do NOT resurrect the file. Clean up stale journal and backup.
           completed++;
           cleanupImmediately.push(journalPath);
           continue;
         }
 
-        // State still expects the file, but file is missing or corrupted -> restore from backup
+        // UNCOMMITTED DELETE: Baseline still expects the file, meaning operation crashed before state persistence.
         if (!fileOnDisk) {
+          // Crash after local delete before baseline prune: restore exact file
           const normalizedBackup = normalizePath(record.backupPath);
           const normalizedRecoveryDir = normalizePath(recoveryDir);
           if (!normalizedBackup.startsWith(`${normalizedRecoveryDir}/`) || normalizedBackup.includes("..")) {
@@ -487,6 +501,36 @@ export class StorageManager {
             const backupSha = await calculateCanonicalGitBlobSha(backup, record.path);
             if (backupSha === record.originalSha) {
               await app.vault.createBinary(record.path, backup);
+              restored++;
+              cleanupImmediately.push(journalPath);
+              continue;
+            }
+          }
+        } else {
+          // Crash occurred before local delete was executed
+          if (fileOnDisk instanceof TFile) {
+            const diskBytes = await app.vault.readBinary(fileOnDisk);
+            const diskSha = await calculateCanonicalGitBlobSha(diskBytes, record.path);
+            if (diskSha === record.originalSha) {
+              // Local file is completely intact. Delete was never executed.
+              completed++;
+              cleanupImmediately.push(journalPath);
+              continue;
+            }
+          }
+
+          // If local file exists but is corrupted/truncated, restore original bytes from backup
+          const normalizedBackup = normalizePath(record.backupPath);
+          const normalizedRecoveryDir = normalizePath(recoveryDir);
+          if (
+            normalizedBackup.startsWith(`${normalizedRecoveryDir}/`) &&
+            !normalizedBackup.includes("..") &&
+            (await app.vault.adapter.exists(normalizedBackup))
+          ) {
+            const backup = await app.vault.adapter.readBinary(normalizedBackup);
+            const backupSha = await calculateCanonicalGitBlobSha(backup, record.path);
+            if (backupSha === record.originalSha && fileOnDisk instanceof TFile) {
+              await app.vault.modifyBinary(fileOnDisk, backup);
               restored++;
               cleanupImmediately.push(journalPath);
               continue;

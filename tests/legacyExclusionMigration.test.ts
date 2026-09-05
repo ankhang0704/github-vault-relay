@@ -129,7 +129,7 @@ describe("C4 Legacy Saved Exclusion Migration (LEGACY-EXCL-001..010)", () => {
     plugin.loadData = async () => null;
     await plugin.loadSettings();
 
-    expect(plugin.settings.excludedPaths).toEqual([".obsidian/", ".git/", "_fit/"]);
+    expect(plugin.settings.excludedPaths).toEqual([".obsidian/", ".git/", "_fit/", ".trash/"]);
     expect(plugin.settings.settingsVersion).toBe(CURRENT_SETTINGS_VERSION);
   });
 

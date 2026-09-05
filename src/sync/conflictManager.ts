@@ -778,7 +778,7 @@ export class ConflictManager {
           currentBytes
         );
 
-        await this.app.vault.delete(file);
+        await StorageManager.deleteVaultFile(this.app, file);
 
         const stillExists = await this.app.vault.adapter.exists(record.path);
         if (stillExists) {

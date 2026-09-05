@@ -21,6 +21,7 @@ describe("pathFilter", () => {
       expect(isPathExcluded(".git/HEAD")).toBe(true);
       expect(isPathExcluded(".git/objects/12/3456")).toBe(true);
       expect(isPathExcluded("_fit/snapshots/1.json")).toBe(true);
+      expect(isPathExcluded(".trash/deleted-note.md")).toBe(true);
       // _vault-relay is user content, not excluded by default
       expect(isPathExcluded("_vault-relay/file.md")).toBe(false);
     });
