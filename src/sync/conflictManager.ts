@@ -65,13 +65,6 @@ export class ConflictManager {
   private async revalidateRemoteRecord(record: ConflictRecord): Promise<string | undefined> {
     try {
       const branch = await this.githubClient.getBranch(this.settings.branch, true);
-      if (
-        record.remoteCommitSha &&
-        branch.commit.sha.toLowerCase() !== record.remoteCommitSha.toLowerCase()
-      ) {
-        return "Remote branch changed since this conflict was reviewed. Refresh conflicts before resolving.";
-      }
-
       const tree = await this.githubClient.getTreeRecursive(branch.commit.sha);
       if (tree.truncated) {
         return "Remote tree is truncated. Conflict resolution is blocked for safety.";
@@ -87,6 +80,24 @@ export class ConflictManager {
           return "Remote file was recreated since this conflict was reviewed. Refresh conflicts before resolving.";
         }
       }
+
+      if (
+        record.remoteCommitSha &&
+        branch.commit.sha.toLowerCase() !== record.remoteCommitSha.toLowerCase()
+      ) {
+        record.remoteCommitSha = branch.commit.sha;
+        try {
+          const records = await this.loadConflictRecords();
+          const target = records.find((r) => r.path === record.path);
+          if (target) {
+            target.remoteCommitSha = branch.commit.sha;
+            await this.saveConflictRecords(records);
+          }
+        } catch {
+          // best-effort metadata refresh
+        }
+      }
+
       return undefined;
     } catch (err) {
       return `Could not revalidate the remote file: ${sanitizeErrorMessage(err)}`;
@@ -314,6 +325,9 @@ export class ConflictManager {
       if (report.status === "PASS") {
         await this.removeConflict(record.path);
         this.markResolved(record.id);
+        if (report.newCommitSha) {
+          await this.advanceRemainingConflictsCommit(report.newCommitSha);
+        }
         return { success: true, message: `Successfully pushed local version for ${record.path}.` };
       }
 
@@ -676,6 +690,9 @@ export class ConflictManager {
         if (report.status === "PASS") {
           await this.removeConflict(record.path);
           this.markResolved(record.id);
+          if (report.newCommitSha) {
+            await this.advanceRemainingConflictsCommit(report.newCommitSha);
+          }
           return { success: true, message: `Successfully pushed local version for ${record.path}.` };
         }
 
@@ -737,6 +754,9 @@ export class ConflictManager {
         if (report.status === "PASS") {
           await this.removeConflict(record.path);
           this.markResolved(record.id);
+          if (report.newCommitSha) {
+            await this.advanceRemainingConflictsCommit(report.newCommitSha);
+          }
           return { success: true, message: `Successfully deleted remote file for ${record.path}.` };
         }
 
@@ -800,6 +820,24 @@ export class ConflictManager {
     } finally {
       this.inFlightResolutions.delete(record.path);
       releaseMutationLease(mutationLease);
+    }
+  }
+
+  private async advanceRemainingConflictsCommit(newCommitSha: string): Promise<void> {
+    try {
+      const records = await this.loadConflictRecords();
+      let modified = false;
+      for (const rec of records) {
+        if (rec.remoteCommitSha !== newCommitSha) {
+          rec.remoteCommitSha = newCommitSha;
+          modified = true;
+        }
+      }
+      if (modified) {
+        await this.saveConflictRecords(records);
+      }
+    } catch (err) {
+      console.warn("[Vault Relay] Failed to advance conflict commit SHA:", err);
     }
   }
 }
