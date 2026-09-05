@@ -27,7 +27,21 @@ import { isOversized } from "../sync/fileSizePolicy";
 
 export type GitHubRequestFn = (params: RequestUrlParam) => Promise<RequestUrlResponse>;
 
-export const DEFAULT_REQUEST_TIMEOUT_MS = 10000; // 10 seconds conservative application timeout
+export type TimeoutProfile = "metadata" | "content" | "mutation";
+
+export interface TimeoutProfileConfig {
+  metadataMs: number;
+  contentMs: number;
+  mutationMs: number;
+}
+
+export const DEFAULT_TIMEOUT_PROFILES: TimeoutProfileConfig = {
+  metadataMs: 10000,   // 10s: interactive control-plane reads (repo, branches, refs, trees, user)
+  contentMs: 120000,   // 120s (2m): content payloads up to 25 MiB over mobile networks (getBlob)
+  mutationMs: 120000,  // 120s (2m): Git mutations (blobs up to 25 MiB, trees, commits, refs)
+};
+
+export const DEFAULT_REQUEST_TIMEOUT_MS = DEFAULT_TIMEOUT_PROFILES.metadataMs;
 
 export class GitHubError extends Error {
   public status?: number;
@@ -120,6 +134,7 @@ export interface GitHubClientConfig {
   branch: string;
   requestFn?: GitHubRequestFn;
   timeoutMs?: number;
+  timeoutProfiles?: Partial<TimeoutProfileConfig>;
 }
 
 /**
@@ -148,7 +163,7 @@ export class GitHubClient {
   private repo: string;
   private branch: string;
   private requestFn: GitHubRequestFn;
-  private timeoutMs: number;
+  private timeoutProfiles: TimeoutProfileConfig;
   private readonly baseUrl = "https://api.github.com";
 
   constructor(config: GitHubClientConfig) {
@@ -158,7 +173,34 @@ export class GitHubClient {
     this.repo = normalized.repo;
     this.branch = config.branch ? config.branch.trim() : "main";
     this.requestFn = config.requestFn || requestUrl;
-    this.timeoutMs = config.timeoutMs !== undefined ? config.timeoutMs : DEFAULT_REQUEST_TIMEOUT_MS;
+
+    const baseProfiles: TimeoutProfileConfig = {
+      ...DEFAULT_TIMEOUT_PROFILES,
+      ...(config.timeoutProfiles || {}),
+    };
+    if (config.timeoutMs !== undefined) {
+      this.timeoutProfiles = {
+        metadataMs: config.timeoutProfiles?.metadataMs ?? config.timeoutMs,
+        contentMs: config.timeoutProfiles?.contentMs ?? config.timeoutMs,
+        mutationMs: config.timeoutProfiles?.mutationMs ?? config.timeoutMs,
+      };
+    } else {
+      this.timeoutProfiles = baseProfiles;
+    }
+  }
+
+  /**
+   * Returns the resolved timeout duration for a given request profile.
+   */
+  public getTimeoutForProfile(profile: TimeoutProfile): number {
+    switch (profile) {
+      case "metadata":
+        return this.timeoutProfiles.metadataMs;
+      case "content":
+        return this.timeoutProfiles.contentMs;
+      case "mutation":
+        return this.timeoutProfiles.mutationMs;
+    }
   }
 
   /**
@@ -204,11 +246,13 @@ export class GitHubClient {
       method?: "GET" | "POST" | "PATCH";
       body?: unknown;
       headers?: Record<string, string>;
+      timeoutProfile?: TimeoutProfile;
       timeoutMs?: number;
     }
   ): Promise<T> {
     const method = options?.method || "GET";
-    const timeoutMs = options?.timeoutMs !== undefined ? options.timeoutMs : this.timeoutMs;
+    const profile: TimeoutProfile = options?.timeoutProfile || (method === "GET" ? "metadata" : "mutation");
+    const timeoutMs = options?.timeoutMs !== undefined ? options.timeoutMs : this.getTimeoutForProfile(profile);
 
     // Offline preflight check: Fail immediately with clear message if navigator explicitly reports offline
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
@@ -332,7 +376,8 @@ export class GitHubClient {
    */
   public async getRepo(): Promise<GitHubRepoResponse> {
     return this.request<GitHubRepoResponse>(
-      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}`
+      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}`,
+      { method: "GET", timeoutProfile: "metadata" }
     );
   }
 
@@ -354,6 +399,7 @@ export class GitHubClient {
           "Cache-Control": "no-cache, no-store, must-revalidate",
           Pragma: "no-cache",
         },
+        timeoutProfile: "metadata",
       }
     );
   }
@@ -363,15 +409,16 @@ export class GitHubClient {
     const url = bypassCache
       ? `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/branches/${encodeURIComponent(target)}?t=${Date.now()}`
       : `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/branches/${encodeURIComponent(target)}`;
-    const options = bypassCache
-      ? {
-          method: "GET" as const,
-          headers: {
+    const options = {
+      method: "GET" as const,
+      headers: bypassCache
+        ? {
             "Cache-Control": "no-cache, no-store, must-revalidate",
             Pragma: "no-cache",
-          },
-        }
-      : undefined;
+          }
+        : undefined,
+      timeoutProfile: "metadata" as const,
+    };
     return this.request<GitHubBranchResponse>(url, options);
   }
 
@@ -384,22 +431,29 @@ export class GitHubClient {
    */
   public async getCommit(commitSha: string): Promise<GitHubCommitResponse> {
     return this.request<GitHubCommitResponse>(
-      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/commits/${encodeURIComponent(commitSha)}`
+      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/commits/${encodeURIComponent(commitSha)}`,
+      { method: "GET", timeoutProfile: "metadata" }
     );
   }
 
   public async getTreeRecursive(treeSha: string): Promise<GitHubTreeResponse> {
     return this.request<GitHubTreeResponse>(
-      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/trees/${encodeURIComponent(treeSha)}?recursive=1`
+      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/trees/${encodeURIComponent(treeSha)}?recursive=1`,
+      { method: "GET", timeoutProfile: "metadata" }
     );
   }
 
   /**
    * Fetches a raw blob object from GitHub Git Data API.
+   * Classified as CONTENT profile to safely support files up to 25 MiB over mobile networks.
    */
   public async getBlob(blobSha: string): Promise<GitHubBlobResponse> {
     return this.request<GitHubBlobResponse>(
-      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/blobs/${encodeURIComponent(blobSha)}`
+      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/blobs/${encodeURIComponent(blobSha)}`,
+      {
+        method: "GET",
+        timeoutProfile: "content",
+      }
     );
   }
 
@@ -451,6 +505,7 @@ export class GitHubClient {
       {
         method: "POST",
         body: { content, encoding },
+        timeoutProfile: "mutation",
       }
     );
   }
@@ -470,6 +525,7 @@ export class GitHubClient {
       {
         method: "POST",
         body,
+        timeoutProfile: "mutation",
       }
     );
   }
@@ -488,6 +544,7 @@ export class GitHubClient {
           tree: treeSha,
           parents,
         },
+        timeoutProfile: "mutation",
       }
     );
   }
@@ -512,6 +569,7 @@ export class GitHubClient {
           sha: commitSha,
           force: false,
         },
+        timeoutProfile: "mutation",
       }
     );
 
@@ -607,6 +665,7 @@ export class GitHubClient {
           "Cache-Control": "no-cache, no-store, must-revalidate",
           Pragma: "no-cache",
         },
+        timeoutProfile: "metadata",
       });
 
       if (!rawRepos || rawRepos.length === 0) break;
@@ -657,6 +716,7 @@ export class GitHubClient {
             "Cache-Control": "no-cache, no-store, must-revalidate",
             Pragma: "no-cache",
           },
+          timeoutProfile: "metadata",
         }
       );
 

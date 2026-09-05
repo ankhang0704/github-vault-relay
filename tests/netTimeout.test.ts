@@ -21,6 +21,7 @@ import {
   GitHubTimeoutError,
   GitHubOfflineError,
   DEFAULT_REQUEST_TIMEOUT_MS,
+  DEFAULT_TIMEOUT_PROFILES,
 } from "../src/github/githubClient";
 import { DEFAULT_SETTINGS, VaultRelaySettingTab } from "../src/settings";
 import { UnifiedSyncEngine } from "../src/sync/unifiedSyncEngine";
@@ -523,5 +524,359 @@ describe("Network Timeout & Offline Fail-Fast Policy (NET-TIMEOUT-001..010)", ()
     } finally {
       process.off("unhandledRejection", rejectionHandler);
     }
+  });
+});
+
+describe("Timeout Profiles Policy (NET-PROFILE-001..008)", () => {
+  let hadNavigator = false;
+  let originalOnLine: boolean | undefined;
+
+  beforeEach(() => {
+    hadNavigator = "navigator" in globalThis && globalThis.navigator !== undefined;
+    originalOnLine = globalThis.navigator?.onLine;
+    Object.defineProperty(globalThis, "navigator", {
+      value: { onLine: true },
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    if (!hadNavigator) {
+      try {
+        delete (globalThis as Record<string, unknown>).navigator;
+      } catch {
+        Object.defineProperty(globalThis, "navigator", {
+          value: undefined,
+          configurable: true,
+          writable: true,
+        });
+      }
+    } else {
+      Object.defineProperty(globalThis, "navigator", {
+        value: { onLine: originalOnLine ?? true },
+        configurable: true,
+        writable: true,
+      });
+    }
+  });
+
+  // =========================================================
+  // NET-PROFILE-001: repository discovery uses metadata timeout
+  // =========================================================
+  it("NET-PROFILE-001: repository discovery uses metadata timeout", async () => {
+    vi.useFakeTimers();
+    let callCount = 0;
+    const client = new GitHubClient({
+      token: "test_token_repo_disc",
+      owner: "test-owner",
+      repo: "test-repo",
+      branch: "main",
+      requestFn: async () => {
+        callCount++;
+        return new Promise<RequestUrlResponse>(() => {});
+      },
+    });
+
+    expect(DEFAULT_TIMEOUT_PROFILES.metadataMs).toBe(10000);
+
+    let caughtErr: unknown;
+    const promise = client.listUserRepositories().catch((err) => {
+      caughtErr = err;
+    });
+
+    // Advance 9999ms: must not timeout yet
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(caughtErr).toBeUndefined();
+    expect(callCount).toBe(1);
+
+    // Advance 1ms to hit 10000ms threshold
+    await vi.advanceTimersByTimeAsync(1);
+    await promise;
+
+    expect(caughtErr).toBeInstanceOf(GitHubTimeoutError);
+    expect((caughtErr as GitHubTimeoutError).message).toContain("10000ms");
+    expect(callCount).toBe(1);
+  });
+
+  // =========================================================
+  // NET-PROFILE-002: branch/ref reads use metadata timeout
+  // =========================================================
+  it("NET-PROFILE-002: branch/ref reads use metadata timeout", async () => {
+    vi.useFakeTimers();
+    let callCount = 0;
+    const client = new GitHubClient({
+      token: "test_token_branch_ref",
+      owner: "test-owner",
+      repo: "test-repo",
+      branch: "main",
+      requestFn: async () => {
+        callCount++;
+        return new Promise<RequestUrlResponse>(() => {});
+      },
+    });
+
+    let caughtErr: unknown;
+    const promise = client.getBranchRef().catch((err) => {
+      caughtErr = err;
+    });
+
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(caughtErr).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await promise;
+
+    expect(caughtErr).toBeInstanceOf(GitHubTimeoutError);
+    expect((caughtErr as GitHubTimeoutError).message).toContain("10000ms");
+    expect(callCount).toBe(1);
+  });
+
+  // =========================================================
+  // NET-PROFILE-003: blob download does NOT inherit 10-second metadata timeout
+  // =========================================================
+  it("NET-PROFILE-003: blob download does NOT inherit 10-second metadata timeout", async () => {
+    vi.useFakeTimers();
+    let callCount = 0;
+    const client = new GitHubClient({
+      token: "test_token_blob_no_10s",
+      owner: "test-owner",
+      repo: "test-repo",
+      branch: "main",
+      requestFn: async () => {
+        callCount++;
+        return new Promise<RequestUrlResponse>(() => {});
+      },
+    });
+
+    let caughtErr: unknown;
+    const _promise = client.getBlob("blob_sha_abc").catch((err) => {
+      caughtErr = err;
+    });
+
+    // Advance past 10 seconds (metadata timeout)
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(caughtErr).toBeUndefined();
+    expect(callCount).toBe(1);
+
+    // Advance past 30 seconds
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(caughtErr).toBeUndefined();
+    expect(callCount).toBe(1);
+  });
+
+  // =========================================================
+  // NET-PROFILE-004: legitimate slow blob completion after >10 simulated seconds succeeds within content timeout
+  // =========================================================
+  it("NET-PROFILE-004: legitimate slow blob completion after >10 simulated seconds succeeds within content timeout", async () => {
+    vi.useFakeTimers();
+    let resolveRequest: ((res: RequestUrlResponse) => void) | undefined;
+    const client = new GitHubClient({
+      token: "test_token_slow_blob",
+      owner: "test-owner",
+      repo: "test-repo",
+      branch: "main",
+      requestFn: async () => {
+        return new Promise<RequestUrlResponse>((resolve) => {
+          resolveRequest = resolve;
+        });
+      },
+    });
+
+    const blobPromise = client.getBlob("blob_sha_large");
+
+    // Advance 25 seconds (> 10s metadata timeout, simulating mobile 4G/cellular download)
+    await vi.advanceTimersByTimeAsync(25000);
+
+    // Resolve successfully at 25s
+    resolveRequest!({
+      status: 200,
+      headers: {},
+      arrayBuffer: new ArrayBuffer(0),
+      json: {
+        sha: "blob_sha_large",
+        size: 15728640, // 15 MiB
+        content: "SGVsbG8gV29ybGQ=",
+        encoding: "base64",
+      },
+      text: "",
+    });
+
+    const result = await blobPromise;
+    expect(result.sha).toBe("blob_sha_large");
+    expect(result.size).toBe(15728640);
+  });
+
+  // =========================================================
+  // NET-PROFILE-005: content request still has a finite upper bound
+  // =========================================================
+  it("NET-PROFILE-005: content request still has a finite upper bound", async () => {
+    vi.useFakeTimers();
+    let callCount = 0;
+    const client = new GitHubClient({
+      token: "test_token_content_bound",
+      owner: "test-owner",
+      repo: "test-repo",
+      branch: "main",
+      requestFn: async () => {
+        callCount++;
+        return new Promise<RequestUrlResponse>(() => {});
+      },
+    });
+
+    expect(DEFAULT_TIMEOUT_PROFILES.contentMs).toBe(120000);
+
+    let caughtErr: unknown;
+    const promise = client.getBlob("blob_sha_bound").catch((err) => {
+      caughtErr = err;
+    });
+
+    // Advance to 119999ms: still alive
+    await vi.advanceTimersByTimeAsync(119999);
+    expect(caughtErr).toBeUndefined();
+
+    // Advance 1ms to reach 120000ms threshold
+    await vi.advanceTimersByTimeAsync(1);
+    await promise;
+
+    expect(caughtErr).toBeInstanceOf(GitHubTimeoutError);
+    expect((caughtErr as GitHubTimeoutError).message).toContain("120000ms");
+    expect(callCount).toBe(1);
+  });
+
+  // =========================================================
+  // NET-PROFILE-006: offline signal still fails immediately
+  // =========================================================
+  it("NET-PROFILE-006: offline signal still fails immediately", async () => {
+    Object.defineProperty(globalThis, "navigator", {
+      value: { onLine: false },
+      configurable: true,
+      writable: true,
+    });
+
+    let callCount = 0;
+    const client = new GitHubClient({
+      token: "test_token_offline_profile",
+      owner: "test-owner",
+      repo: "test-repo",
+      branch: "main",
+      requestFn: async () => {
+        callCount++;
+        return {
+          status: 200,
+          headers: {},
+          arrayBuffer: new ArrayBuffer(0),
+          json: {},
+          text: "",
+        };
+      },
+    });
+
+    // Metadata, content, and mutation endpoints all fail immediately
+    await expect(client.getRepo()).rejects.toThrow(GitHubOfflineError);
+    await expect(client.getBlob("blob_sha")).rejects.toThrow(GitHubOfflineError);
+    await expect(client.createCommit("msg", "tree_sha", [])).rejects.toThrow(GitHubOfflineError);
+
+    expect(callCount).toBe(0);
+  });
+
+  // =========================================================
+  // NET-PROFILE-007: POST/PATCH remain single-attempt and fail closed
+  // =========================================================
+  it("NET-PROFILE-007: POST/PATCH remain single-attempt and fail closed", async () => {
+    vi.useFakeTimers();
+    let callCount = 0;
+    const client = new GitHubClient({
+      token: "test_token_mutation_profile",
+      owner: "test-owner",
+      repo: "test-repo",
+      branch: "main",
+      requestFn: async () => {
+        callCount++;
+        return new Promise<RequestUrlResponse>(() => {});
+      },
+    });
+
+    expect(DEFAULT_TIMEOUT_PROFILES.mutationMs).toBe(120000);
+
+    let caughtErr: unknown;
+    const promise = client.createCommit("commit msg", "tree_sha", ["parent_sha"]).catch((err) => {
+      caughtErr = err;
+    });
+
+    // Advance 120000ms to hit mutation timeout
+    await vi.advanceTimersByTimeAsync(120000);
+    await promise;
+
+    expect(caughtErr).toBeInstanceOf(GitHubTimeoutError);
+    expect((caughtErr as GitHubTimeoutError).message).toContain("120000ms");
+    // Single attempt strictly: fail closed, no blind retry
+    expect(callCount).toBe(1);
+
+    // Invariant check: force ref update is rejected before dispatch
+    await expect(client.updateBranchRef("main", "new_sha", true)).rejects.toThrow(
+      "Force ref updates are strictly forbidden"
+    );
+    expect(callCount).toBe(1);
+  });
+
+  // =========================================================
+  // NET-PROFILE-008: late timed-out metadata request cannot mutate stale UI/state
+  // =========================================================
+  it("NET-PROFILE-008: late timed-out metadata request cannot mutate stale UI/state", async () => {
+    vi.useFakeTimers();
+
+    let resolveReq: ((res: RequestUrlResponse) => void) | undefined;
+    const client = new GitHubClient({
+      token: "test_token_late_ui",
+      owner: "test-owner",
+      repo: "test-repo",
+      branch: "main",
+      requestFn: async () => {
+        return new Promise<RequestUrlResponse>((resolve) => {
+          resolveReq = resolve;
+        });
+      },
+    });
+
+    let uiStatus = "idle";
+    let reposInUI: string[] = [];
+
+    const loadReposForUI = async () => {
+      uiStatus = "loading";
+      try {
+        const repos = await client.listUserRepositories();
+        uiStatus = "ready";
+        reposInUI = repos.map((r) => r.fullName);
+      } catch {
+        uiStatus = "error";
+      }
+    };
+
+    const actionPromise = loadReposForUI();
+    expect(uiStatus).toBe("loading");
+
+    // Advance 10s: metadata times out
+    await vi.advanceTimersByTimeAsync(10000);
+    await actionPromise;
+
+    expect(uiStatus).toBe("error");
+    expect(reposInUI).toHaveLength(0);
+
+    // Late network arrival after timeout
+    resolveReq!({
+      status: 200,
+      headers: {},
+      arrayBuffer: new ArrayBuffer(0),
+      json: [{ full_name: "stale/repo", name: "repo", owner: { login: "stale" }, default_branch: "main", private: false }],
+      text: "",
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    // State is preserved in error and not corrupted by stale response
+    expect(uiStatus).toBe("error");
+    expect(reposInUI).toHaveLength(0);
   });
 });
