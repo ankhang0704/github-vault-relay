@@ -224,7 +224,9 @@ export class SyncPreviewModal extends Modal {
     this.createStatBadge(statsGrid, "Remote Only", counts.REMOTE_ONLY, "var(--color-blue, #0077b6)", "REMOTE_ONLY");
     this.createStatBadge(statsGrid, "Local Changed", counts.LOCAL_CHANGED, "var(--color-orange, #f39c12)", "LOCAL_CHANGED");
     this.createStatBadge(statsGrid, "Remote Changed", counts.REMOTE_CHANGED, "var(--color-purple, #9b59b6)", "REMOTE_CHANGED");
-    this.createStatBadge(statsGrid, "Conflicts", counts.POTENTIAL_CONFLICT, "var(--color-red, #e74c3c)", "POTENTIAL_CONFLICT");
+    this.createStatBadge(statsGrid, "Local Del", counts.LOCAL_DELETED, "var(--color-red, #e74c3c)", "LOCAL_DELETED");
+    this.createStatBadge(statsGrid, "Remote Del", counts.REMOTE_DELETED, "var(--color-pink, #e84393)", "REMOTE_DELETED");
+    this.createStatBadge(statsGrid, "Conflicts", counts.POTENTIAL_CONFLICT + counts.DELETE_CONFLICT, "var(--color-red, #d63031)", "POTENTIAL_CONFLICT");
     this.createStatBadge(statsGrid, "Unchanged", counts.UNCHANGED, "var(--color-green, #2ecc71)", "UNCHANGED");
 
     // Filter Bar
@@ -232,7 +234,7 @@ export class SyncPreviewModal extends Modal {
       cls: "vault-relay-filter-bar",
       attr: {
         style:
-          "display: flex; gap: 6px; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--background-modifier-border);",
+          "display: flex; gap: 6px; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--background-modifier-border); overflow-x: auto;",
       },
     });
 
@@ -242,6 +244,9 @@ export class SyncPreviewModal extends Modal {
     this.createFilterTab(filterBar, `Remote Only (${counts.REMOTE_ONLY})`, "REMOTE_ONLY");
     this.createFilterTab(filterBar, `Local Changed (${counts.LOCAL_CHANGED})`, "LOCAL_CHANGED");
     this.createFilterTab(filterBar, `Remote Changed (${counts.REMOTE_CHANGED})`, "REMOTE_CHANGED");
+    if (counts.LOCAL_DELETED > 0) this.createFilterTab(filterBar, `Local Del (${counts.LOCAL_DELETED})`, "LOCAL_DELETED");
+    if (counts.REMOTE_DELETED > 0) this.createFilterTab(filterBar, `Remote Del (${counts.REMOTE_DELETED})`, "REMOTE_DELETED");
+    if (counts.DELETE_CONFLICT > 0) this.createFilterTab(filterBar, `Del Conflict (${counts.DELETE_CONFLICT})`, "DELETE_CONFLICT");
     this.createFilterTab(filterBar, `Conflicts (${counts.POTENTIAL_CONFLICT})`, "POTENTIAL_CONFLICT");
     this.createFilterTab(filterBar, `Unchanged (${counts.UNCHANGED})`, "UNCHANGED");
 
@@ -333,6 +338,24 @@ export class SyncPreviewModal extends Modal {
       attr: { style: "font-weight: 500; word-break: break-all; color: var(--text-normal);" },
     });
 
+    if (item.isMove) {
+      left.createDiv({
+        text: item.movedFrom ? `📦 Moved from: ${item.movedFrom}` : `📦 Moved to: ${item.movedTo}`,
+        attr: { style: "font-size: 0.8em; color: var(--color-purple, #9b59b6); margin-top: 2px; font-weight: 500;" },
+      });
+    }
+
+    if (item.deleteConflictType) {
+      left.createDiv({
+        text: `⚠️ Delete conflict: ${
+          item.deleteConflictType === "LOCAL_DELETED_REMOTE_MODIFIED"
+            ? "deleted locally, modified remotely"
+            : "deleted remotely, modified locally"
+        }`,
+        attr: { style: "font-size: 0.8em; color: var(--color-red, #e74c3c); margin-top: 2px; font-weight: 500;" },
+      });
+    }
+
     if (item.details) {
       left.createDiv({
         text: item.details,
@@ -389,8 +412,16 @@ export class SyncPreviewModal extends Modal {
         return "Local Changed";
       case "REMOTE_CHANGED":
         return "Remote Changed";
+      case "LOCAL_DELETED":
+        return "Local Deleted";
+      case "REMOTE_DELETED":
+        return "Remote Deleted";
       case "POTENTIAL_CONFLICT":
         return "Conflict";
+      case "DELETE_CONFLICT":
+        return "Delete Conflict";
+      case "DELETED":
+        return "Deleted";
       case "UNCHANGED":
         return "Unchanged";
     }
@@ -406,8 +437,15 @@ export class SyncPreviewModal extends Modal {
         return "#d35400";
       case "REMOTE_CHANGED":
         return "#8e44ad";
+      case "LOCAL_DELETED":
+        return "#e74c3c";
+      case "REMOTE_DELETED":
+        return "#e84393";
       case "POTENTIAL_CONFLICT":
+      case "DELETE_CONFLICT":
         return "#c0392b";
+      case "DELETED":
+        return "#7f8c8d";
       case "UNCHANGED":
         return "#27ae60";
     }
@@ -423,8 +461,15 @@ export class SyncPreviewModal extends Modal {
         return "rgba(243, 156, 18, 0.15)";
       case "REMOTE_CHANGED":
         return "rgba(155, 89, 182, 0.15)";
-      case "POTENTIAL_CONFLICT":
+      case "LOCAL_DELETED":
         return "rgba(231, 76, 60, 0.15)";
+      case "REMOTE_DELETED":
+        return "rgba(232, 67, 147, 0.15)";
+      case "POTENTIAL_CONFLICT":
+      case "DELETE_CONFLICT":
+        return "rgba(231, 76, 60, 0.15)";
+      case "DELETED":
+        return "rgba(127, 140, 141, 0.15)";
       case "UNCHANGED":
         return "rgba(46, 204, 113, 0.15)";
     }

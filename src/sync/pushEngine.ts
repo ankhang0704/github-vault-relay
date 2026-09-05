@@ -61,9 +61,10 @@ export function uint8ArrayToBase64(bytes: Uint8Array): string {
 
 export interface AuthorizedConflictResolution {
   path: string;
-  expectedLocalSha: string;
+  expectedLocalSha?: string;
   expectedRemoteSha?: string;
   expectedRemoteCommitSha?: string;
+  action?: "PUSH_CONTENT" | "PUSH_DELETE";
 }
 
 export class PushEngine {
@@ -152,6 +153,7 @@ export class PushEngine {
       counts: {
         pushedCreated: 0,
         pushedUpdated: 0,
+        pushedDeleted: 0,
         unchanged: 0,
         skippedRemoteOnly: 0,
         skippedRemoteChanged: 0,
@@ -173,6 +175,7 @@ export class PushEngine {
       counts: {
         pushedCreated: 0,
         pushedUpdated: 0,
+        pushedDeleted: 0,
         unchanged: 0,
         skippedRemoteOnly: 0,
         skippedRemoteChanged: 0,
@@ -264,10 +267,10 @@ export class PushEngine {
 
     interface EligiblePushItem {
       path: string;
-      category: "LOCAL_ONLY" | "LOCAL_CHANGED";
+      category: "LOCAL_ONLY" | "LOCAL_CHANGED" | "LOCAL_DELETED";
       localSha: string;
-      localFile: TFile;
-      rawBytes: Uint8Array;
+      localFile?: TFile;
+      rawBytes?: Uint8Array;
       remotePriorSha?: string;
     }
 
@@ -368,6 +371,47 @@ export class PushEngine {
           break;
         }
 
+        case "LOCAL_DELETED": {
+          eligibleItems.push({
+            path,
+            category: "LOCAL_DELETED",
+            localSha: "",
+            remotePriorSha: remoteEntry?.sha,
+          });
+          break;
+        }
+
+        case "DELETE_CONFLICT":
+          report.results.push({
+            path,
+            action: "SKIP_CONFLICT",
+            status: "BLOCKED_CONFLICT",
+            localSha: localEntry?.sha,
+            message: "Conflicting delete vs edit detected. Push skipped.",
+          });
+          report.counts.skippedConflicts++;
+          break;
+
+        case "REMOTE_DELETED":
+          report.results.push({
+            path,
+            action: "SKIP_REMOTE_ONLY",
+            status: "SKIPPED",
+            message: "Remote deletion detected. Push skipped.",
+          });
+          report.counts.skippedRemoteOnly++;
+          break;
+
+        case "DELETED":
+          report.results.push({
+            path,
+            action: "SKIP_UNCHANGED",
+            status: "SKIPPED",
+            message: "File deleted on both sides. Cleaned from baseline.",
+          });
+          report.counts.unchanged++;
+          break;
+
         case "POTENTIAL_CONFLICT":
           report.results.push({
             path,
@@ -457,7 +501,7 @@ export class PushEngine {
       path: string;
       localSha: string;
       remoteBlobSha: string;
-      action: "PUSH_CREATE" | "PUSH_UPDATE";
+      action: "PUSH_CREATE" | "PUSH_UPDATE" | "PUSH_DELETE";
     }
     const uploadedRecords: UploadedFileRecord[] = [];
 
@@ -466,8 +510,25 @@ export class PushEngine {
     for (const item of eligibleItems) {
       uploadIndex++;
       onProgress?.({ phase: "UPLOADING", completed: uploadIndex, total: eligibleItems.length, currentPath: item.path });
+
+      if (item.category === "LOCAL_DELETED") {
+        treeItemsToPush.push({
+          path: item.path,
+          mode: "100644",
+          type: "blob",
+          sha: null,
+        });
+        uploadedRecords.push({
+          path: item.path,
+          localSha: "",
+          remoteBlobSha: "",
+          action: "PUSH_DELETE",
+        });
+        continue;
+      }
+
       try {
-        let bytesToUpload = item.rawBytes;
+        let bytesToUpload = item.rawBytes!;
         let expectedSha: string;
 
         if (isCanonicalTextPath(item.path)) {
@@ -548,6 +609,15 @@ export class PushEngine {
     // eligible file before moving the branch ref; stale objects may remain dangling,
     // but unreviewed local bytes must never be committed.
     for (const item of eligibleItems) {
+      if (item.category === "LOCAL_DELETED") {
+        const currentFile = this.app.vault.getAbstractFileByPath(item.path);
+        if (currentFile) {
+          report.status = "ABORTED";
+          report.summaryMessage = `Local file was recreated during Push: ${item.path}. Branch update was not attempted.`;
+          return report;
+        }
+        continue;
+      }
       const currentFile = this.app.vault.getAbstractFileByPath(item.path);
       if (!(currentFile instanceof TFile)) {
         report.status = "ABORTED";
@@ -642,6 +712,15 @@ export class PushEngine {
       }
 
       for (const rec of uploadedRecords) {
+        if (rec.action === "PUSH_DELETE") {
+          if (remoteTreeMap.has(rec.path)) {
+            throw new GitHubError(
+              `Post-push verification failed: Deleted file ${rec.path} still present in remote tree.`
+            );
+          }
+          continue;
+        }
+
         const verifiedRemoteSha = remoteTreeMap.get(rec.path);
         if (verifiedRemoteSha?.toLowerCase() !== rec.remoteBlobSha.toLowerCase()) {
           throw new GitHubError(
@@ -661,6 +740,17 @@ export class PushEngine {
     state.lastSyncedAt = Date.now();
 
     for (const rec of uploadedRecords) {
+      if (rec.action === "PUSH_DELETE") {
+        delete state.files[rec.path];
+        report.results.push({
+          path: rec.path,
+          action: "PUSH_DELETE",
+          status: "SUCCESS",
+        });
+        report.counts.pushedDeleted++;
+        continue;
+      }
+
       state.files[rec.path] = {
         localSha: rec.localSha,
         remoteSha: rec.remoteBlobSha,
@@ -749,6 +839,7 @@ export class PushEngine {
       counts: {
         pushedCreated: 0,
         pushedUpdated: 0,
+        pushedDeleted: 0,
         unchanged: 0,
         skippedRemoteOnly: 0,
         skippedRemoteChanged: 0,
@@ -759,6 +850,8 @@ export class PushEngine {
       },
       results: [],
     };
+
+    const isDeletionResolution = resolution.action === "PUSH_DELETE";
 
     // 1. Offline preflight check
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
@@ -821,62 +914,83 @@ export class PushEngine {
         report.summaryMessage = `Remote file changed concurrently since conflict was reviewed (reviewed ${resolution.expectedRemoteSha.slice(0, 7)}, current ${currentRemoteSha ? currentRemoteSha.slice(0, 7) : "missing"}). Push blocked.`;
         return report;
       }
+    } else if (resolution.expectedRemoteSha === "") {
+      const remoteTreeItem = baseTreeResp.tree.find((item) => item.path === resolution.path);
+      if (remoteTreeItem) {
+        report.status = "ABORTED";
+        report.summaryMessage = `Remote file was recreated concurrently since conflict was reviewed. Push blocked.`;
+        return report;
+      }
     }
 
-    // 4. Local file revalidation (Guards against LOCAL RACE)
-    const file = this.app.vault.getAbstractFileByPath(resolution.path);
-    if (!file || !(file instanceof TFile)) {
-      report.status = "FAIL";
-      report.summaryMessage = `Local file no longer exists or is not a file: ${resolution.path}. Safe Push aborted.`;
-      return report;
-    }
+    let currentLocalSha = "";
+    let uploadedBlobSha: string | null = null;
 
-    let rawBytes: Uint8Array;
-    try {
-      const arrayBuffer = await this.app.vault.readBinary(file);
-      rawBytes = new Uint8Array(arrayBuffer);
-    } catch (err) {
-      report.status = "FAIL";
-      report.summaryMessage = `Failed to read local file ${resolution.path}: ${sanitizeErrorMessage(err)}`;
-      return report;
-    }
+    if (isDeletionResolution) {
+      // For authorized deletion, local file must be absent
+      const file = this.app.vault.getAbstractFileByPath(resolution.path);
+      if (file) {
+        report.status = "FAIL";
+        report.summaryMessage = `Cannot push deletion: local file still exists at ${resolution.path}.`;
+        return report;
+      }
+    } else {
+      // 4. Local file revalidation (Guards against LOCAL RACE)
+      const file = this.app.vault.getAbstractFileByPath(resolution.path);
+      if (!file || !(file instanceof TFile)) {
+        report.status = "FAIL";
+        report.summaryMessage = `Local file no longer exists or is not a file: ${resolution.path}. Safe Push aborted.`;
+        return report;
+      }
 
-    if (isOversized(rawBytes.byteLength)) {
-      report.status = "FAIL";
-      report.summaryMessage = `Conflict file exceeds mobile size limit (25 MiB): ${resolution.path}`;
-      return report;
-    }
+      let rawBytes: Uint8Array;
+      try {
+        const arrayBuffer = await this.app.vault.readBinary(file);
+        rawBytes = new Uint8Array(arrayBuffer);
+      } catch (err) {
+        report.status = "FAIL";
+        report.summaryMessage = `Failed to read local file ${resolution.path}: ${sanitizeErrorMessage(err)}`;
+        return report;
+      }
 
-    const currentLocalSha = await calculateCanonicalGitBlobSha(rawBytes, resolution.path);
-    if (currentLocalSha.toLowerCase() !== resolution.expectedLocalSha.toLowerCase()) {
-      report.status = "FAIL";
-      report.summaryMessage = `Local file changed concurrently since conflict was reviewed (reviewed ${resolution.expectedLocalSha.slice(0, 7)}, current ${currentLocalSha.slice(0, 7)}). Push blocked to prevent pushing unreviewed changes.`;
-      return report;
-    }
+      if (isOversized(rawBytes.byteLength)) {
+        report.status = "FAIL";
+        report.summaryMessage = `Conflict file exceeds mobile size limit (25 MiB): ${resolution.path}`;
+        return report;
+      }
 
-    // 5. Upload blob for the single authorized conflict file
-    onProgress?.({ phase: "UPLOADING", completed: 1, total: 1, currentPath: resolution.path });
-    let bytesToUpload = rawBytes;
-    if (isCanonicalTextPath(resolution.path)) {
-      bytesToUpload = canonicalizeTextBytes(bytesToUpload);
-    }
-    const expectedBlobSha = await calculateRawGitBlobSha(bytesToUpload);
-    const base64Content = uint8ArrayToBase64(bytesToUpload);
+      currentLocalSha = await calculateCanonicalGitBlobSha(rawBytes, resolution.path);
+      if (resolution.expectedLocalSha && currentLocalSha.toLowerCase() !== resolution.expectedLocalSha.toLowerCase()) {
+        report.status = "FAIL";
+        report.summaryMessage = `Local file changed concurrently since conflict was reviewed (reviewed ${resolution.expectedLocalSha.slice(0, 7)}, current ${currentLocalSha.slice(0, 7)}). Push blocked to prevent pushing unreviewed changes.`;
+        return report;
+      }
 
-    let blobResp;
-    try {
-      blobResp = await this.githubClient.createBlob(base64Content, "base64");
-    } catch (blobErr) {
-      const safeMsg = sanitizeErrorMessage(blobErr);
-      report.status = "FAIL";
-      report.summaryMessage = `Blob upload failed for ${resolution.path}: ${safeMsg}`;
-      return report;
-    }
+      // 5. Upload blob for the single authorized conflict file
+      onProgress?.({ phase: "UPLOADING", completed: 1, total: 1, currentPath: resolution.path });
+      let bytesToUpload = rawBytes;
+      if (isCanonicalTextPath(resolution.path)) {
+        bytesToUpload = canonicalizeTextBytes(bytesToUpload);
+      }
+      const expectedBlobSha = await calculateRawGitBlobSha(bytesToUpload);
+      const base64Content = uint8ArrayToBase64(bytesToUpload);
 
-    if (blobResp.sha.toLowerCase() !== expectedBlobSha.toLowerCase()) {
-      report.status = "FAIL";
-      report.summaryMessage = `Cryptographic SHA mismatch during blob upload for ${resolution.path}. Expected ${expectedBlobSha}, received ${blobResp.sha}.`;
-      return report;
+      let blobResp;
+      try {
+        blobResp = await this.githubClient.createBlob(base64Content, "base64");
+      } catch (blobErr) {
+        const safeMsg = sanitizeErrorMessage(blobErr);
+        report.status = "FAIL";
+        report.summaryMessage = `Blob upload failed for ${resolution.path}: ${safeMsg}`;
+        return report;
+      }
+
+      if (blobResp.sha.toLowerCase() !== expectedBlobSha.toLowerCase()) {
+        report.status = "FAIL";
+        report.summaryMessage = `Cryptographic SHA mismatch during blob upload for ${resolution.path}. Expected ${expectedBlobSha}, received ${blobResp.sha}.`;
+        return report;
+      }
+      uploadedBlobSha = blobResp.sha;
     }
 
     // 6. Create Git tree on top of baseTreeResp.sha updating ONLY the authorized path
@@ -887,7 +1001,7 @@ export class PushEngine {
         path: resolution.path,
         mode: "100644",
         type: "blob",
-        sha: blobResp.sha,
+        sha: uploadedBlobSha, // null if deletion
       },
     ];
 
@@ -902,7 +1016,9 @@ export class PushEngine {
 
     // 7. Create Single Git commit with parent = verified baseCommitSha
     onProgress?.({ phase: "CREATING_COMMIT", completed: 0, total: 1, message: "Creating Git commit..." });
-    const commitMsg = `Vault Relay safe conflict resolution: Keep local for ${resolution.path}`;
+    const commitMsg = isDeletionResolution
+      ? `Vault Relay safe conflict resolution: Delete remote for ${resolution.path}`
+      : `Vault Relay safe conflict resolution: Keep local for ${resolution.path}`;
     let newCommitResp;
     try {
       newCommitResp = await this.githubClient.createCommit(commitMsg, newTreeResp.sha, [baseCommitSha]);
@@ -916,18 +1032,26 @@ export class PushEngine {
     const newCommitSha = newCommitResp.sha;
     report.newCommitSha = newCommitSha;
 
-    const latestFile = this.app.vault.getAbstractFileByPath(resolution.path);
-    if (!(latestFile instanceof TFile)) {
-      report.status = "ABORTED";
-      report.summaryMessage = `Local file changed or disappeared during conflict resolution: ${resolution.path}. Branch update was not attempted.`;
-      return report;
-    }
-    const latestBytes = await this.app.vault.readBinary(latestFile);
-    const latestLocalSha = await calculateCanonicalGitBlobSha(latestBytes, resolution.path);
-    if (latestLocalSha.toLowerCase() !== currentLocalSha.toLowerCase()) {
-      report.status = "ABORTED";
-      report.summaryMessage = `Local file changed during conflict resolution: ${resolution.path}. Branch update was not attempted.`;
-      return report;
+    if (isDeletionResolution) {
+      if (this.app.vault.getAbstractFileByPath(resolution.path)) {
+        report.status = "ABORTED";
+        report.summaryMessage = `Local file was recreated during conflict deletion: ${resolution.path}. Branch update was not attempted.`;
+        return report;
+      }
+    } else {
+      const latestFile = this.app.vault.getAbstractFileByPath(resolution.path);
+      if (!(latestFile instanceof TFile)) {
+        report.status = "ABORTED";
+        report.summaryMessage = `Local file changed or disappeared during conflict resolution: ${resolution.path}. Branch update was not attempted.`;
+        return report;
+      }
+      const latestBytes = await this.app.vault.readBinary(latestFile);
+      const latestLocalSha = await calculateCanonicalGitBlobSha(latestBytes, resolution.path);
+      if (latestLocalSha.toLowerCase() !== currentLocalSha.toLowerCase()) {
+        report.status = "ABORTED";
+        report.summaryMessage = `Local file changed during conflict resolution: ${resolution.path}. Branch update was not attempted.`;
+        return report;
+      }
     }
 
     // 8. Optimistic Concurrency Ref Update (force: false is MANDATORY)
@@ -983,11 +1107,20 @@ export class PushEngine {
       }
 
       const freshTree = await this.githubClient.getTreeRecursive(newCommitSha);
-      const verifiedRemoteItem = freshTree.tree.find((i) => i.path === resolution.path && i.type === "blob");
-      if (verifiedRemoteItem?.sha?.toLowerCase() !== blobResp.sha.toLowerCase()) {
-        throw new GitHubError(
-          `Post-push verification failed: Remote tree blob SHA for ${resolution.path} (${verifiedRemoteItem?.sha}) does not match uploaded blob SHA (${blobResp.sha}).`
-        );
+      if (isDeletionResolution) {
+        const stillInTree = freshTree.tree.some((i) => i.path === resolution.path);
+        if (stillInTree) {
+          throw new GitHubError(
+            `Post-push verification failed: Deleted file ${resolution.path} still present in remote tree.`
+          );
+        }
+      } else {
+        const verifiedRemoteItem = freshTree.tree.find((i) => i.path === resolution.path && i.type === "blob");
+        if (verifiedRemoteItem?.sha?.toLowerCase() !== uploadedBlobSha?.toLowerCase()) {
+          throw new GitHubError(
+            `Post-push verification failed: Remote tree blob SHA for ${resolution.path} (${verifiedRemoteItem?.sha}) does not match uploaded blob SHA (${uploadedBlobSha}).`
+          );
+        }
       }
     } catch (verifyErr) {
       const safeMsg = sanitizeErrorMessage(verifyErr);
@@ -1000,11 +1133,16 @@ export class PushEngine {
     const state = await this.loadState();
     state.lastSyncedCommitSha = newCommitSha;
     state.lastSyncedAt = Date.now();
-    state.files[resolution.path] = {
-      localSha: currentLocalSha,
-      remoteSha: blobResp.sha,
-      syncedAt: Date.now(),
-    };
+
+    if (isDeletionResolution) {
+      delete state.files[resolution.path];
+    } else {
+      state.files[resolution.path] = {
+        localSha: currentLocalSha,
+        remoteSha: uploadedBlobSha!,
+        syncedAt: Date.now(),
+      };
+    }
 
     try {
       await this.saveState(state);
@@ -1017,15 +1155,25 @@ export class PushEngine {
     }
 
     report.status = "PASS";
-    report.summaryMessage = `Successfully pushed authorized conflict resolution for ${resolution.path}.`;
-    report.results.push({
-      path: resolution.path,
-      action: "PUSH_UPDATE",
-      status: "SUCCESS",
-      localSha: currentLocalSha,
-      remoteBlobSha: blobResp.sha,
-    });
-    report.counts.pushedUpdated = 1;
+    if (isDeletionResolution) {
+      report.summaryMessage = `Successfully pushed authorized deletion for ${resolution.path}.`;
+      report.results.push({
+        path: resolution.path,
+        action: "PUSH_DELETE",
+        status: "SUCCESS",
+      });
+      report.counts.pushedDeleted = 1;
+    } else {
+      report.summaryMessage = `Successfully pushed authorized conflict resolution for ${resolution.path}.`;
+      report.results.push({
+        path: resolution.path,
+        action: "PUSH_UPDATE",
+        status: "SUCCESS",
+        localSha: currentLocalSha,
+        remoteBlobSha: uploadedBlobSha!,
+      });
+      report.counts.pushedUpdated = 1;
+    }
     onProgress?.({ phase: "COMPLETE", completed: 1, total: 1, message: "Authorized conflict push complete." });
     return report;
   }

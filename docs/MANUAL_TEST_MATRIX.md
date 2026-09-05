@@ -1,11 +1,11 @@
-# GitHub Vault Relay: C5 Real-Device Manual Acceptance Test Matrix
+# GitHub Vault Relay: C6 Real-Device Manual Acceptance Test Matrix
 
-> **Executable Protocol for Checkpoint 5 (C5) Real Runtime Acceptance**  
-> **Target Release:** `0.5.0` Release Candidate (Pre-release)  
+> **Executable Protocol for Checkpoint 6 (C6) Real Runtime Acceptance**  
+> **Target Release:** `0.6.0` Release Candidate (Pre-release)  
 > **Build Identity:**  
-> - Version: `0.5.0`  
-> - `main.js` Length: 130,200 bytes  
-> - `main.js` SHA-256: `0CB10C17459EF22826CA9E1134D479CF66DF66D759CE9914C4BC922BD58A64FD`  
+> - Version: `0.6.0`  
+> - `main.js` Length: 150,127 bytes  
+> - `main.js` SHA-256: `44F0A1EB266A9A3AFE41BEE2850C142BA8DABEE7FBFE135B2499C8077D4F800E`  
 > - `styles.css` Length: 1,256 bytes  
 > - `styles.css` SHA-256: `F4E2C982B2237A0EC6EA3956C3C9C759385F19765E1759FAD7DA0FFE544584E8`  
 
@@ -25,7 +25,7 @@
 
 | ID | Test Scenario | Precondition | Action | Expected Result | Actual Result | Status | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **RT-01** | Install/update exact 0.5.0 RC | Clean test vault or earlier version | Copy `main.js`, `manifest.json`, `styles.css` to `.obsidian/plugins/github-vault-relay/`; enable plugin | Plugin loads with version 0.5.0; console has zero fatal errors; SHA-256 matches build identity | | **NOT RUN** | |
+| **RT-01** | Install/update exact 0.6.0 RC | Clean test vault or earlier version | Copy `main.js`, `manifest.json`, `styles.css` to `.obsidian/plugins/github-vault-relay/`; enable plugin | Plugin loads with version 0.6.0; console has zero fatal errors; SHA-256 matches build identity | | **NOT RUN** | |
 | **RT-02** | Connection / PAT persistence | Test GitHub repo with fine-grained PAT | Enter PAT in Settings -> Connection Wizard; click **Save & Connect** | Repositories and branches discovered; repo selected; PAT stored in SecretStorage; restarts without re-prompting | | **NOT RUN** | |
 | **RT-03** | Remote-only Pull | A new note `remote-sample.md` created directly on GitHub | Open Sync Dashboard -> Click **Sync** (or Safe Pull) | Note is downloaded to local vault; content is byte/LF identical; classified as `UNCHANGED` on subsequent scan | | **NOT RUN** | |
 | **RT-04** | Local-only Push | A new note `local-sample.md` created in Obsidian vault | Open Sync Dashboard -> Click **Sync** | Single Git commit created on GitHub; branch ref updated (`force: false`); file appears on GitHub | | **NOT RUN** | |
@@ -46,7 +46,17 @@
 | **RT-19** | Internal storage cleanup | After multiple syncs and conflict resolutions | Inspect `.obsidian/github-vault-relay/` | Contains only `state.json` and active metadata; zero orphaned payloads in `conflicts/` | | **NOT RUN** | |
 | **RT-20** | SecretStorage / Clear Token | Plugin configured with token | Settings -> Advanced / Security -> Click **Clear Token** -> Confirm | Modal warns of consequence; token cleared from SecretStorage; wizard reverts to disconnected state | | **NOT RUN** | |
 | **RT-21** | Layout & responsiveness | Resize Obsidian window to narrow width | Inspect all modals and settings | No horizontal clipping; word-wrap functions; buttons remain accessible | | **NOT RUN** | |
-| **RT-22** | Final clean convergence | End of Windows acceptance run | Restart Obsidian; open Preview | All notes categorized as `UNCHANGED`; zero warnings; vault fully operational | | **NOT RUN** | |
+| **RT-22** | Final clean convergence | End of baseline acceptance run | Restart Obsidian; open Preview | All notes categorized as `UNCHANGED`; zero warnings; vault fully operational | | **NOT RUN** | |
+| **RT-23** | Local delete push | Delete synchronized note `NoteA.md` in Obsidian | Open Sync Dashboard -> Click **Sync** | Git commit created omitting `NoteA.md` via `sha: null`; ref updated `force: false`; removed from baseline; absent on GitHub | | **NOT RUN** | |
+| **RT-24** | Remote delete pull | Delete synchronized note `NoteB.md` directly on GitHub | Open Sync Dashboard -> Click **Sync** | Recovery snapshot created; local `NoteB.md` removed; verified absent; baseline updated; recovery snapshot cleaned | | **NOT RUN** | |
+| **RT-25** | Both deleted convergence | Note `NoteC.md` deleted both on GitHub and locally | Open Sync Dashboard -> Click **Sync** | Classified as `DELETED`; baseline entry pruned safely without remote or local mutation | | **NOT RUN** | |
+| **RT-26** | Delete conflict (Local Del vs Remote Mod) | `NoteD.md` deleted locally, modified on GitHub | Review Conflicts -> Inspect options | Shows `DELETE_CONFLICT`; `[ Keep File ]` restores remote modified version; `[ Delete File ]` authorizes remote deletion | | **NOT RUN** | |
+| **RT-27** | Delete conflict (Remote Del vs Local Mod) | `NoteE.md` deleted on GitHub, modified locally | Review Conflicts -> Inspect options | Shows `DELETE_CONFLICT`; `[ Keep File ]` pushes local modified version; `[ Delete File ]` authorizes local deletion | | **NOT RUN** | |
+| **RT-28** | Clean local move | Move `FolderA/NoteF.md` to `FolderB/NoteF.md` in Obsidian | Open Sync Dashboard -> Click **Sync** | Emitted as single Git commit (`delete old` + `add new`); preview shows `Moved: FolderA/NoteF.md → FolderB/NoteF.md` | | **NOT RUN** | |
+| **RT-29** | Remote move pull ordering | Move `DocX.md` to `Archive/DocX.md` on GitHub | Open Sync Dashboard -> Click **Sync** | Destination written and verified before source deleted; both operations succeed in order | | **NOT RUN** | |
+| **RT-30** | Directory move (10 files) | Rename directory with 10 notes | Open Sync Dashboard -> Click **Sync** | All 10 path transforms batched into ONE atomic Git commit | | **NOT RUN** | |
+| **RT-31** | Binary move & delete | Move/delete PNG image in Obsidian | Open Sync Dashboard -> Click **Sync** | Binary delete omitted from tree; binary move pushed as byte-exact delete + add in single commit | | **NOT RUN** | |
+| **RT-32** | Crash recovery of interrupted delete | Inject pending recovery snapshot in `delete-recovery/` | Relaunch Obsidian | Startup scan restores local file from snapshot; zero silent file loss | | **NOT RUN** | |
 
 ---
 
@@ -54,7 +64,7 @@
 
 | ID | Test Scenario | Precondition | Action | Expected Result | Actual Result | Status | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **RT-01** | Install exact 0.5.0 RC via BRAT | Obsidian on iOS with BRAT installed | BRAT -> Add Beta Plugin -> `https://github.com/ankhang0704/github-vault-relay` | BRAT downloads release 0.5.0 assets; plugin enables cleanly on iPhone | | **NOT RUN** | |
+| **RT-01** | Install exact 0.6.0 RC via BRAT | Obsidian on iOS with BRAT installed | BRAT -> Add Beta Plugin -> `https://github.com/ankhang0704/github-vault-relay` | BRAT downloads release 0.6.0 assets; plugin enables cleanly on iPhone | | **NOT RUN** | |
 | **RT-02** | Connection / PAT persistence | Mobile vault | Paste fine-grained PAT; click **Save & Connect** | Discovers repos/branches; token stored in iOS Keychain (SecretStorage); survives iOS app restart | | **NOT RUN** | |
 | **RT-03** | Remote-only Pull | Note created on GitHub | Open Sync Dashboard -> Tap **Sync** | Note downloaded to iPhone; displays properly in Obsidian Mobile | | **NOT RUN** | |
 | **RT-04** | Local-only Push | Note written on iPhone | Open Sync Dashboard -> Tap **Sync** | Single Git commit pushed to GitHub over cellular/Wi-Fi; ref updated safely | | **NOT RUN** | |
@@ -76,6 +86,16 @@
 | **RT-20** | SecretStorage / Clear Token | Plugin configured | Advanced / Security -> Clear Token -> Confirm | Credential wiped from iOS Keychain; UI disconnected cleanly | | **NOT RUN** | |
 | **RT-21** | Mobile layout & touch targets | iPhone portrait view | Inspect all modals, buttons, and progress | Buttons meet >=44px touch height; text wraps properly; safe-area bottom inset respected | | **NOT RUN** | |
 | **RT-22** | Final clean convergence | End of iPhone acceptance run | Relaunch Obsidian; open Preview | All notes `UNCHANGED`; zero errors in mobile console; vault fully operational | | **NOT RUN** | |
+| **RT-23** | Local delete push | Delete synchronized note `NoteA.md` on iPhone | Open Sync Dashboard -> Tap **Sync** | Git commit created omitting `NoteA.md` via `sha: null`; ref updated `force: false`; removed from baseline | | **NOT RUN** | |
+| **RT-24** | Remote delete pull | Delete synchronized note `NoteB.md` on GitHub | Open Sync Dashboard -> Tap **Sync** | Recovery snapshot created; mobile note deleted; verified absent; baseline updated; snapshot cleaned | | **NOT RUN** | |
+| **RT-25** | Both deleted convergence | Note `NoteC.md` deleted on GitHub and iPhone | Open Sync Dashboard -> Tap **Sync** | Classified as `DELETED`; baseline pruned with zero mutation | | **NOT RUN** | |
+| **RT-26** | Delete conflict (Local Del vs Remote Mod) | `NoteD.md` deleted on iPhone, modified on GitHub | Review Conflicts -> Inspect options | Shows `DELETE_CONFLICT`; `[ Keep File ]` restores remote modified version; `[ Delete File ]` authorizes remote deletion | | **NOT RUN** | |
+| **RT-27** | Delete conflict (Remote Del vs Local Mod) | `NoteE.md` deleted on GitHub, modified on iPhone | Review Conflicts -> Inspect options | Shows `DELETE_CONFLICT`; `[ Keep File ]` pushes local modified version; `[ Delete File ]` authorizes local deletion | | **NOT RUN** | |
+| **RT-28** | Clean local move | Move `FolderA/NoteF.md` to `FolderB/NoteF.md` on iPhone | Open Sync Dashboard -> Tap **Sync** | Single Git commit (`delete old` + `add new`); preview shows `Moved: FolderA/NoteF.md → FolderB/NoteF.md` | | **NOT RUN** | |
+| **RT-29** | Remote move pull ordering | Move `DocX.md` to `Archive/DocX.md` on GitHub | Open Sync Dashboard -> Tap **Sync** | Destination written and verified before source deleted; both operations succeed in order | | **NOT RUN** | |
+| **RT-30** | Directory move (10 files) | Rename directory with 10 notes on iPhone | Open Sync Dashboard -> Tap **Sync** | All 10 path transforms batched into ONE atomic Git commit | | **NOT RUN** | |
+| **RT-31** | Binary move & delete | Move/delete photo attachment on iPhone | Open Sync Dashboard -> Tap **Sync** | Binary delete omitted from tree; binary move pushed as byte-exact delete + add in single commit | | **NOT RUN** | |
+| **RT-32** | Stale device remote delete | Device offline while remote deleted file, then returns | Open Sync Dashboard -> Tap **Sync** | Correctly pulls `REMOTE_DELETED`, removes local file safely, updates baseline | | **NOT RUN** | |
 
 ---
 

@@ -2,7 +2,7 @@
 
 > **Canonical reference document for repository architecture, factual technical guarantees, portfolio narratives, and engineering verification.**  
 > **Repository:** [https://github.com/ankhang0704/github-vault-relay](https://github.com/ankhang0704/github-vault-relay)  
-> **Current Version:** `0.5.0` (Release Candidate)  
+> **Current Version:** `0.6.0` (Release Candidate)  
 > **Status:** AUTOMATED GATES PASS | VERIFIED | REAL-DEVICE ACCEPTANCE PENDING  
 
 ---
@@ -39,7 +39,9 @@
 The following are deliberate product non-goals:
 - **No background auto-sync / scheduled sync:** Sync only executes when explicitly triggered by the user.
 - **No sync-on-save:** Prevents battery exhaustion, race conditions, and excessive commit noise.
-- **No automatic deletion:** Neither remote nor local file deletions are automated. Deletions remain deferred.
+- **No ambiguous / unverified deletion:** Deletion is never inferred without previous baseline synchronized existence evidence. Missing baseline cannot infer deletion (treated conservatively as local-only or remote-only).
+- **No empty directory synchronization:** Git tracks file paths, not empty directory nodes.
+- **No fuzzy / AI rename guessing:** Moves are recognized strictly when content SHA is byte-identical or handled safely as independent delete + add.
 - **No force push:** `force: false` is strictly enforced on all branch ref updates.
 - **No third-party Git hosts:** Exclusively GitHub REST and Git Data APIs (no GitLab, Gitea, or WebDAV).
 - **No Canvas 3-way merge:** Canvas files are treated as atomic units.
@@ -55,10 +57,12 @@ The following are deliberate product non-goals:
 - **C3 Safe Push:** VERIFIED (Git Data API tree/commit/ref construction, optimistic concurrency)
 - **C4 Unified Sync & Conflict Resolution:** VERIFIED (Unified single-click sync, Connection Wizard, 3-way conflict review, canonical internal storage)
 - **C5 Production Hardening:** AUTOMATED PASS (Mutation coordinator, crash rollback, upgrade matrix, failure injection, scale benchmarks, mobile accessibility)
-- **Current Published Release:** `0.5.0` Pre-release (Release Candidate)
+- **C6 Safe Delete & Move Semantics:** AUTOMATED PASS (Three-way deletion classifier, Git Data API tree omissions, ordered pull moves, crash recovery journaling, delete conflicts, 27 C6 tests)
+- **Current Published Release:** `0.6.0` Pre-release (Release Candidate)
 - **Real Windows Acceptance:** `NOT RUN` (Pending)
 - **Real iPhone Acceptance:** `NOT RUN` (Pending via BRAT)
 - **MVP Complete:** `NO` (Awaiting real-device validation)
+- **1.0.0 Ready:** `NO` (Final acceptance on real devices required)
 
 ---
 

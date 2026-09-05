@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.0] - 2026-09-05 (Release Candidate)
+
+### Added
+- **Safe Delete & Move Synchronization (C6)**: Complete 3-way filesystem lifecycle support (CREATE, EDIT, MOVE/RENAME, DELETE) across Windows, GitHub, and iPhone.
+- **Three-Way Deletion Classifier**: Added explicit engine states for `LOCAL_DELETED`, `REMOTE_DELETED`, `DELETE_CONFLICT`, and `DELETED` (converged baseline pruning).
+- **Git Data API Deletion**: Clean tree omissions constructed via `POST /git/trees` with `sha: null` against `base_tree`, strictly avoiding HTTP `DELETE` endpoints and `force: true`.
+- **Durable Local Delete Recovery**: Pre-delete snapshot journaling in `.obsidian/github-vault-relay/delete-recovery/` with automatic startup restoration if interrupted mid-operation.
+- **Ordered Pull Moves**: Guaranteed destination file materialization and byte-exact verification before local source deletion.
+- **Single-Commit Move Batching**: Local moves batch `delete old_path` and `add new_path` into a single atomic Git commit.
+- **Exact-SHA Move Detection**: Content-addressed pairing of deleted baseline files with newly added local files in UI preview.
+- **Contextual Delete Conflict Resolution**: Unambiguous UI actions (`[ Keep File ]`, `[ Delete File ]`, `[ Cancel ]`) with strict revalidation before any remote or local mutation.
+- **Comprehensive C6 Test Suite**: 27 automated tests covering deletion, move ordering, directory moves, binary moves/deletes, crash recovery, and security invariants (totaling 404 tests across 39 suites).
+
+### Changed
+- **Dashboard & Preview Metrics**: Added Local Deletions, Remote Deletions, and Delete Conflicts counters with distinct badge indicators and filter tabs.
+- **PullEngine Deletion Handling**: Explicit deletion phase executed without downloading nonexistent remote blobs.
+- **PushEngine Pre-Ref Invariant**: Added verification ensuring deleted files are not recreated locally in-flight before updating branch ref.
+
+---
+
 ## [0.5.0] - 2026-09-04 (Release Candidate)
 
 ### Added

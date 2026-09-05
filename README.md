@@ -3,7 +3,7 @@
 > **A conservative, mobile-first GitHub sync bridge for Obsidian — without running Git on your phone.**
 
 [![CI](https://github.com/ankhang0704/github-vault-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/ankhang0704/github-vault-relay/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/ankhang0704/github-vault-relay/releases)
+[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](https://github.com/ankhang0704/github-vault-relay/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 GitHub Vault Relay connects your **Obsidian Mobile (iPhone / iPad)** and **Desktop** vaults directly to your GitHub repository using GitHub's REST and Git Data APIs over HTTPS. It requires **no native Git installation, no command line tools, no isomorphic-git polyfills, and zero background daemons**.
@@ -13,6 +13,7 @@ GitHub Vault Relay connects your **Obsidian Mobile (iPhone / iPad)** and **Deskt
 ## 🏛️ What GitHub Vault Relay Does
 
 - **Unified Safe Sync**: A single `[ Sync ]` action safely pulls eligible remote changes, then replans and pushes eligible local changes. Each Safe Push batch is committed to GitHub as one Git commit (`force: false`). Unified Sync is intentionally not an end-to-end transaction: a successful Pull is not rolled back merely because a later Push fails.
+- **Safe Deletion & Move Semantics**: Respects the complete filesystem lifecycle (CREATE, EDIT, MOVE/RENAME, DELETE). Deletion requires baseline synchronized existence proof. Moves are pushed in a single atomic Git commit (`delete old` + `add new`) and pulled safely (`destination` materialized and verified before `source` is deleted).
 - **Data Integrity Over Convenience**: Explicit failure over silent guessing. When state is ambiguous, Vault Relay halts safely and preserves both versions.
 - **Mobile-First iOS/Android Design**: Communicates via Obsidian's native HTTPS requests (`requestUrl()`). Never invokes Node.js child processes or native Git.
 - **Clean Vault Experience**: Internal state is kept under `.obsidian/github-vault-relay/` and is not treated as normal vault note content.
@@ -27,7 +28,9 @@ To guarantee rock-solid data safety on mobile devices, the following are deliber
 
 - **No background auto-sync or scheduled sync**: Sync runs only when explicitly triggered by you.
 - **No sync-on-save**: Prevents battery drain, race conditions, and accidental Git commit spam.
-- **No automatic deletion**: Neither remote nor local files are automatically deleted by sync. Deletions remain deferred.
+- **No ambiguous or unverified deletion**: Deletion is never inferred without previous baseline synchronized existence evidence. Missing baseline cannot safely infer deletion (treated conservatively as local-only or remote-only).
+- **No empty directory synchronization**: Git tracks file paths, not directory nodes. Empty directories are not synchronized.
+- **No fuzzy / AI rename guessing**: Moves are recognized strictly when content SHA is byte-identical or handled safely as independent delete + add.
 - **No force push**: Every branch update uses `force: false`. If remote branch HEAD changes unexpectedly, sync aborts safely.
 - **No alternative Git forges**: GitHub REST/Git Data API only (no GitLab, Gitea, or WebDAV).
 - **No Canvas 3-way merge**: JSON Canvas files are treated as atomic units.
@@ -112,6 +115,34 @@ Open **Conflict Resolution** (`GitHub Vault Relay: Review Conflicts`) to review 
 | **Keep Local** | Revalidates remote state and pushes your local version to GitHub. | Scoped authorized push; aborts safely if remote changed during review. |
 | **Use Remote** | Overwrites the local note with the latest remote version. | Re-verifies local file matches reviewed version; saves a local backup first. |
 | **Keep Both** | Leaves your local note untouched and saves the remote version alongside it as `filename (Conflict YYYY-MM-DD-HHmmss).ext`. | Zero overwrites; both versions immediately available. |
+
+---
+
+## 🗑️ Safe Deletion & Move Semantics
+
+GitHub Vault Relay synchronizes normal filesystem deletions and moves across Windows, GitHub, and iPhone without destructive guessing.
+
+### 1. Three-Way Deletion Model
+Deletion is never inferred simply from "file missing". It requires a three-way comparison between **Baseline** (last synchronized state), **Local Vault**, and **Remote GitHub**:
+- **Local Deleted**: File was present in baseline and matches remote, but is absent locally. Vault Relay creates a new Git tree omitting the file (`sha: null`), commits, updates the ref (`force: false`), and only prunes baseline after verified remote deletion.
+- **Remote Deleted**: File was present in baseline and matches local, but is absent on GitHub. Vault Relay creates durable recovery evidence in `.obsidian/github-vault-relay/delete-recovery/`, removes the local file via `app.vault.delete()`, verifies absence, prunes baseline, and cleans up recovery evidence.
+- **Both Deleted**: File is absent both locally and remotely. Vault Relay silently prunes the obsolete baseline entry.
+- **Delete Conflict**: One side deleted the file while the other side modified it (e.g., deleted locally but edited on GitHub, or deleted remotely but edited locally). Vault Relay halts safely and offers explicit contextual resolution:
+  - **`[ Keep File ]`**: Retains the modified version on both sides.
+  - **`[ Delete File ]`**: Authorizes deletion of the modified file with full revalidation.
+  - **`[ Cancel ]`**: Leaves both states untouched.
+
+### 2. Move & Rename Lifecycle
+In Git, a Move is represented as **`DELETE old_path` + `ADD new_path`**:
+- **Safe Push**: When a note is moved or renamed locally, Safe Push batches both the deletion of the old path and the addition of the new path into **one atomic Git commit**.
+- **Safe Pull**: When pulling a remote move, Vault Relay enforces strict ordering:
+  1. Writes and verifies the destination file byte-exact.
+  2. Deletes the source file only after the destination write is confirmed.
+  3. Updates baseline and cleans recovery journals.
+  If destination materialization fails, the source file remains untouched.
+- **Exact-SHA Move Detection**: When the new path has the exact same blob SHA as the deleted baseline path, Vault Relay detects the move in the UI preview (`Projects/A.md → Archive/A.md`).
+- **Empty Directories**: Git does not track directory nodes. Empty folder moves are not synchronizable.
+- **Lost Baseline**: Without previous baseline synchronization evidence, missing files cannot safely be inferred as deleted and are treated conservatively as untracked (`LOCAL_ONLY` / `REMOTE_ONLY`).
 
 ---
 

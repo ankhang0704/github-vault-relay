@@ -40,6 +40,13 @@ export default class VaultRelayPlugin extends Plugin {
       console.warn("[Vault Relay] Interrupted Pull recovery warning:", recoveryErr);
     }
 
+    // Recover or finalize any local delete interrupted before its baseline was durable.
+    try {
+      await StorageManager.recoverInterruptedDeletes(this.app);
+    } catch (deleteRecoveryErr) {
+      console.warn("[Vault Relay] Interrupted Delete recovery warning:", deleteRecoveryErr);
+    }
+
     // C4 Automatic Conflict Orphan Garbage Collection:
     // Reconcile and safely remove unreferenced payload files in ${configDir}/github-vault-relay/conflicts/
     try {

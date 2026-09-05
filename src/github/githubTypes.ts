@@ -1,4 +1,4 @@
-﻿/**
+/**
  * GitHub API Response Types for GitHub Vault Relay
  */
 
@@ -72,7 +72,7 @@ export interface GitHubTreeItemInput {
   path: string;
   mode: "100644" | "100755" | "040000" | string;
   type: "blob" | "tree" | "commit";
-  sha: string;
+  sha: string | null;
 }
 
 export interface GitHubCreateTreeResponse {

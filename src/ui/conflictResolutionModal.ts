@@ -131,10 +131,30 @@ export class ConflictResolutionModal extends Modal {
     });
     header.setText(conflict.path);
 
-    card.createDiv({
-      text: "Both versions are preserved until you choose an action.",
-      attr: { style: "font-size: 0.8em; color: var(--text-muted); margin-bottom: 10px;" },
-    });
+    const isDeleteConflict =
+      conflict.conflictType === "DELETE_LOCAL_REMOTE_MODIFIED" ||
+      conflict.conflictType === "DELETE_REMOTE_LOCAL_MODIFIED";
+
+    if (isDeleteConflict) {
+      const isLocalDel = conflict.conflictType === "DELETE_LOCAL_REMOTE_MODIFIED";
+      card.createDiv({
+        text: isLocalDel
+          ? "File was deleted locally, but modified on GitHub."
+          : "File was deleted on GitHub, but modified locally.",
+        attr: { style: "font-size: 0.82em; color: var(--color-red, #e74c3c); font-weight: 500; margin-bottom: 4px;" },
+      });
+      card.createDiv({
+        text: isLocalDel
+          ? "Keep File restores the remote version locally. Delete File deletes the file from GitHub."
+          : "Keep File pushes your local changes to GitHub. Delete File removes the local file.",
+        attr: { style: "font-size: 0.8em; color: var(--text-muted); margin-bottom: 10px;" },
+      });
+    } else {
+      card.createDiv({
+        text: "Both versions are preserved until you choose an action.",
+        attr: { style: "font-size: 0.8em; color: var(--text-muted); margin-bottom: 10px;" },
+      });
+    }
 
     // Status / Progress indicator area
     const statusDiv = card.createDiv({
@@ -147,114 +167,170 @@ export class ConflictResolutionModal extends Modal {
       attr: { style: "display: flex; flex-wrap: wrap; gap: 8px;" },
     });
 
-    const keepLocalBtn = btnRow.createEl("button", { text: "Keep Local" });
-    const useRemoteBtn = btnRow.createEl("button", { text: "Use Remote" });
-    const keepBothBtn = btnRow.createEl("button", { text: "Keep Both", cls: "mod-cta" });
+    if (isDeleteConflict) {
+      const keepFileBtn = btnRow.createEl("button", { text: "Keep File", cls: "mod-cta" });
+      const deleteFileBtn = btnRow.createEl("button", { text: "Delete File" });
 
-    const handleAction = async (action: "keepLocal" | "useRemote" | "keepBoth") => {
-      if (!this.conflictManager) return;
-      if (this.resolvingPaths.has(conflict.path)) return;
+      const handleDeleteConflictAction = async (action: "keepFile" | "deleteFile") => {
+        if (!this.conflictManager) return;
+        if (this.resolvingPaths.has(conflict.path)) return;
 
-      // IMMEDIATE UI LOCK: lock path, disable all 3 buttons, enter RESOLVING state
-      this.resolvingPaths.add(conflict.path);
-      keepLocalBtn.disabled = true;
-      useRemoteBtn.disabled = true;
-      keepBothBtn.disabled = true;
+        this.resolvingPaths.add(conflict.path);
+        keepFileBtn.disabled = true;
+        deleteFileBtn.disabled = true;
 
-      const actionLabels = {
-        keepLocal: "Pushing local version...",
-        useRemote: "Pulling remote version...",
-        keepBoth: "Saving remote copy...",
-      };
-      statusDiv.setText(`⏳ Resolving: ${actionLabels[action]}`);
-      statusDiv.style.color = "var(--text-normal)";
-      statusDiv.style.display = "block";
+        statusDiv.setText(`⏳ Resolving: ${action === "keepFile" ? "Keeping file..." : "Deleting file..."}`);
+        statusDiv.style.color = "var(--text-normal)";
+        statusDiv.style.display = "block";
 
-      if (action === "keepLocal") keepLocalBtn.setText("Pushing...");
-      if (action === "useRemote") useRemoteBtn.setText("Pulling...");
-      if (action === "keepBoth") keepBothBtn.setText("Saving...");
+        try {
+          const res =
+            action === "keepFile"
+              ? await this.conflictManager.resolveKeepFile(conflict)
+              : await this.conflictManager.resolveDeleteFile(conflict);
 
-      try {
-        let res: { success: boolean; message: string };
-        if (action === "keepLocal") {
-          res = await this.conflictManager.resolveKeepLocal(conflict);
-        } else if (action === "useRemote") {
-          res = await this.conflictManager.resolveUseRemote(conflict);
-        } else {
-          res = await this.conflictManager.resolveKeepBoth(conflict);
-        }
-
-        if (res.success) {
-          new Notice(res.message);
-
-          // Update in-memory conflicts list immediately
-          this.conflicts = this.conflicts.filter((c) => c.path !== conflict.path);
-
-          // Authoritatively fetch remaining conflict records from storage
-          const remaining = await this.conflictManager.loadConflictRecords();
-          this.conflicts = remaining;
-
-          // Notify parent (e.g. Dashboard) immediately
-          this.onResolvedCallback?.();
-
-          if (this.conflicts.length === 0) {
-            // SUCCESS LIFECYCLE: Auto-close modal when all conflicts resolved
-            this.close();
-            return;
+          if (res.success) {
+            new Notice(res.message);
+            this.conflicts = this.conflicts.filter((c) => c.path !== conflict.path);
+            const remaining = await this.conflictManager.loadConflictRecords();
+            this.conflicts = remaining;
+            this.onResolvedCallback?.();
+            if (this.conflicts.length === 0) {
+              this.close();
+              return;
+            } else {
+              this.render();
+            }
           } else {
-            // SUCCESS LIFECYCLE: Remove resolved card, show remaining conflicts
-            this.render();
-          }
-        } else {
-          new Notice(`Conflict resolution failed: ${res.message}`, 8000);
-
-          // Stale-state check
-          const isStale =
-            res.message.includes("concurrently") ||
-            res.message.includes("modified") ||
-            res.message.includes("already been resolved");
-
-          if (isStale) {
-            // FAILURE LIFECYCLE: Do not re-enable stale action buttons
-            statusDiv.setText(`⚠ ${res.message}`);
-            statusDiv.style.color = "var(--color-red, #e74c3c)";
-
-            const refreshBtn = btnRow.createEl("button", { text: "Refresh Conflicts" });
-            refreshBtn.onclick = async () => {
-              if (this.conflictManager) {
-                this.conflicts = await this.conflictManager.loadConflictRecords();
-                this.render();
-              }
-            };
-          } else {
-            // Transient failure: re-enable buttons for retry
+            new Notice(`Conflict resolution failed: ${res.message}`, 8000);
             statusDiv.setText(`❌ ${res.message}`);
             statusDiv.style.color = "var(--color-red, #e74c3c)";
-            keepLocalBtn.disabled = false;
-            keepLocalBtn.setText("Keep Local");
-            useRemoteBtn.disabled = false;
-            useRemoteBtn.setText("Use Remote");
-            keepBothBtn.disabled = false;
-            keepBothBtn.setText("Keep Both");
+            keepFileBtn.disabled = false;
+            deleteFileBtn.disabled = false;
           }
+        } catch (err) {
+          new Notice(`Unexpected resolution error: ${String(err)}`, 8000);
+          statusDiv.setText(`❌ ${String(err)}`);
+          statusDiv.style.color = "var(--color-red, #e74c3c)";
+          keepFileBtn.disabled = false;
+          deleteFileBtn.disabled = false;
+        } finally {
+          this.resolvingPaths.delete(conflict.path);
         }
-      } catch (err) {
-        new Notice(`Unexpected resolution error: ${String(err)}`, 8000);
-        statusDiv.setText(`❌ ${String(err)}`);
-        statusDiv.style.color = "var(--color-red, #e74c3c)";
-        keepLocalBtn.disabled = false;
-        keepLocalBtn.setText("Keep Local");
-        useRemoteBtn.disabled = false;
-        useRemoteBtn.setText("Use Remote");
-        keepBothBtn.disabled = false;
-        keepBothBtn.setText("Keep Both");
-      } finally {
-        this.resolvingPaths.delete(conflict.path);
-      }
-    };
+      };
 
-    keepLocalBtn.onclick = () => handleAction("keepLocal");
-    useRemoteBtn.onclick = () => handleAction("useRemote");
-    keepBothBtn.onclick = () => handleAction("keepBoth");
+      keepFileBtn.onclick = () => handleDeleteConflictAction("keepFile");
+      deleteFileBtn.onclick = () => handleDeleteConflictAction("deleteFile");
+    } else {
+      const keepLocalBtn = btnRow.createEl("button", { text: "Keep Local" });
+      const useRemoteBtn = btnRow.createEl("button", { text: "Use Remote" });
+      const keepBothBtn = btnRow.createEl("button", { text: "Keep Both", cls: "mod-cta" });
+
+      const handleAction = async (action: "keepLocal" | "useRemote" | "keepBoth") => {
+        if (!this.conflictManager) return;
+        if (this.resolvingPaths.has(conflict.path)) return;
+
+        // IMMEDIATE UI LOCK: lock path, disable all 3 buttons, enter RESOLVING state
+        this.resolvingPaths.add(conflict.path);
+        keepLocalBtn.disabled = true;
+        useRemoteBtn.disabled = true;
+        keepBothBtn.disabled = true;
+
+        const actionLabels = {
+          keepLocal: "Pushing local version...",
+          useRemote: "Pulling remote version...",
+          keepBoth: "Saving remote copy...",
+        };
+        statusDiv.setText(`⏳ Resolving: ${actionLabels[action]}`);
+        statusDiv.style.color = "var(--text-normal)";
+        statusDiv.style.display = "block";
+
+        if (action === "keepLocal") keepLocalBtn.setText("Pushing...");
+        if (action === "useRemote") useRemoteBtn.setText("Pulling...");
+        if (action === "keepBoth") keepBothBtn.setText("Saving...");
+
+        try {
+          let res: { success: boolean; message: string };
+          if (action === "keepLocal") {
+            res = await this.conflictManager.resolveKeepLocal(conflict);
+          } else if (action === "useRemote") {
+            res = await this.conflictManager.resolveUseRemote(conflict);
+          } else {
+            res = await this.conflictManager.resolveKeepBoth(conflict);
+          }
+
+          if (res.success) {
+            new Notice(res.message);
+
+            // Update in-memory conflicts list immediately
+            this.conflicts = this.conflicts.filter((c) => c.path !== conflict.path);
+
+            // Authoritatively fetch remaining conflict records from storage
+            const remaining = await this.conflictManager.loadConflictRecords();
+            this.conflicts = remaining;
+
+            // Notify parent (e.g. Dashboard) immediately
+            this.onResolvedCallback?.();
+
+            if (this.conflicts.length === 0) {
+              // SUCCESS LIFECYCLE: Auto-close modal when all conflicts resolved
+              this.close();
+              return;
+            } else {
+              // SUCCESS LIFECYCLE: Remove resolved card, show remaining conflicts
+              this.render();
+            }
+          } else {
+            new Notice(`Conflict resolution failed: ${res.message}`, 8000);
+
+            // Stale-state check
+            const isStale =
+              res.message.includes("concurrently") ||
+              res.message.includes("modified") ||
+              res.message.includes("already been resolved");
+
+            if (isStale) {
+              // FAILURE LIFECYCLE: Do not re-enable stale action buttons
+              statusDiv.setText(`⚠ ${res.message}`);
+              statusDiv.style.color = "var(--color-red, #e74c3c)";
+
+              const refreshBtn = btnRow.createEl("button", { text: "Refresh Conflicts" });
+              refreshBtn.onclick = async () => {
+                if (this.conflictManager) {
+                  this.conflicts = await this.conflictManager.loadConflictRecords();
+                  this.render();
+                }
+              };
+            } else {
+              // Transient failure: re-enable buttons for retry
+              statusDiv.setText(`❌ ${res.message}`);
+              statusDiv.style.color = "var(--color-red, #e74c3c)";
+              keepLocalBtn.disabled = false;
+              keepLocalBtn.setText("Keep Local");
+              useRemoteBtn.disabled = false;
+              useRemoteBtn.setText("Use Remote");
+              keepBothBtn.disabled = false;
+              keepBothBtn.setText("Keep Both");
+            }
+          }
+        } catch (err) {
+          new Notice(`Unexpected resolution error: ${String(err)}`, 8000);
+          statusDiv.setText(`❌ ${String(err)}`);
+          statusDiv.style.color = "var(--color-red, #e74c3c)";
+          keepLocalBtn.disabled = false;
+          keepLocalBtn.setText("Keep Local");
+          useRemoteBtn.disabled = false;
+          useRemoteBtn.setText("Use Remote");
+          keepBothBtn.disabled = false;
+          keepBothBtn.setText("Keep Both");
+        } finally {
+          this.resolvingPaths.delete(conflict.path);
+        }
+      };
+
+      keepLocalBtn.onclick = () => handleAction("keepLocal");
+      useRemoteBtn.onclick = () => handleAction("useRemote");
+      keepBothBtn.onclick = () => handleAction("keepBoth");
+    }
   }
 }

@@ -48,6 +48,11 @@ export function classifySyncState(inputs: ClassificationInputs): ClassificationR
   for (const path of remoteBlobs.keys()) {
     allPaths.add(path);
   }
+  if (state?.files) {
+    for (const path of Object.keys(state.files)) {
+      allPaths.add(path);
+    }
+  }
 
   const items: SyncPreviewItem[] = [];
   const counts: SyncCategoryCounts = {
@@ -57,6 +62,10 @@ export function classifySyncState(inputs: ClassificationInputs): ClassificationR
     REMOTE_CHANGED: 0,
     POTENTIAL_CONFLICT: 0,
     UNCHANGED: 0,
+    LOCAL_DELETED: 0,
+    REMOTE_DELETED: 0,
+    DELETE_CONFLICT: 0,
+    DELETED: 0,
     OVERSIZED: 0,
     UNSAFE: 0,
   };
@@ -82,15 +91,50 @@ export function classifySyncState(inputs: ClassificationInputs): ClassificationR
 
     let category: SyncCategory;
     let details: string | undefined;
+    let deleteConflictType: "LOCAL_DELETED_REMOTE_MODIFIED" | "REMOTE_DELETED_LOCAL_MODIFIED" | undefined;
 
     if (local && !remote) {
-      // Exists locally only
-      category = "LOCAL_ONLY";
-      details = "File exists in local vault but is not present in remote Git repository.";
+      // Local exists, Remote absent
+      if (!fileState) {
+        category = "LOCAL_ONLY";
+        details = "File exists in local vault but is not present in remote Git repository.";
+      } else {
+        // Baseline exists: remote deletion vs local modification check
+        const matchesBase = local.sha === fileState.localSha || local.sha === fileState.remoteSha;
+        if (matchesBase) {
+          category = "REMOTE_DELETED";
+          details = "Deleted remotely on GitHub while local file remains unchanged.";
+        } else {
+          category = "DELETE_CONFLICT";
+          deleteConflictType = "REMOTE_DELETED_LOCAL_MODIFIED";
+          details = "File was deleted remotely on GitHub, but has local modifications.";
+        }
+      }
     } else if (!local && remote) {
-      // Exists on remote only
-      category = "REMOTE_ONLY";
-      details = "File exists in remote Git repository but is not present in local vault.";
+      // Local absent, Remote exists
+      if (!fileState) {
+        category = "REMOTE_ONLY";
+        details = "File exists in remote Git repository but is not present in local vault.";
+      } else {
+        // Baseline exists: local deletion vs remote modification check
+        const matchesBase = remote.sha === fileState.remoteSha || remote.sha === fileState.localSha;
+        if (matchesBase) {
+          category = "LOCAL_DELETED";
+          details = "Deleted locally while remote Git repository remains unchanged.";
+        } else {
+          category = "DELETE_CONFLICT";
+          deleteConflictType = "LOCAL_DELETED_REMOTE_MODIFIED";
+          details = "File was deleted locally, but has been modified remotely on GitHub.";
+        }
+      }
+    } else if (!local && !remote) {
+      // Both absent but entry in baseline -> converged deleted
+      if (fileState) {
+        category = "DELETED";
+        details = "Deleted both locally and remotely. Synchronized baseline entry will be removed.";
+      } else {
+        continue;
+      }
     } else if (local && remote) {
       // Exists in both
       if (local.sha === remote.sha) {
@@ -102,8 +146,8 @@ export function classifySyncState(inputs: ClassificationInputs): ClassificationR
           category = "POTENTIAL_CONFLICT";
           details = "File exists both locally and remotely with differing content and no common sync base.";
         } else {
-          const localModified = local.sha !== fileState.localSha;
-          const remoteModified = remote.sha !== fileState.remoteSha;
+          const localModified = local.sha !== fileState.localSha && local.sha !== fileState.remoteSha;
+          const remoteModified = remote.sha !== fileState.remoteSha && remote.sha !== fileState.localSha;
 
           if (localModified && !remoteModified) {
             category = "LOCAL_CHANGED";
@@ -135,7 +179,53 @@ export function classifySyncState(inputs: ClassificationInputs): ClassificationR
       details,
       isOversized: oversized,
       unsafeReason: pathCheck.reason,
+      deleteConflictType,
     });
+  }
+
+  // Exact-SHA move detection (safe pairing of DELETE + ADD)
+  const pairedDestinationPaths = new Set<string>();
+
+  // 1. Local Moves: LOCAL_DELETED + LOCAL_ONLY with matching content SHA
+  const localDeletions = items.filter((it) => it.category === "LOCAL_DELETED");
+  for (const delItem of localDeletions) {
+    if (!delItem.baseSha) continue;
+    const match = items.find(
+      (it) =>
+        it.category === "LOCAL_ONLY" &&
+        it.localSha === delItem.baseSha &&
+        !pairedDestinationPaths.has(it.path)
+    );
+    if (match) {
+      delItem.isMove = true;
+      delItem.movedTo = match.path;
+      delItem.details = `Moved locally to ${match.path}.`;
+      match.isMove = true;
+      match.movedFrom = delItem.path;
+      match.details = `Moved locally from ${delItem.path}.`;
+      pairedDestinationPaths.add(match.path);
+    }
+  }
+
+  // 2. Remote Moves: REMOTE_DELETED + REMOTE_ONLY with matching content SHA
+  const remoteDeletions = items.filter((it) => it.category === "REMOTE_DELETED");
+  for (const delItem of remoteDeletions) {
+    if (!delItem.baseSha) continue;
+    const match = items.find(
+      (it) =>
+        it.category === "REMOTE_ONLY" &&
+        it.remoteSha === delItem.baseSha &&
+        !pairedDestinationPaths.has(it.path)
+    );
+    if (match) {
+      delItem.isMove = true;
+      delItem.movedTo = match.path;
+      delItem.details = `Moved remotely to ${match.path}.`;
+      match.isMove = true;
+      match.movedFrom = delItem.path;
+      match.details = `Moved remotely from ${delItem.path}.`;
+      pairedDestinationPaths.add(match.path);
+    }
   }
 
   return { items, counts };

@@ -133,9 +133,9 @@ export class SyncDashboardModal extends Modal {
 
     // 2. Metrics Grid
     const counts = this.report.counts;
-    const localChanges = counts.LOCAL_ONLY + counts.LOCAL_CHANGED;
-    const remoteChanges = counts.REMOTE_ONLY + counts.REMOTE_CHANGED;
-    const conflicts = counts.POTENTIAL_CONFLICT;
+    const localChanges = counts.LOCAL_ONLY + counts.LOCAL_CHANGED + counts.LOCAL_DELETED;
+    const remoteChanges = counts.REMOTE_ONLY + counts.REMOTE_CHANGED + counts.REMOTE_DELETED;
+    const conflicts = counts.POTENTIAL_CONFLICT + counts.DELETE_CONFLICT;
 
     const metricsGrid = contentEl.createDiv({
       attr: {

@@ -35,6 +35,14 @@ interface PullWriteRecoveryRecord {
   createdAt: number;
 }
 
+interface DeleteRecoveryRecord {
+  version: 1;
+  path: string;
+  originalSha: string;
+  backupPath: string;
+  createdAt: number;
+}
+
 let recoverySequence = 0;
 
 export class StorageManager {
@@ -355,6 +363,160 @@ export class StorageManager {
       }
     }
     return { scanned: journalPaths.length, completed, rolledBack, preserved };
+  }
+
+  public static getDeleteRecoveryDirPath(app: App): string {
+    return `${this.getPluginStorageDir(app)}/delete-recovery`;
+  }
+
+  public static async beginDeleteRecovery(
+    app: App,
+    path: string,
+    originalSha: string,
+    originalBytes: ArrayBuffer
+  ): Promise<string> {
+    const recoveryDir = this.getDeleteRecoveryDirPath(app);
+    if (!(await app.vault.adapter.exists(recoveryDir))) await app.vault.adapter.mkdir(recoveryDir);
+
+    recoverySequence++;
+    const id = `${Date.now()}_${recoverySequence}_${path.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const journalPath = `${recoveryDir}/${id}.json`;
+    const backupPath = `${recoveryDir}/${id}.bin`;
+
+    const verifiedSha = await calculateCanonicalGitBlobSha(originalBytes, path);
+    if (verifiedSha !== originalSha) {
+      throw new Error(`Cannot begin delete recovery for ${path}: byte SHA does not match expected SHA.`);
+    }
+
+    await app.vault.adapter.writeBinary(backupPath, originalBytes);
+    const readBack = await app.vault.adapter.readBinary(backupPath);
+    const readBackSha = await calculateCanonicalGitBlobSha(readBack, path);
+    if (readBackSha !== originalSha) {
+      throw new Error(`Could not verify local recovery backup before deleting ${path}.`);
+    }
+
+    const record: DeleteRecoveryRecord = {
+      version: 1,
+      path,
+      originalSha,
+      backupPath,
+      createdAt: Date.now(),
+    };
+
+    await this.writeAtomicJson(app, journalPath, JSON.stringify(record, null, 2), (value) => {
+      if (!value || typeof value !== "object") return false;
+      const parsed = value as Partial<DeleteRecoveryRecord>;
+      return (
+        parsed.version === 1 &&
+        typeof parsed.path === "string" &&
+        typeof parsed.originalSha === "string" &&
+        typeof parsed.backupPath === "string"
+      );
+    });
+
+    return journalPath;
+  }
+
+  public static async completeDeleteRecovery(app: App, journalPath: string): Promise<void> {
+    const recoveryDir = normalizePath(this.getDeleteRecoveryDirPath(app));
+    const normalizedJournal = normalizePath(journalPath);
+    if (!normalizedJournal.startsWith(`${recoveryDir}/`) || normalizedJournal.includes("..")) return;
+
+    let backupPath: string | undefined;
+    if (await app.vault.adapter.exists(normalizedJournal)) {
+      try {
+        const record = JSON.parse(await app.vault.adapter.read(normalizedJournal)) as DeleteRecoveryRecord;
+        backupPath = record.backupPath;
+      } catch {
+        return;
+      }
+    }
+    await app.vault.adapter.remove(normalizedJournal);
+    if (backupPath && normalizePath(backupPath).startsWith(`${recoveryDir}/`) && (await app.vault.adapter.exists(backupPath))) {
+      await app.vault.adapter.remove(backupPath);
+    }
+    for (const suffix of [".tmp", ".bak"]) {
+      const artifact = `${normalizedJournal}${suffix}`;
+      if (await app.vault.adapter.exists(artifact)) await app.vault.adapter.remove(artifact);
+    }
+  }
+
+  public static async recoverInterruptedDeletes(
+    app: App
+  ): Promise<{ scanned: number; completed: number; restored: number; preserved: number }> {
+    const recoveryDir = this.getDeleteRecoveryDirPath(app);
+    if (!(await app.vault.adapter.exists(recoveryDir))) {
+      return { scanned: 0, completed: 0, restored: 0, preserved: 0 };
+    }
+
+    const listing = await app.vault.adapter.list(recoveryDir);
+    const journalPaths = listing.files.filter((path) => path.endsWith(".json"));
+    const state = await this.loadState(app);
+    const cleanupImmediately: string[] = [];
+    let completed = 0;
+    let restored = 0;
+    let preserved = 0;
+
+    for (const journalPath of journalPaths) {
+      try {
+        const record = JSON.parse(await app.vault.adapter.read(journalPath)) as DeleteRecoveryRecord;
+        const safePath = validatePathSafety(record.path);
+        if (record.version !== 1 || !safePath.valid || typeof record.originalSha !== "string") {
+          throw new Error("Invalid delete recovery journal.");
+        }
+
+        const isStillInState = !!state.files[record.path];
+        const fileOnDisk = app.vault.getAbstractFileByPath(record.path);
+
+        if (!isStillInState) {
+          // State was already updated to delete this path. The delete was successful.
+          completed++;
+          cleanupImmediately.push(journalPath);
+          continue;
+        }
+
+        // State still expects the file, but file is missing or corrupted -> restore from backup
+        if (!fileOnDisk) {
+          const normalizedBackup = normalizePath(record.backupPath);
+          const normalizedRecoveryDir = normalizePath(recoveryDir);
+          if (!normalizedBackup.startsWith(`${normalizedRecoveryDir}/`) || normalizedBackup.includes("..")) {
+            throw new Error("Invalid delete backup path.");
+          }
+          if (await app.vault.adapter.exists(normalizedBackup)) {
+            const backup = await app.vault.adapter.readBinary(normalizedBackup);
+            const backupSha = await calculateCanonicalGitBlobSha(backup, record.path);
+            if (backupSha === record.originalSha) {
+              await app.vault.createBinary(record.path, backup);
+              restored++;
+              cleanupImmediately.push(journalPath);
+              continue;
+            }
+          }
+        }
+
+        preserved++;
+      } catch (err) {
+        preserved++;
+        console.warn(`[Vault Relay] Preserving interrupted Delete evidence ${journalPath}:`, err);
+      }
+    }
+
+    for (const journalPath of cleanupImmediately) {
+      await this.completeDeleteRecovery(app, journalPath);
+    }
+
+    const remaining = await app.vault.adapter.list(recoveryDir);
+    for (const artifact of remaining.files) {
+      let journalPath: string | undefined;
+      if (artifact.endsWith(".bin")) journalPath = `${artifact.slice(0, -4)}.json`;
+      if (artifact.endsWith(".json.tmp")) journalPath = artifact.slice(0, -4);
+      if (artifact.endsWith(".json.bak")) journalPath = artifact.slice(0, -4);
+      if (journalPath && !(await app.vault.adapter.exists(journalPath))) {
+        await app.vault.adapter.remove(artifact);
+      }
+    }
+
+    return { scanned: journalPaths.length, completed, restored, preserved };
   }
 
   /**

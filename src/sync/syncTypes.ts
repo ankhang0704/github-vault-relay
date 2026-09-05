@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Sync Types and Category Definitions for Vault Relay
  */
 
@@ -8,7 +8,11 @@ export type SyncCategory =
   | "LOCAL_CHANGED"
   | "REMOTE_CHANGED"
   | "POTENTIAL_CONFLICT"
-  | "UNCHANGED";
+  | "UNCHANGED"
+  | "LOCAL_DELETED"
+  | "REMOTE_DELETED"
+  | "DELETE_CONFLICT"
+  | "DELETED";
 
 export interface SyncPreviewItem {
   path: string;
@@ -20,6 +24,10 @@ export interface SyncPreviewItem {
   details?: string;
   isOversized?: boolean;
   unsafeReason?: string;
+  isMove?: boolean;
+  movedFrom?: string;
+  movedTo?: string;
+  deleteConflictType?: "LOCAL_DELETED_REMOTE_MODIFIED" | "REMOTE_DELETED_LOCAL_MODIFIED";
 }
 
 export interface SyncCategoryCounts {
@@ -29,6 +37,10 @@ export interface SyncCategoryCounts {
   REMOTE_CHANGED: number;
   POTENTIAL_CONFLICT: number;
   UNCHANGED: number;
+  LOCAL_DELETED: number;
+  REMOTE_DELETED: number;
+  DELETE_CONFLICT: number;
+  DELETED: number;
   OVERSIZED: number;
   UNSAFE: number;
 }
@@ -85,6 +97,7 @@ export interface SyncStateData {
 export type PullActionType =
   | "PULL_CREATE"
   | "PULL_UPDATE"
+  | "PULL_DELETE"
   | "PRESERVE_CONFLICT"
   | "ESTABLISH_BASELINE"
   | "SKIP_UNCHANGED"
@@ -119,6 +132,7 @@ export interface PullExecutionReport {
   counts: {
     pulledCreated: number;
     pulledUpdated: number;
+    pulledDeleted: number;
     conflictsPreserved: number;
     unchanged: number;
     skippedLocalOnly: number;
@@ -133,6 +147,7 @@ export interface PullExecutionReport {
 export type PushActionType =
   | "PUSH_CREATE"
   | "PUSH_UPDATE"
+  | "PUSH_DELETE"
   | "SKIP_UNCHANGED"
   | "SKIP_REMOTE_ONLY"
   | "SKIP_REMOTE_CHANGED"
@@ -167,6 +182,7 @@ export interface PushExecutionReport {
   counts: {
     pushedCreated: number;
     pushedUpdated: number;
+    pushedDeleted: number;
     unchanged: number;
     skippedRemoteOnly: number;
     skippedRemoteChanged: number;

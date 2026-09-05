@@ -23,6 +23,7 @@ import { VaultRelaySettings } from "../settings";
 import { SyncEngine } from "./syncEngine";
 import { PullEngine } from "./pullEngine";
 import { PushEngine } from "./pushEngine";
+import { StorageManager } from "./storageManager";
 import { SyncPreviewReport, PullExecutionReport, PushExecutionReport } from "./syncTypes";
 import { SyncProgressCallback } from "./progressTypes";
 import {
@@ -91,14 +92,36 @@ export class UnifiedSyncEngine {
       const initialPreview = await syncEngine.generatePreview(true);
 
       const pullItems = initialPreview.items.filter(
-        (it) => it.category === "REMOTE_ONLY" || it.category === "REMOTE_CHANGED"
+        (it) =>
+          it.category === "REMOTE_ONLY" ||
+          it.category === "REMOTE_CHANGED" ||
+          it.category === "REMOTE_DELETED"
       );
       const pushItems = initialPreview.items.filter(
-        (it) => it.category === "LOCAL_ONLY" || it.category === "LOCAL_CHANGED"
+        (it) =>
+          it.category === "LOCAL_ONLY" ||
+          it.category === "LOCAL_CHANGED" ||
+          it.category === "LOCAL_DELETED"
       );
       const conflictItems = initialPreview.items.filter(
-        (it) => it.category === "POTENTIAL_CONFLICT"
+        (it) => it.category === "POTENTIAL_CONFLICT" || it.category === "DELETE_CONFLICT"
       );
+
+      // Check if any converged deletions need baseline pruning even if no active mutations
+      const convergedDeleted = initialPreview.items.filter((it) => it.category === "DELETED");
+      if (convergedDeleted.length > 0) {
+        const state = await StorageManager.loadState(this.app);
+        let cleaned = false;
+        for (const item of convergedDeleted) {
+          if (state.files[item.path]) {
+            delete state.files[item.path];
+            cleaned = true;
+          }
+        }
+        if (cleaned) {
+          await StorageManager.saveState(this.app, state);
+        }
+      }
 
       // Check if anything is eligible to sync
       if (pullItems.length === 0 && pushItems.length === 0) {
@@ -127,7 +150,7 @@ export class UnifiedSyncEngine {
       if (pullItems.length > 0) {
         onProgress?.({ phase: "PLANNING", completed: 0, total: pullItems.length, message: `Preparing to pull ${pullItems.length} file(s)...` });
         pullReport = await pullEngine.executeSafePull(onProgress, mutationLease);
-        pulledCount = pullReport.counts.pulledCreated + pullReport.counts.pulledUpdated;
+        pulledCount = pullReport.counts.pulledCreated + pullReport.counts.pulledUpdated + pullReport.counts.pulledDeleted;
 
         if (pullReport.status === "FAIL" || pullReport.status === "ABORTED") {
           onProgress?.({ phase: "FAILED", completed: 0, total: 1, message: `Pull phase failed: ${pullReport.summaryMessage}` });
@@ -150,7 +173,10 @@ export class UnifiedSyncEngine {
       const midPreview = await syncEngine.generatePreview(true);
 
       const freshPushItems = midPreview.items.filter(
-        (it) => it.category === "LOCAL_ONLY" || it.category === "LOCAL_CHANGED"
+        (it) =>
+          it.category === "LOCAL_ONLY" ||
+          it.category === "LOCAL_CHANGED" ||
+          it.category === "LOCAL_DELETED"
       );
 
       let pushReport: PushExecutionReport | undefined;
@@ -160,7 +186,7 @@ export class UnifiedSyncEngine {
       if (freshPushItems.length > 0) {
         onProgress?.({ phase: "PLANNING", completed: 0, total: freshPushItems.length, message: `Preparing to push ${freshPushItems.length} file(s)...` });
         pushReport = await pushEngine.executeSafePush(onProgress, mutationLease);
-        pushedCount = pushReport.counts.pushedCreated + pushReport.counts.pushedUpdated;
+        pushedCount = pushReport.counts.pushedCreated + pushReport.counts.pushedUpdated + pushReport.counts.pushedDeleted;
 
         if (pushReport.status === "FAIL" || pushReport.status === "ABORTED") {
           onProgress?.({ phase: "FAILED", completed: 0, total: 1, message: `Push phase failed: ${pushReport.summaryMessage}` });
@@ -168,7 +194,7 @@ export class UnifiedSyncEngine {
             status: pushReport.status,
             pulledCount,
             pushedCount,
-            conflictCount: midPreview.counts.POTENTIAL_CONFLICT,
+            conflictCount: midPreview.counts.POTENTIAL_CONFLICT + midPreview.counts.DELETE_CONFLICT,
             skippedCount: pushReport.counts.skippedOversized + pushReport.counts.skippedUnsafe,
             summaryMessage: `Sync completed Pull (${pulledCount} files), but Push failed: ${pushReport.summaryMessage}`,
             finalReport: midPreview,
@@ -185,7 +211,7 @@ export class UnifiedSyncEngine {
 
       onProgress?.({ phase: "COMPLETE", completed: 1, total: 1, message: "Sync complete." });
 
-      const totalConflicts = finalReport.counts.POTENTIAL_CONFLICT;
+      const totalConflicts = finalReport.counts.POTENTIAL_CONFLICT + finalReport.counts.DELETE_CONFLICT;
       const totalSkipped = finalReport.items.filter((it) => it.isOversized).length + finalReport.items.filter((it) => !!it.unsafeReason).length;
 
       let status: "PASS" | "PASS_WITH_WARNINGS" = "PASS";

@@ -142,6 +142,7 @@ export class PullEngine {
         counts: {
           pulledCreated: 0,
           pulledUpdated: 0,
+          pulledDeleted: 0,
           conflictsPreserved: 0,
           unchanged: 0,
           skippedLocalOnly: 0,
@@ -176,6 +177,7 @@ export class PullEngine {
         counts: {
           pulledCreated: 0,
           pulledUpdated: 0,
+          pulledDeleted: 0,
           conflictsPreserved: 0,
           unchanged: 0,
           skippedLocalOnly: 0,
@@ -210,6 +212,7 @@ export class PullEngine {
         counts: {
           pulledCreated: 0,
           pulledUpdated: 0,
+          pulledDeleted: 0,
           conflictsPreserved: 0,
           unchanged: 0,
           skippedLocalOnly: 0,
@@ -233,6 +236,7 @@ export class PullEngine {
         counts: {
           pulledCreated: 0,
           pulledUpdated: 0,
+          pulledDeleted: 0,
           conflictsPreserved: 0,
           unchanged: 0,
           skippedLocalOnly: 0,
@@ -283,6 +287,7 @@ export class PullEngine {
     const counts = {
       pulledCreated: 0,
       pulledUpdated: 0,
+      pulledDeleted: 0,
       conflictsPreserved: 0,
       unchanged: 0,
       skippedLocalOnly: 0,
@@ -296,12 +301,19 @@ export class PullEngine {
     const pendingRecoveryJournals: string[] = [];
     let statePersisted = false;
     let processedCount = 0;
-    onProgress?.({ phase: "PLANNING", completed: 0, total: classification.items.length, message: "Planning safe pull..." });
+
+    // Split into non-deletions and deletions.
+    // Core invariant for moves: destination creation MUST be materialized and verified before source deletion.
+    const nonDeletions = classification.items.filter((it) => it.category !== "REMOTE_DELETED");
+    const deletions = classification.items.filter((it) => it.category === "REMOTE_DELETED");
+    const orderedItems = [...nonDeletions, ...deletions];
+
+    onProgress?.({ phase: "PLANNING", completed: 0, total: orderedItems.length, message: "Planning safe pull..." });
 
     // Step 7: Process each item safely
-    for (const item of classification.items) {
+    for (const item of orderedItems) {
       processedCount++;
-      onProgress?.({ phase: "DOWNLOADING", completed: processedCount, total: classification.items.length, currentPath: item.path });
+      onProgress?.({ phase: "DOWNLOADING", completed: processedCount, total: orderedItems.length, currentPath: item.path });
       const path = item.path;
 
       // 7.1 Path safety check
@@ -381,7 +393,139 @@ export class PullEngine {
         continue;
       }
 
-      // 7.6 Handle File Size Policy Check for Remote Downloads
+      // 7.6 Handle REMOTE_DELETED (Safe local file deletion with durable recovery)
+      if (item.category === "REMOTE_DELETED") {
+        // Paired move safety guard: if this deletion is part of a remote move, verify destination write succeeded
+        if (item.isMove && item.movedTo) {
+          const destResult = results.find((r) => r.path === item.movedTo);
+          if (!destResult || destResult.status !== "SUCCESS") {
+            counts.failed++;
+            results.push({
+              path,
+              action: "PULL_DELETE",
+              status: "FAILED",
+              message: `Move destination ${item.movedTo} failed to materialize. Source file preserved intact.`,
+            });
+            continue;
+          }
+        }
+
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!file) {
+          // Already absent locally. Clean obsolete baseline entry.
+          delete state.files[path];
+          stateModified = true;
+          counts.pulledDeleted++;
+          results.push({
+            path,
+            action: "PULL_DELETE",
+            status: "SUCCESS",
+            message: "File was already absent locally. Baseline entry cleaned.",
+          });
+          continue;
+        }
+
+        if (!(file instanceof TFile)) {
+          counts.failed++;
+          results.push({
+            path,
+            action: "PULL_DELETE",
+            status: "FAILED",
+            message: "Target is a directory, not a file.",
+          });
+          continue;
+        }
+
+        try {
+          // Pre-delete local check: has local file changed since planning?
+          const currentBytes = await this.app.vault.readBinary(file);
+          const currentSha = await calculateCanonicalGitBlobSha(currentBytes, path);
+          if (item.localSha && currentSha.toLowerCase() !== item.localSha.toLowerCase()) {
+            // Local file was modified! Converted to conflict - DO NOT delete
+            counts.conflictsPreserved++;
+            results.push({
+              path,
+              action: "PRESERVE_CONFLICT",
+              status: "CONFLICT_PRESERVED",
+              localSha: currentSha,
+              message: "File was modified locally before remote deletion could be pulled. Deletion blocked to protect local data.",
+            });
+            continue;
+          }
+
+          // Durable delete recovery record before calling destructive delete
+          const deleteJournal = await StorageManager.beginDeleteRecovery(
+            this.app,
+            path,
+            currentSha,
+            currentBytes
+          );
+
+          // Delete file via canonical Obsidian vault API
+          await this.app.vault.delete(file);
+
+          // Verify absence
+          const stillExists = await this.app.vault.adapter.exists(path);
+          if (stillExists) {
+            throw new Error(`Failed to delete local file ${path}: file is still present on disk.`);
+          }
+
+          // Advance state: remove from baseline
+          delete state.files[path];
+          stateModified = true;
+
+          // Complete recovery cleanup
+          await StorageManager.completeDeleteRecovery(this.app, deleteJournal);
+
+          counts.pulledDeleted++;
+          results.push({
+            path,
+            action: "PULL_DELETE",
+            status: "SUCCESS",
+            message: "File safely removed locally matching remote deletion.",
+          });
+        } catch (delErr) {
+          const safeMsg = sanitizeErrorMessage(delErr);
+          counts.failed++;
+          results.push({
+            path,
+            action: "PULL_DELETE",
+            status: "FAILED",
+            message: `Failed to delete local file: ${safeMsg}`,
+          });
+        }
+        continue;
+      }
+
+      // 7.7 Handle DELETE_CONFLICT
+      if (item.category === "DELETE_CONFLICT") {
+        counts.conflictsPreserved++;
+        results.push({
+          path,
+          action: "PRESERVE_CONFLICT",
+          status: "CONFLICT_PRESERVED",
+          localSha: item.localSha,
+          remoteSha: item.remoteSha,
+          message: "Delete conflict detected (one side deleted, other side modified). Kept untouched for review.",
+        });
+        continue;
+      }
+
+      // 7.8 Handle DELETED (Both sides deleted / converged)
+      if (item.category === "DELETED") {
+        delete state.files[path];
+        stateModified = true;
+        counts.unchanged++;
+        results.push({
+          path,
+          action: "SKIP_UNCHANGED",
+          status: "SUCCESS",
+          message: "File deleted on both sides. Obsolete baseline entry removed.",
+        });
+        continue;
+      }
+
+      // 7.9 Handle File Size Policy Check for Remote Downloads
       const remoteBlob = remoteBlobs.get(path);
       if (!remoteBlob) {
         continue;
@@ -699,6 +843,7 @@ export class PullEngine {
     const summaryParts: string[] = [];
     if (counts.pulledCreated > 0) summaryParts.push(`${counts.pulledCreated} created`);
     if (counts.pulledUpdated > 0) summaryParts.push(`${counts.pulledUpdated} updated`);
+    if (counts.pulledDeleted > 0) summaryParts.push(`${counts.pulledDeleted} deleted`);
     if (counts.conflictsPreserved > 0) summaryParts.push(`${counts.conflictsPreserved} conflicts preserved`);
     if (counts.skippedOversized > 0) summaryParts.push(`${counts.skippedOversized} oversized skipped`);
     if (counts.skippedUnsafe > 0) summaryParts.push(`${counts.skippedUnsafe} unsafe skipped`);

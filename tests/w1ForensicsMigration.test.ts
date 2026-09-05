@@ -1,4 +1,4 @@
-﻿import fs from "fs";
+import fs from "fs";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { App } from "obsidian";
 import { StorageManager, LEGACY_ROOT_DIR, LEGACY_STATE_FILE } from "../src/sync/storageManager";
@@ -86,7 +86,11 @@ describe("C4 Real Runtime W1 Forensics & Legacy Migration (W1-REG-001..008)", ()
         REMOTE_ONLY: 0,
         LOCAL_CHANGED: 0,
         REMOTE_CHANGED: 0,
+        LOCAL_DELETED: 0,
+        REMOTE_DELETED: 0,
         POTENTIAL_CONFLICT: 1,
+        DELETE_CONFLICT: 0,
+        DELETED: 0,
         UNCHANGED: 5,
         OVERSIZED: 0,
         UNSAFE: 0,

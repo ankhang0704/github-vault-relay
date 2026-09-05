@@ -44,7 +44,7 @@ flowchart TD
     subgraph Coordination["Coordination & Security (src/sync/, src/security/)"]
         Coordinator["MutationCoordinator\n(WeakMap Lease Lock)"]
         SecretStore["SecretStore\n(github-vault-relay-pat)"]
-        Classifier["SyncClassifier\n(6-State Inventory)"]
+        Classifier["SyncClassifier\n(10-State Inventory)"]
     end
 
     subgraph Engines["Core Synchronization Engines (src/sync/)"]
@@ -199,11 +199,41 @@ flowchart TD
     MigCheck -->|"No"| AtomicRec["Inspect state.json: .tmp or .bak present?"]
     AtomicRec -->|".tmp without .bak"| DiscardTmp["Discard stale .tmp"]
     AtomicRec -->|".bak present"| RestoreBak["Restore last valid .bak backup to state.json"]
-    DiscardTmp --> JournalCheck
-    RestoreBak --> JournalCheck
-    AtomicRec -->|"Clean"| JournalCheck["Inspect pull-recovery/ directory"]
-    JournalCheck -->|"Journal found"| RollbackJournal["Roll back interrupted pull writes to pre-write state"]
-    JournalCheck -->|"No journals"| OrphanGC["Garbage Collect unreferenced conflict payloads"]
-    RollbackJournal --> OrphanGC
+    DiscardTmp --> PullJournalCheck
+    RestoreBak --> PullJournalCheck
+    AtomicRec -->|"Clean"| PullJournalCheck["Inspect pull-recovery/ directory"]
+    PullJournalCheck -->|"Journal found"| RollbackPull["Roll back interrupted pull writes to pre-write state"]
+    PullJournalCheck -->|"No journals"| DelJournalCheck["Inspect delete-recovery/ directory"]
+    RollbackPull --> DelJournalCheck
+    DelJournalCheck -->|"Journal found"| RecoverDelete["Restore interrupted local deletions from snapshot"]
+    DelJournalCheck -->|"No journals"| OrphanGC["Garbage Collect unreferenced conflict payloads"]
+    RecoverDelete --> OrphanGC
     OrphanGC --> Ready(["Plugin Ready for User Interaction"])
 ```
+
+---
+
+## 7. Safe Deletion & Move Lifecycle
+
+### Three-Way Deletion Classification Matrix
+
+| Baseline (`state.json`) | Local Vault | Remote GitHub | Classification | Engine Handling |
+| :--- | :--- | :--- | :--- | :--- |
+| Present (`SHA1`) | Absent | Present (`SHA1`) | `LOCAL_DELETED` | Safe Push builds tree with `sha: null`. Ref updated `force: false`. Baseline pruned after verified omission. |
+| Present (`SHA1`) | Present (`SHA1`) | Absent | `REMOTE_DELETED` | Safe Pull creates pre-delete recovery snapshot, deletes local file via `vault.delete()`, prunes baseline. |
+| Present (`SHA1`) | Absent | Absent | `DELETED` | Baseline entry pruned cleanly without remote or local mutation. |
+| Present (`SHA1`) | Absent | Present (`SHA2`) | `DELETE_CONFLICT` | Local deleted vs remote modified. Halts safely; presents `[ Keep File ]` or `[ Delete File ]`. |
+| Present (`SHA1`) | Present (`SHA2`) | Absent | `DELETE_CONFLICT` | Remote deleted vs local modified. Halts safely; presents `[ Keep File ]` or `[ Delete File ]`. |
+| Absent | Present | Absent | `LOCAL_ONLY` | Conservative: never inferred as remote deletion without baseline proof. |
+| Absent | Absent | Present | `REMOTE_ONLY` | Conservative: never inferred as local deletion without baseline proof. |
+
+### Move & Rename Semantics
+
+1. **Push Move**: A local file move (e.g. `Projects/A.md` -> `Archive/A.md`) is decomposed into `delete Projects/A.md` + `add Archive/A.md` within a **single atomic Git commit**.
+2. **Pull Move**: Safe Pull enforces strict sequencing:
+   - Step 1: Write and verify destination (`Archive/A.md`) byte-exact.
+   - Step 2: Delete source (`Projects/A.md`) only after destination write is verified.
+   - Step 3: Update baseline state and clean up recovery snapshots.
+   If Step 1 fails, the source file remains untouched.
+3. **Exact-SHA Detection**: When the SHA of an added local file exactly matches the baseline SHA of a deleted local file, the UI pairs them as an exact Move (`Projects/A.md → Archive/A.md`).
+4. **Git Data API Safety**: All remote deletions use `{ path, mode: "100644", type: "blob", sha: null }` in `POST /git/trees`. Zero HTTP `DELETE` endpoints, zero `PUT /contents`, `force: false` always.
