@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.0] - 2026-09-06 (Pre-release)
+
+### Added
+- **Canonical Empty-Tree & Zero-File Repository Closure (C7)**: Complete support for legitimate empty repository convergence (0 files) and transition back to 1+ files without placeholder files (`.gitkeep`, `README.md`) or synthetic commit workarounds.
+- **Direct Canonical Empty Tree Commit**: Automatically targets Git canonical root empty tree SHA `4b825dc642cb6eb9a060e54bf8d69288fbee4904` via `POST /git/commits` when all files in the repository are deleted, bypassing GitHub's 404 error on empty tree creation.
+- **Empty-Tree Commit Resolution**: Enhanced `GitHubClient.getTreeRecursive` to fall back to commit verification when GitHub returns 404 for commits referencing the canonical empty tree, cleanly returning `{ sha: CANONICAL_EMPTY_TREE_SHA, tree: [] }`.
+- **First File from Empty State**: Verified creation of first file from empty state using `base_tree: CANONICAL_EMPTY_TREE_SHA` live on GitHub Git Data API.
+- **C7 Test Suite**: Added 14 new automated tests in `tests/c7EmptyTree.test.ts` covering 17 specification invariants and a 100-cycle alternating stress test (0 -> 1 -> 0 files). Total test count elevated to 450 tests across 41 test files.
+- **Mobile Touch Smoothness Polish**: Hardware-accelerated CSS touch feedback and `-webkit-overflow-scrolling: touch;` on mobile modal scroll views.
+
+### Changed
+- **Documentation Freeze**: Truthful documentation alignment across all core architecture documents, security policies, and source of truth guides for 0.7.0 release readiness.
+
 ## [0.6.1] - 2026-09-05 (Pre-release)
 
 ### Added

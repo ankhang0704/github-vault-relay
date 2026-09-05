@@ -22,7 +22,7 @@ import {
   GitHubBranchSummary,
 } from "./githubTypes";
 import { sanitizeErrorMessage, redactTokens } from "../security/redact";
-import { calculateRawGitBlobSha } from "../sync/hashUtils";
+import { calculateRawGitBlobSha, CANONICAL_EMPTY_TREE_SHA } from "../sync/hashUtils";
 import { isOversized } from "../sync/fileSizePolicy";
 
 export type GitHubRequestFn = (params: RequestUrlParam) => Promise<RequestUrlResponse>;
@@ -437,10 +437,40 @@ export class GitHubClient {
   }
 
   public async getTreeRecursive(treeSha: string): Promise<GitHubTreeResponse> {
-    return this.request<GitHubTreeResponse>(
-      `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/trees/${encodeURIComponent(treeSha)}?recursive=1`,
-      { method: "GET", timeoutProfile: "metadata" }
-    );
+    if (treeSha === CANONICAL_EMPTY_TREE_SHA) {
+      return {
+        sha: CANONICAL_EMPTY_TREE_SHA,
+        url: "",
+        tree: [],
+        truncated: false,
+      };
+    }
+
+    try {
+      return await this.request<GitHubTreeResponse>(
+        `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/git/trees/${encodeURIComponent(treeSha)}?recursive=1`,
+        { method: "GET", timeoutProfile: "metadata" }
+      );
+    } catch (err) {
+      if (err instanceof GitHubError && err.status === 404) {
+        // If treeSha is a commit SHA whose tree is the empty tree, GitHub's GET trees endpoint
+        // returns 404. Verify via getCommit whether this commit legitimately references the empty tree.
+        try {
+          const commit = await this.getCommit(treeSha);
+          if (commit.tree?.sha === CANONICAL_EMPTY_TREE_SHA) {
+            return {
+              sha: CANONICAL_EMPTY_TREE_SHA,
+              url: commit.tree.url || "",
+              tree: [],
+              truncated: false,
+            };
+          }
+        } catch {
+          // Fall through and throw original err
+        }
+      }
+      throw err;
+    }
   }
 
   /**

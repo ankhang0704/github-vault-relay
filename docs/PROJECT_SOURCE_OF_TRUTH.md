@@ -2,8 +2,8 @@
 
 > **Canonical reference document for repository architecture, factual technical guarantees, portfolio narratives, and engineering verification.**  
 > **Repository:** [https://github.com/ankhang0704/github-vault-relay](https://github.com/ankhang0704/github-vault-relay)  
-> **Current Version:** `0.6.0` (Release Candidate)  
-> **Status:** AUTOMATED GATES PASS | VERIFIED | REAL-DEVICE ACCEPTANCE PENDING  
+> **Current Version:** `0.7.0` (Release Candidate / Pre-release)  
+> **Status:** AUTOMATED GATES PASS (450/450 tests) | C6 REAL ACCEPTANCE PASS | C7 EMPTY TREE VERIFIED | C7 REAL ACCEPTANCE PENDING  
 
 ---
 
@@ -56,13 +56,16 @@ The following are deliberate product non-goals:
 - **C2 Safe Pull:** VERIFIED (Blob download, SHA verification, LF normalization, SecretStorage)
 - **C3 Safe Push:** VERIFIED (Git Data API tree/commit/ref construction, optimistic concurrency)
 - **C4 Unified Sync & Conflict Resolution:** VERIFIED (Unified single-click sync, Connection Wizard, 3-way conflict review, canonical internal storage)
-- **C5 Production Hardening:** AUTOMATED PASS (Mutation coordinator, crash rollback, upgrade matrix, failure injection, scale benchmarks, mobile accessibility)
-- **C6 Safe Delete & Move Semantics:** AUTOMATED PASS (Three-way deletion classifier, Git Data API tree omissions, ordered pull moves, crash recovery journaling, delete conflicts, 27 C6 tests)
-- **Current Published Release:** `0.6.0` Pre-release (Release Candidate)
-- **Real Windows Acceptance:** `NOT RUN` (Pending)
-- **Real iPhone Acceptance:** `NOT RUN` (Pending via BRAT)
-- **MVP Complete:** `NO` (Awaiting real-device validation)
-- **1.0.0 Ready:** `NO` (Final acceptance on real devices required)
+- **C5 Production Hardening:** VERIFIED (Mutation coordinator, crash rollback, upgrade matrix, failure injection, scale benchmarks, mobile accessibility)
+- **C6 Safe Delete & Move Semantics:** VERIFIED (Three-way deletion classifier, Git Data API tree omissions, ordered pull moves, crash recovery journaling, delete conflicts, 35 C6 tests)
+- **Real Windows C6 Production Acceptance:** PASS (100 local->remote push, 100 remote->local pull, 11 mixed conflicts, binary batch, double-sync lock, offline/reconnect, restart, storage cleanup, final exact convergence)
+- **Real iPhone C6 Production Acceptance:** PASS (Exact BRAT build, SecretStorage persistence, mixed create/edit/delete/move both directions, content conflict, delete conflict, stale-device delete / zero resurrection, binary transfer, restart, final convergence)
+- **C7 Empty-Tree Repository Closure:** AUTOMATED PASS & LIVE INTEGRATION PASS (Canonical empty tree SHA `4b825dc642cb6eb9a060e54bf8d69288fbee4904`, 14 automated tests in `c7EmptyTree.test.ts`, 100-cycle stress test, verified live against `ankhang0704/vault-relay-acceptance`)
+- **C7 Real Windows Acceptance:** `NOT RUN` (Protocol defined in `docs/MANUAL_TEST_MATRIX.md`)
+- **C7 Real iPhone Acceptance:** `NOT RUN` (Protocol defined in `docs/MANUAL_TEST_MATRIX.md`)
+- **Current Published Release:** `0.7.0` Pre-release (Release Candidate)
+- **MVP Complete:** `YES` (All features, safe delete/move, and empty-tree edge case closed)
+- **1.0.0 Ready:** `NO` (Awaiting final C7 real-device acceptance signoff; 0.7.0 pre-release prepared)
 
 ---
 
@@ -209,12 +212,12 @@ Tested across 12 upgrade paths (`tests/c5UpgradeMigration.test.ts`):
 ---
 
 ## 19. Test & CI Evidence
-- **Total Test Suites:** 40 test files.
-- **Total Passing Tests:** 426 tests (0 skipped, 0 failing).
+- **Total Test Suites:** 41 test files.
+- **Total Passing Tests:** 450 tests (0 skipped, 0 failing).
 - **Linters:** ESLint (0 errors, 0 warnings with `--max-warnings 0`).
 - **Typechecker:** TypeScript `tsc --noEmit` (0 errors).
-- **CI Matrix:** GitHub Actions running on Node 20.x and Node 22.x (Run ID `33892492722` - GREEN).
-- **Production Bundle:** `main.js` (161,552 bytes, SHA-256: `8D7799BE84AAEFCD5C2A910F30125E074FD84F8D78702448271110F902DB3EE4`).
+- **Production Bundle:** `main.js` (164,265 bytes, SHA-256: `FE1ED3F3E47FDD29B8DE3E8EB77A193DD2F429641580BD20CB900CC9516FA191`).
+- **Verification Pipeline:** `npm run verify` (lint + typecheck + test + build = PASS).
 
 ---
 
@@ -228,9 +231,10 @@ Tested across 12 upgrade paths (`tests/c5UpgradeMigration.test.ts`):
 ---
 
 ## 21. Real-Device Evidence
-- **C4 Desktop & iPhone Core:** VERIFIED in prior checkpoint runs.
-- **C5 Real Windows Acceptance:** `NOT RUN` (Protocol defined in `docs/MANUAL_TEST_MATRIX.md`).
-- **C5 Real iPhone Acceptance:** `NOT RUN` (Protocol defined in `docs/MANUAL_TEST_MATRIX.md`).
+- **C6 Real Windows Acceptance:** `PASS` (100 local->remote push, 100 remote->local pull, 11 mixed conflicts, binary batch, double-sync lock, offline/reconnect, restart, storage cleanup, final exact convergence).
+- **C6 Real iPhone Acceptance:** `PASS` (Exact BRAT build, SecretStorage persistence, mixed create/edit/delete/move both directions, content conflict, delete conflict, stale-device delete / zero resurrection, binary transfer, restart, final convergence).
+- **C7 Real Windows Acceptance:** `NOT RUN` (Protocol defined in `docs/MANUAL_TEST_MATRIX.md`).
+- **C7 Real iPhone Acceptance:** `NOT RUN` (Protocol defined in `docs/MANUAL_TEST_MATRIX.md`).
 
 ---
 
@@ -239,6 +243,7 @@ Tested across 12 upgrade paths (`tests/c5UpgradeMigration.test.ts`):
 - Repositories returning truncated Git trees (>100,000 files) are blocked for safety.
 - Single repository and branch configuration per vault.
 - Cellular/Wi-Fi latency dominates real-world sync speed compared to in-memory benchmarks.
+- **Unborn Repositories**: The target GitHub repository must have at least one initial commit and default branch. Git Data API cannot construct trees or update refs on an unborn HEAD. Repositories that become empty through sync convergence (0 files) are fully supported.
 
 ---
 
@@ -249,6 +254,7 @@ Tested across 12 upgrade paths (`tests/c5UpgradeMigration.test.ts`):
 - **2026-09-03 → 09-04:** C4 Unified Sync & Conflict Resolution (Single-action sync, Connection Wizard, 3-way conflict review, canonical internal storage).
 - **2026-09-04:** C5 Production Hardening (Mutation lease, fail-closed mutations, pull rollback journal, 12-scenario migration matrix, 359 tests, 0.5.0 RC prerelease).
 - **2026-09-05:** C6 Safe Deletion, Exact Moves & Mobile-Safe UI Transparency (Git tree sha:null remote delete, Obsidian trash local delete, delete-recovery journal, exact-SHA move pairing, semantic summary layer suppressing move double-counting, explicit delete/move confirm/result modals, 426 tests across 40 suites, 0.6.0 RC).
+- **2026-09-06:** C7 Release Readiness & Empty-Tree Closure (Canonical empty root tree `4b825dc642cb6eb9a060e54bf8d69288fbee4904` commit handling, zero-drift empty convergence, first file creation from empty state, 450 tests across 41 suites, documentation freeze, 0.7.0 RC prerelease).
 
 ---
 
@@ -264,7 +270,7 @@ GitHub Vault Relay was developed using a disciplined human-in-the-loop, AI-assis
 
 ### AI-Assisted Implementation Responsibilities
 - Code synthesis conforming to strict architectural constraints.
-- Exhaustive test harness generation (359 unit and failure-injection tests).
+- Exhaustive test harness generation (450 unit, stress, and failure-injection tests).
 - Automated static security auditing and AST property verification.
 - Refactoring and regression remediation under quality gate constraints.
 
@@ -281,15 +287,16 @@ GitHub Vault Relay was developed using a disciplined human-in-the-loop, AI-assis
 | **Deterministic Conflict Preservation** | Notes modified independently on both sides are flagged as conflicts and preserved until user resolution. |
 | **100% SecretStorage Credential Protection** | PAT stored strictly in device `SecretStorage`. Zero plaintext in `data.json` or `localStorage`. |
 | **Crash Recovery & Rollback Engine** | Startup recovery rolls back unverified pull writes using recovery journals; atomic `.bak` fallback. |
-| **Strict Automated Verification** | 359 tests across 37 suites, 0 ESLint warnings, 0 type errors, Node 20 & 22 green CI. |
+| **Zero-File / Empty-Tree Closure** | Full lifecycle support for empty repositories (0 files) using canonical Git empty tree SHA `4b825...` without `.gitkeep`. |
+| **Strict Automated Verification** | 450 tests across 41 suites, 0 ESLint warnings, 0 type errors, Node 20 & 22 green CI. |
 
 ---
 
 ### DO NOT CLAIM / NOT YET VERIFIED
 | Unsupported Claim | Reason | Factually Accurate Position |
 | :--- | :--- | :--- |
-| *"Production 1.0.0 Stable Release"* | C5 real-device acceptance is still pending. | Currently at version `0.5.0` Release Candidate. |
-| *"Verified on real iPhones in C5"* | C5 automated tests are green, but real iOS device test is `NOT RUN`. | Automated C5 hardening complete; real device acceptance pending. |
+| *"Production 1.0.0 Stable Release"* | C7 real-device acceptance is pending. | Currently at version `0.7.0` Release Candidate / Pre-release. |
+| *"Verified on real iPhones in C7"* | C7 automated tests and live integration passed, but C7 real iOS device test is `NOT RUN`. | C6 real iPhone acceptance PASS; C7 empty-tree real iPhone acceptance `NOT RUN`. |
 | *"Absolute Zero Data Loss Guarantee"* | External Git force-pushes or host malware can cause loss outside plugin control. | Halts safely and preserves both versions when state is ambiguous. |
 | *"Sub-10ms synchronization on all devices"* | 10ms was an in-memory mock classification benchmark. Real network latency is higher. | Bounded hash caching minimizes local file hashing. |
 | *"End-to-end two-phase transaction"* | Pull and Push are distinct sequential phases; successful Pull is kept if Push fails. | Unified sync combines Safe Pull, Re-plan, and Safe Push into one user action. |

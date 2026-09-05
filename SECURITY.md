@@ -8,8 +8,9 @@ GitHub Vault Relay is designed with a defense-in-depth, conservative security ar
 
 | Version | Supported | Status |
 | :--- | :--- | :--- |
-| **0.5.x** | :white_check_mark: | Active Release Candidate (pre-release) |
-| **< 0.5.0** | :x: | Deprecated preview builds |
+| **0.7.x** | :white_check_mark: | Active Release Candidate (pre-release) |
+| **0.6.x** | :white_check_mark: | Supported pre-release |
+| **< 0.6.0** | :x: | Deprecated preview builds |
 
 ---
 
@@ -54,8 +55,8 @@ Classic PATs with scope `repo` are technically supported by GitHub, but provide 
 2. **Approved Remote Write Endpoints Only**:
    - Vault Relay mutates the remote repository strictly via the low-level Git Data API:
      - `POST /repos/{owner}/{repo}/git/blobs` (upload raw note blobs)
-     - `POST /repos/{owner}/{repo}/git/trees` (assemble commit tree)
-     - `POST /repos/{owner}/{repo}/git/commits` (create immutable Git commit)
+     - `POST /repos/{owner}/{repo}/git/trees` (assemble commit tree with `base_tree`)
+     - `POST /repos/{owner}/{repo}/git/commits` (create immutable Git commit; references canonical empty tree `4b825dc642cb6eb9a060e54bf8d69288fbee4904` directly when all files are removed)
      - `PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}` (update branch ref with `force: false`)
 3. **Forbidden Endpoints (Enforced by Quality Gates)**:
    - **Zero `DELETE` Endpoints**: Vault Relay contains 0 calls to GitHub `DELETE` endpoints. Deletions remain deferred.

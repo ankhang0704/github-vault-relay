@@ -299,12 +299,16 @@ describe("C6 — Safe Delete & Move Semantics (tests/c6DeleteMove.test.ts)", () 
       const newCommitSha = "commit_new_002";
       const newTreeSha = "tree_new_002";
 
+      const shaB = await calculateCanonicalGitBlobSha(new TextEncoder().encode("Content B"), "B.md");
+      await app.vault.create("B.md", "Content B");
+
       const state = {
         version: 1,
         lastSyncedCommitSha: baseCommitSha,
         lastSyncedAt: Date.now() - 10000,
         files: {
           "A.md": { localSha: sha1, remoteSha: sha1, syncedAt: Date.now() - 10000 },
+          "B.md": { localSha: shaB, remoteSha: shaB, syncedAt: Date.now() - 10000 },
         },
       };
       await StorageManager.saveState(app, state);
@@ -329,7 +333,7 @@ describe("C6 — Safe Delete & Move Semantics (tests/c6DeleteMove.test.ts)", () 
               status: 200,
               headers: {},
               arrayBuffer: new ArrayBuffer(0),
-              json: { sha: newTreeSha, truncated: false, tree: [] },
+              json: { sha: newTreeSha, truncated: false, tree: [{ path: "B.md", mode: "100644", type: "blob", sha: shaB, size: 9 }] },
               text: "{}",
             };
           }
@@ -337,7 +341,14 @@ describe("C6 — Safe Delete & Move Semantics (tests/c6DeleteMove.test.ts)", () 
             status: 200,
             headers: {},
             arrayBuffer: new ArrayBuffer(0),
-            json: { sha: "tree_base_001", truncated: false, tree: [{ path: "A.md", mode: "100644", type: "blob", sha: sha1, size: 100 }] },
+            json: {
+              sha: "tree_base_001",
+              truncated: false,
+              tree: [
+                { path: "A.md", mode: "100644", type: "blob", sha: sha1, size: 100 },
+                { path: "B.md", mode: "100644", type: "blob", sha: shaB, size: 9 },
+              ],
+            },
             text: "{}",
           };
         }
@@ -412,12 +423,16 @@ describe("C6 — Safe Delete & Move Semantics (tests/c6DeleteMove.test.ts)", () 
       const sha1 = "file_a_sha_111111111111111111111111111111";
       const baseCommitSha = "commit_base_001";
 
+      const shaB = await calculateCanonicalGitBlobSha(new TextEncoder().encode("Content B"), "B.md");
+      await app.vault.create("B.md", "Content B");
+
       const state = {
         version: 1,
         lastSyncedCommitSha: baseCommitSha,
         lastSyncedAt: Date.now() - 10000,
         files: {
           "A.md": { localSha: sha1, remoteSha: sha1, syncedAt: Date.now() - 10000 },
+          "B.md": { localSha: shaB, remoteSha: shaB, syncedAt: Date.now() - 10000 },
         },
       };
       await StorageManager.saveState(app, state);
@@ -438,7 +453,14 @@ describe("C6 — Safe Delete & Move Semantics (tests/c6DeleteMove.test.ts)", () 
             status: 200,
             headers: {},
             arrayBuffer: new ArrayBuffer(0),
-            json: { sha: "tree_base_001", truncated: false, tree: [{ path: "A.md", mode: "100644", type: "blob", sha: sha1, size: 100 }] },
+            json: {
+              sha: "tree_base_001",
+              truncated: false,
+              tree: [
+                { path: "A.md", mode: "100644", type: "blob", sha: sha1, size: 100 },
+                { path: "B.md", mode: "100644", type: "blob", sha: shaB, size: 9 },
+              ],
+            },
             text: "{}",
           };
         }
@@ -1029,13 +1051,26 @@ describe("C6 — Safe Delete & Move Semantics (tests/c6DeleteMove.test.ts)", () 
         }
         if (url.includes("/git/trees/")) {
           if (url.includes("c_deleted")) {
-            return { status: 200, headers: {}, arrayBuffer: new ArrayBuffer(0), json: { sha: "t_deleted", truncated: false, tree: [] }, text: "{}" };
+            return {
+              status: 200,
+              headers: {},
+              arrayBuffer: new ArrayBuffer(0),
+              json: { sha: "t_deleted", truncated: false, tree: [{ path: "OtherNote.md", mode: "100644", type: "blob", sha: "other_sha", size: 50 }] },
+              text: "{}",
+            };
           }
           return {
             status: 200,
             headers: {},
             arrayBuffer: new ArrayBuffer(0),
-            json: { sha: "t_head", truncated: false, tree: [{ path, mode: "100644", type: "blob", sha: remoteSha, size: 50 }] },
+            json: {
+              sha: "t_head",
+              truncated: false,
+              tree: [
+                { path, mode: "100644", type: "blob", sha: remoteSha, size: 50 },
+                { path: "OtherNote.md", mode: "100644", type: "blob", sha: "other_sha", size: 50 },
+              ],
+            },
             text: "{}",
           };
         }

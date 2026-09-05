@@ -65,7 +65,8 @@ export class ConflictManager {
   private async revalidateRemoteRecord(record: ConflictRecord): Promise<string | undefined> {
     try {
       const branch = await this.githubClient.getBranch(this.settings.branch, true);
-      const tree = await this.githubClient.getTreeRecursive(branch.commit.sha);
+      const baseTreeSha = branch.commit.commit?.tree?.sha || branch.commit.sha;
+      const tree = await this.githubClient.getTreeRecursive(baseTreeSha);
       if (tree.truncated) {
         return "Remote tree is truncated. Conflict resolution is blocked for safety.";
       }

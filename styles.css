@@ -4,6 +4,7 @@
   max-height: min(90dvh, 900px);
   max-width: calc(100vw - 16px) !important;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   overflow-x: hidden;
   overflow-y: auto;
   padding-bottom: max(16px, env(safe-area-inset-bottom));
@@ -15,6 +16,7 @@
   min-width: 44px;
   padding: 8px 12px;
   white-space: normal;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
 }
 
 .vault-relay-modal button:disabled,
@@ -71,6 +73,7 @@
   flex-direction: column;
   justify-content: center;
   min-height: 64px;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 .vault-relay-summary-card-warning {

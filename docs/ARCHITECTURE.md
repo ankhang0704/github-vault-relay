@@ -237,3 +237,47 @@ flowchart TD
    If Step 1 fails, the source file remains untouched.
 3. **Exact-SHA Detection**: When the SHA of an added local file exactly matches the baseline SHA of a deleted local file, the UI pairs them as an exact Move (`Projects/A.md → Archive/A.md`).
 4. **Git Data API Safety**: All remote deletions use `{ path, mode: "100644", type: "blob", sha: null }` in `POST /git/trees`. Zero HTTP `DELETE` endpoints, zero `PUT /contents`, `force: false` always.
+
+---
+
+## 8. Canonical Empty-Tree & Zero-File Lifecycle
+
+### GitHub Git Data API Edge Case
+In Git, an empty directory tree is deterministically represented by the canonical empty tree SHA:
+```
+4b825dc642cb6eb9a060e54bf8d69288fbee4904
+```
+However, GitHub's Git Data API exhibits two edge-case behaviors:
+1. Calling `POST /git/trees` with `{ tree: [] }` returns `HTTP 422 Invalid tree info`.
+2. Calling `POST /git/trees` with a valid `base_tree` and deleting the final file (`{ path: "...", sha: null }`) returns `HTTP 404 Not Found`.
+3. Calling `GET /git/trees/4b825dc642cb6eb9a060e54bf8d69288fbee4904` returns `HTTP 404 Not Found` because GitHub does not persist or serve a physical Git tree object for the empty root.
+
+### Deterministic Architecture Solution
+Vault Relay resolves this limitation cleanly without synthetic files (`.gitkeep`, `README.md`) or artificial placeholder commits:
+
+```mermaid
+flowchart TD
+    Scan["PushEngine computes resultingRemoteFileCount"] --> ZeroCheck{"resultingRemoteFileCount == 0?"}
+    ZeroCheck -->|"Yes (All files deleted)"| EmptyFlow["DEDICATED EMPTY-TREE FLOW<br>targetTreeSha = CANONICAL_EMPTY_TREE_SHA<br>(Bypass POST /git/trees)"]
+    ZeroCheck -->|"No (Files remain)"| StandardFlow["Standard Flow<br>POST /git/trees with sha: null entries"]
+    
+    EmptyFlow --> Commit["POST /git/commits referencing targetTreeSha"]
+    StandardFlow --> Commit
+    
+    Commit --> PatchRef["PATCH /git/refs/heads/:branch (force: false)"]
+    PatchRef --> Verify["Authoritative Post-Push Verification"]
+    Verify --> ResolveTree["GitHubClient.getTreeRecursive(commitSha)"]
+    
+    ResolveTree --> Tree404{"GET /git/trees returns 404?"}
+    Tree404 -->|"Yes"| CommitCheck["Query GET /git/commits/:sha"]
+    CommitCheck --> IsEmpty{"commit.tree.sha == CANONICAL_EMPTY_TREE_SHA?"}
+    IsEmpty -->|"Yes"| ReturnEmpty["Return { sha: CANONICAL_EMPTY_TREE_SHA, tree: [] }"]
+    IsEmpty -->|"No"| ThrowErr["Rethrow original 404 error"]
+    Tree404 -->|"No (200 OK)"| ReturnTree["Return tree items"]
+```
+
+### Transition Lifecycle: 0 ↔ 1+ Files
+1. **Convergence to 0 Files**: When all synchronized files are removed locally, `PushEngine` commits `CANONICAL_EMPTY_TREE_SHA` directly. Post-verification confirms 0 files in the root tree, and `state.json` baseline is cleanly cleared of all file records.
+2. **Transitioning from 0 to 1+ Files**: When a user creates the first file in an empty repository, `PushEngine` uploads the blob and calls `POST /git/trees` with `base_tree: CANONICAL_EMPTY_TREE_SHA` and the new file entry. GitHub natively accepts this call, builds a single-file tree, and the resulting commit advances the branch ref cleanly.
+3. **Unborn Repository Boundary**: A repository must have at least one initial commit and branch. An unborn Git HEAD (0 commits) cannot be manipulated via Git Data API tree/commit endpoints; this is an inherent Git constraint documented in [README.md](../README.md).
+

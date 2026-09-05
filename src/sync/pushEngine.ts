@@ -23,7 +23,7 @@ import { GitHubTreeItemInput } from "../github/githubTypes";
 import { VaultRelaySettings } from "../settings";
 import { isCanonicalTextPath, canonicalizeTextBytes } from "./canonicalContent";
 import { isOversized } from "./fileSizePolicy";
-import { calculateCanonicalGitBlobSha, calculateRawGitBlobSha } from "./hashUtils";
+import { calculateCanonicalGitBlobSha, calculateRawGitBlobSha, CANONICAL_EMPTY_TREE_SHA } from "./hashUtils";
 import { isPathExcluded } from "./pathFilter";
 import { detectCaseCollisions, validatePathSafety } from "./pathSafety";
 import { classifySyncState } from "./syncClassifier";
@@ -215,9 +215,11 @@ export class PushEngine {
       return report;
     }
 
+    const baseTreeSha = branchInfo.commit?.commit?.tree?.sha || baseCommitSha;
+
     let treeResponse;
     try {
-      treeResponse = await this.githubClient.getTreeRecursive(baseCommitSha);
+      treeResponse = await this.githubClient.getTreeRecursive(baseTreeSha);
     } catch (err) {
       report.status = "ABORTED";
       report.summaryMessage = `Failed to fetch remote tree: ${sanitizeErrorMessage(err)}`;
@@ -607,16 +609,41 @@ export class PushEngine {
       }
     }
 
-    onProgress?.({ phase: "CREATING_TREE", completed: 0, total: 1, message: "Creating Git tree..." });
-    // 8. Create Git Tree (on top of baseCommit tree)
-    let newTreeResp;
-    try {
-      newTreeResp = await this.githubClient.createTree(treeItemsToPush, treeResponse.sha);
-    } catch (treeErr) {
-      const safeMsg = sanitizeErrorMessage(treeErr);
-      report.status = "FAIL";
-      report.summaryMessage = `Tree creation failed: ${safeMsg}`;
-      return report;
+    // 8. Determine target root tree SHA
+    // Calculate surviving remote paths after applying all eligible mutations
+    const survivingRemotePaths = new Set<string>();
+    for (const remotePath of remoteFiles.keys()) {
+      const isDeleted = eligibleItems.some((item) => item.category === "LOCAL_DELETED" && item.path === remotePath);
+      if (!isDeleted) {
+        survivingRemotePaths.add(remotePath);
+      }
+    }
+    for (const item of eligibleItems) {
+      if (item.category !== "LOCAL_DELETED") {
+        survivingRemotePaths.add(item.path);
+      }
+    }
+    const resultingRemoteFileCount = survivingRemotePaths.size;
+
+    let targetTreeSha: string;
+    if (resultingRemoteFileCount === 0) {
+      // DEDICATED EMPTY-TREE FLOW (C7):
+      // GitHub API POST /git/trees returns 404 when deleting all entries from a tree.
+      // In Git, an empty root tree is canonically and deterministically represented by CANONICAL_EMPTY_TREE_SHA.
+      // GitHub natively accepts this SHA directly in POST /git/commits.
+      targetTreeSha = CANONICAL_EMPTY_TREE_SHA;
+    } else {
+      onProgress?.({ phase: "CREATING_TREE", completed: 0, total: 1, message: "Creating Git tree..." });
+      let newTreeResp;
+      try {
+        newTreeResp = await this.githubClient.createTree(treeItemsToPush, treeResponse.sha);
+        targetTreeSha = newTreeResp.sha;
+      } catch (treeErr) {
+        const safeMsg = sanitizeErrorMessage(treeErr);
+        report.status = "FAIL";
+        report.summaryMessage = `Tree creation failed: ${safeMsg}`;
+        return report;
+      }
     }
 
     onProgress?.({ phase: "CREATING_COMMIT", completed: 0, total: 1, message: "Creating Git commit..." });
@@ -625,7 +652,7 @@ export class PushEngine {
     const commitCount = uploadedRecords.length;
     const commitMsg = `Vault Relay safe push: ${commitCount} file${commitCount > 1 ? "s" : ""}`;
     try {
-      newCommitResp = await this.githubClient.createCommit(commitMsg, newTreeResp.sha, [baseCommitSha]);
+      newCommitResp = await this.githubClient.createCommit(commitMsg, targetTreeSha, [baseCommitSha]);
     } catch (commitErr) {
       const safeMsg = sanitizeErrorMessage(commitErr);
       report.status = "FAIL";
@@ -740,6 +767,12 @@ export class PushEngine {
         if (item.type === "blob") {
           remoteTreeMap.set(item.path, item.sha);
         }
+      }
+
+      if (resultingRemoteFileCount === 0 && remoteTreeMap.size !== 0) {
+        throw new GitHubError(
+          `Post-push verification failed: Expected empty root tree (0 files), but remote tree contains ${remoteTreeMap.size} file(s).`
+        );
       }
 
       for (const rec of uploadedRecords) {
@@ -930,9 +963,10 @@ export class PushEngine {
     }
 
     // Fetch base commit tree
+    const baseTreeSha = branchInfo.commit?.commit?.tree?.sha || baseCommitSha;
     let baseTreeResp;
     try {
-      baseTreeResp = await this.githubClient.getTreeRecursive(baseCommitSha);
+      baseTreeResp = await this.githubClient.getTreeRecursive(baseTreeSha);
     } catch (treeErr) {
       const safeMsg = sanitizeErrorMessage(treeErr);
       report.status = "FAIL";
@@ -1027,25 +1061,41 @@ export class PushEngine {
       uploadedBlobSha = blobResp.sha;
     }
 
-    // 6. Create Git tree on top of baseTreeResp.sha updating ONLY the authorized path
-    onProgress?.({ phase: "CREATING_TREE", completed: 0, total: 1, message: "Creating Git tree..." });
-    let newTreeResp;
-    const treeItemsToPush: GitHubTreeItemInput[] = [
-      {
-        path: resolution.path,
-        mode: "100644",
-        type: "blob",
-        sha: uploadedBlobSha, // null if deletion
-      },
-    ];
+    // 6. Determine target tree SHA (dedicated empty-tree handling if final file deleted)
+    let isResultingTreeEmpty = false;
+    if (isDeletionResolution) {
+      const remainingCount = baseTreeResp.tree.filter(
+        (item) => item.type === "blob" && item.path !== resolution.path
+      ).length;
+      if (remainingCount === 0) {
+        isResultingTreeEmpty = true;
+      }
+    }
 
-    try {
-      newTreeResp = await this.githubClient.createTree(treeItemsToPush, baseTreeResp.sha);
-    } catch (treeErr) {
-      const safeMsg = sanitizeErrorMessage(treeErr);
-      report.status = "FAIL";
-      report.summaryMessage = `Tree creation failed: ${safeMsg}`;
-      return report;
+    let targetTreeSha: string;
+    if (isResultingTreeEmpty) {
+      targetTreeSha = CANONICAL_EMPTY_TREE_SHA;
+    } else {
+      onProgress?.({ phase: "CREATING_TREE", completed: 0, total: 1, message: "Creating Git tree..." });
+      let newTreeResp;
+      const treeItemsToPush: GitHubTreeItemInput[] = [
+        {
+          path: resolution.path,
+          mode: "100644",
+          type: "blob",
+          sha: uploadedBlobSha, // null if deletion
+        },
+      ];
+
+      try {
+        newTreeResp = await this.githubClient.createTree(treeItemsToPush, baseTreeResp.sha);
+        targetTreeSha = newTreeResp.sha;
+      } catch (treeErr) {
+        const safeMsg = sanitizeErrorMessage(treeErr);
+        report.status = "FAIL";
+        report.summaryMessage = `Tree creation failed: ${safeMsg}`;
+        return report;
+      }
     }
 
     // 7. Create Single Git commit with parent = verified baseCommitSha
@@ -1055,7 +1105,7 @@ export class PushEngine {
       : `Vault Relay safe conflict resolution: Keep local for ${resolution.path}`;
     let newCommitResp;
     try {
-      newCommitResp = await this.githubClient.createCommit(commitMsg, newTreeResp.sha, [baseCommitSha]);
+      newCommitResp = await this.githubClient.createCommit(commitMsg, targetTreeSha, [baseCommitSha]);
     } catch (commitErr) {
       const safeMsg = sanitizeErrorMessage(commitErr);
       report.status = "FAIL";
@@ -1141,6 +1191,11 @@ export class PushEngine {
       }
 
       const freshTree = await this.githubClient.getTreeRecursive(newCommitSha);
+      if (isResultingTreeEmpty && freshTree.tree.length !== 0) {
+        throw new GitHubError(
+          `Post-push verification failed: Expected empty root tree (0 files), but remote tree contains ${freshTree.tree.length} file(s).`
+        );
+      }
       if (isDeletionResolution) {
         const stillInTree = freshTree.tree.some((i) => i.path === resolution.path);
         if (stillInTree) {

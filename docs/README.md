@@ -29,6 +29,8 @@ The documents in `docs/development-history/` preserve the chronological design d
 - **[2026-09-02 C3 Safety Freeze](development-history/checkpoints/2026-09-02-c3-freeze.md)**: Safe Push implementation and cache-safe ref reading.
 - **[2026-09-03 C4 Implementation](development-history/checkpoints/2026-09-03-c4-implementation.md)**: Unified Sync, Connection Wizard, Conflict Resolution, and canonical internal storage migration.
 - **[2026-09-04 C5 Production Hardening](development-history/checkpoints/2026-09-04-c5-production-hardening.md)**: Final MVP hardening, mutation lease locking, pull write journal recovery, failure injection, scale benchmarks, and 0.5.0 RC release.
+- **[2026-09-05 C6 Safe Delete & Move Semantics](development-history/checkpoints/2026-09-05-c6-safe-delete-move.md)**: Three-way deletion classifier, ordered pull moves, single-commit move batching, delete recovery, and 0.6.0 RC release.
+- **[2026-09-06 C7 Release Readiness & Empty-Tree Closure](development-history/checkpoints/2026-09-06-c7-release-readiness.md)**: Canonical empty tree closure, zero-file convergence, first file creation, 0.7.0 RC release.
 
 ### Audits
 - **[2026-09-01 C1 Fit Reference Audit](development-history/audits/2026-09-01-c1-fit-reference-audit.md)**: Analysis of existing community plugins and mobile sync challenges.

@@ -11,6 +11,17 @@
 import { isCanonicalTextPath, canonicalizeTextBytes, canonicalizeTextString } from "./canonicalContent";
 
 /**
+ * Canonical Git SHA-1 empty tree object hash.
+ * Represents an empty directory tree with zero entries:
+ * sha1("tree 0\0") === 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+ *
+ * Accepted natively by GitHub Git Data API in POST /repos/{owner}/{repo}/git/commits
+ * without requiring a preceding POST /repos/{owner}/{repo}/git/trees call (which fails
+ * with HTTP 422 or 404 when resulting in 0 entries).
+ */
+export const CANONICAL_EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/**
  * Converts an ArrayBuffer or Uint8Array to a lowercase hex string.
  */
 function bufferToHex(buffer: ArrayBuffer): string {

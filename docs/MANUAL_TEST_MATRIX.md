@@ -1,13 +1,16 @@
-# GitHub Vault Relay: C6 Real-Device Manual Acceptance Test Matrix
+# GitHub Vault Relay: Real-Device Manual Acceptance Test Matrix
 
-> **Executable Protocol for Checkpoint 6 (C6) Real Runtime Acceptance**  
-> **Target Release:** `0.6.0` Release Candidate (Pre-release)  
+> **Executable Protocol for Real Runtime Acceptance (C6 Baseline & C7 Empty-Tree Closure)**  
+> **Target Release:** `0.7.0` Release Candidate (Pre-release)  
 > **Build Identity:**  
-> - Version: `0.6.0`  
-> - `main.js` Length: 161,552 bytes  
-> - `main.js` SHA-256: `8D7799BE84AAEFCD5C2A910F30125E074FD84F8D78702448271110F902DB3EE4`  
-> - `styles.css` Length: 1,633 bytes  
-> - `styles.css` SHA-256: `2A659A4B6B35A72EE3EF616B6202393197D39680478B961FD68A44D140954EED`  
+> - Version: `0.7.0`  
+> - `main.js` Length: 164,265 bytes  
+> - `main.js` SHA-256: `FE1ED3F3E47FDD29B8DE3E8EB77A193DD2F429641580BD20CB900CC9516FA191`  
+> - `manifest.json` Length: 357 bytes  
+> - `manifest.json` SHA-256: `2BD6554C509147510374EAB337F00B0ECEB8D4D1066C10BB08556B8B4E8D032B`  
+> - `styles.css` Length: 3,038 bytes  
+> - `styles.css` SHA-256: `9E529431CF0B2AD1569D7C18C2F7C6A3C430FFDB51B48B6EF775F1B820CC4534`  
+> **Baseline Status:** C6 Real Windows Acceptance = PASS | C6 Real iPhone Acceptance = PASS | C7 Real Acceptance = NOT RUN  
 
 ---
 
@@ -117,15 +120,28 @@ Execute this focused UI validation first before resuming runtime acceptance:
 
 ---
 
+---
+
+## Track C: C7 Empty-Repository & Zero-File Acceptance Protocol
+
+| ID | Test Scenario | Precondition | Action | Expected Result | Actual Result | Status | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **C7-EMPTY-01** | Delete final file locally -> empty remote tree | Only 1 note in vault and on GitHub | Delete local note; click **[ Sync ]** | Commit created with Canonical Empty Tree SHA `4b825dc642cb6eb9a060e54bf8d69288fbee4904`; branch ref updated non-force; baseline pruned to 0 files; 0 files on GitHub | | **NOT RUN** | |
+| **C7-EMPTY-02** | Zero-file dashboard display | Repository has 0 files (empty tree) | Open Sync Dashboard | Dashboard displays "0 files synchronized"; 0 local, 0 remote, 0 pending; clean zero state | | **NOT RUN** | |
+| **C7-EMPTY-03** | Create first note from empty state | Repository has 0 files (empty tree) | Create `first-note.md`; click **[ Sync ]** | `createTree` uses `base_tree: CANONICAL_EMPTY_TREE_SHA`; commit created; ref updated; 1 file on GitHub; baseline updated | | **NOT RUN** | |
+| **C7-EMPTY-04** | Remote final file delete pull | Only 1 note; deleted directly on GitHub | Open Sync Dashboard -> Click **[ Sync ]** | Classifies as `REMOTE_DELETED`; local file deleted; baseline cleared to 0 files | | **NOT RUN** | |
+| **C7-EMPTY-05** | Empty-tree alternating stress cycles | Sync configured | Repeat 0 -> 1 -> 0 files create & delete cycles | Each cycle completes with PASS; zero baseline drift; branch lineage preserved | | **NOT RUN** | |
+
+---
+
 ## Acceptance Sign-Off
 
-### Windows Desktop Sign-off:
-- Tester: `____________________`
-- Date: `____________________`
-- Result: `[ ] PASS   [ ] FAIL`
+### C6 Production Acceptance (Completed):
+- **Windows Desktop C6 Acceptance**: PASS (Verified 2026-09-05 across 100 push / 100 pull / 11 conflicts / binaries)
+- **iPhone Mobile C6 Acceptance**: PASS (Verified 2026-09-05 on iOS 18 via BRAT across mixed lifecycle / conflicts / binaries)
 
-### iPhone Mobile Sign-off:
-- Tester: `____________________`
-- Date: `____________________`
-- Device: `____________________` (iOS version: `______`)
-- Result: `[ ] PASS   [ ] FAIL`
+### C7 Empty-Tree Acceptance (0.7.0 Release Readiness):
+- **C7 Real Windows Desktop Acceptance**: `[ ] PASS   [ ] FAIL   [X] NOT RUN`
+  - Tester: `____________________`  Date: `____________`
+- **C7 Real iPhone Mobile Acceptance**: `[ ] PASS   [ ] FAIL   [X] NOT RUN`
+  - Tester: `____________________`  Date: `____________`  Device: `____________________`

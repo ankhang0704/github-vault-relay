@@ -3,7 +3,7 @@
 > **A conservative, mobile-first GitHub sync bridge for Obsidian — without running Git on your phone.**
 
 [![CI](https://github.com/ankhang0704/github-vault-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/ankhang0704/github-vault-relay/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.6.1-blue.svg)](https://github.com/ankhang0704/github-vault-relay/releases)
+[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](https://github.com/ankhang0704/github-vault-relay/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 GitHub Vault Relay connects your **Obsidian Mobile (iPhone / iPad)** and **Desktop** vaults directly to your GitHub repository using GitHub's REST and Git Data APIs over HTTPS. It requires **no native Git installation, no command line tools, no isomorphic-git polyfills, and zero background daemons**.
@@ -14,6 +14,7 @@ GitHub Vault Relay connects your **Obsidian Mobile (iPhone / iPad)** and **Deskt
 
 - **Unified Safe Sync**: A single `[ Sync ]` action safely pulls eligible remote changes, then replans and pushes eligible local changes. Each Safe Push batch is committed to GitHub as one Git commit (`force: false`). Unified Sync is intentionally not an end-to-end transaction: a successful Pull is not rolled back merely because a later Push fails.
 - **Safe Deletion & Move Semantics**: Respects the complete filesystem lifecycle (CREATE, EDIT, MOVE/RENAME, DELETE). Deletion requires baseline synchronized existence proof. Moves are pushed in a single atomic Git commit (`delete old` + `add new`) and pulled safely (`destination` materialized and verified before `source` is deleted).
+- **Zero-File & Empty-Tree Convergence**: Legitimately handles synchronizing down to 0 files using Git's canonical empty root tree (`4b825dc642cb6eb9a060e54bf8d69288fbee4904`) and adding files back without synthetic workarounds (`.gitkeep`, artificial commits), preserving branch refs and lineage.
 - **Data Integrity Over Convenience**: Explicit failure over silent guessing. When state is ambiguous, Vault Relay halts safely and preserves both versions.
 - **Mobile-First iOS/Android Design**: Communicates via Obsidian's native HTTPS requests (`requestUrl()`). Never invokes Node.js child processes or native Git.
 - **Clean Vault Experience**: Internal state is kept under `.obsidian/github-vault-relay/` and is not treated as normal vault note content.
@@ -190,6 +191,7 @@ In Git, a Move is represented as **`DELETE old_path` + `ADD new_path`**:
 - **GitHub API Rate Limits**: Standard GitHub authenticated API rate limits apply.
 - **Repository Size Limit**: Repositories returning truncated Git trees (>100,000 files) are blocked for safety.
 - **Single Repository / Branch**: Multi-repo and multi-branch concurrent sync is not supported.
+- **Unborn Repositories**: The target GitHub repository must have at least one initial commit and default branch (standard Git constraint; Git Data API cannot construct trees or update refs on an unborn HEAD). Repositories that become empty through sync convergence (0 files) are fully supported.
 
 ---
 
