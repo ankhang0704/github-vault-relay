@@ -135,57 +135,131 @@ export class SyncDashboardModal extends Modal {
       return;
     }
 
-    // 2. Semantic Metrics Grid
+    // 2. Semantic Analysis
     const sem = computeSemanticPreview(this.report.items);
     const totalCreates = sem.pushCreate + sem.pullCreate;
     const totalUpdates = sem.pushUpdate + sem.pullUpdate;
-
-    const metricsGrid = contentEl.createDiv({
-      attr: {
-        style:
-          "display: grid; grid-template-columns: repeat(auto-fit, minmax(95px, 1fr)); gap: 8px; margin-bottom: 14px;",
-      },
-    });
-
-    this.renderMetricBadge(metricsGrid, "Create", totalCreates, totalCreates > 0 ? "var(--interactive-accent)" : "var(--text-muted)");
-    this.renderMetricBadge(metricsGrid, "Update", totalUpdates, totalUpdates > 0 ? "var(--interactive-accent)" : "var(--text-muted)");
-    this.renderMetricBadge(metricsGrid, "Delete from GitHub", sem.pushDeleteRemote, sem.pushDeleteRemote > 0 ? "var(--color-red, #e74c3c)" : "var(--text-muted)");
-    this.renderMetricBadge(metricsGrid, "Remove locally", sem.pullRemoveLocal, sem.pullRemoveLocal > 0 ? "var(--color-red, #e74c3c)" : "var(--text-muted)");
-    this.renderMetricBadge(metricsGrid, "Moves", sem.totalSemanticMoves, sem.totalSemanticMoves > 0 ? "var(--color-purple, #9b59b6)" : "var(--text-muted)");
-    this.renderMetricBadge(metricsGrid, "Conflicts", sem.contentConflicts, sem.contentConflicts > 0 ? "var(--color-red, #e74c3c)" : "var(--text-muted)");
-    this.renderMetricBadge(metricsGrid, "Delete Conflicts", sem.deleteConflicts, sem.deleteConflicts > 0 ? "var(--color-red, #e74c3c)" : "var(--text-muted)");
-    this.renderMetricBadge(metricsGrid, "Unchanged", sem.unchanged, "var(--color-green, #2ecc71)");
-
-    // 3. Explanatory Destructive Operations Notice (if any deletions pending)
+    const totalChanges = totalCreates + totalUpdates;
+    const totalMoves = sem.totalSemanticMoves;
+    const totalConflicts = sem.totalConflicts;
     const hasDeletions = sem.pushDeleteRemote > 0 || sem.pullRemoveLocal > 0;
-    if (hasDeletions) {
-      const delNotice = contentEl.createDiv({
+    const hasActionableChanges = totalChanges > 0 || totalMoves > 0 || totalConflicts > 0 || hasDeletions;
+    const unchangedCount = (this.report.counts && typeof this.report.counts.UNCHANGED === "number" && this.report.counts.UNCHANGED > 0)
+      ? this.report.counts.UNCHANGED
+      : sem.unchanged;
+
+    // 3. Zero-State Handling (when everything is in sync)
+    if (!hasActionableChanges) {
+      const zeroStateCard = contentEl.createDiv({
+        cls: "vault-relay-zero-state",
         attr: {
           style:
-            "margin-bottom: 14px; padding: 10px 14px; border-radius: 6px; background-color: rgba(231, 76, 60, 0.08); border: 1px solid var(--color-red, #e74c3c); font-size: 0.86em; line-height: 1.4;",
+            "padding: 28px 16px; text-align: center; background-color: var(--background-secondary); border-radius: 8px; border: 1px solid var(--background-modifier-border); margin-bottom: 14px;",
         },
       });
-      delNotice.createEl("div", {
-        text: "⚠ Destructive Operations Pending:",
-        attr: { style: "font-weight: 600; color: var(--color-red, #e74c3c); margin-bottom: 4px;" },
+      zeroStateCard.createDiv({
+        text: "✓ Everything is in sync",
+        attr: { style: "font-size: 1.15em; font-weight: 600; color: var(--color-green, #2ecc71); margin-bottom: 6px;" },
       });
-      if (sem.pushDeleteRemote > 0) {
-        delNotice.createEl("div", {
-          text: `• ${sem.pushDeleteRemote} file(s) will be deleted from GitHub (previous versions remain available in Git history).`,
-          attr: { style: "color: var(--text-normal); margin-bottom: 2px;" },
-        });
+      zeroStateCard.createDiv({
+        text: `${unchangedCount} files synchronized`,
+        attr: { style: "font-size: 0.9em; color: var(--text-muted);" },
+      });
+    } else {
+      // 4. Compact Summary Cards (Max 3 cards: Changes, Moves, Conflicts)
+      const summaryGrid = contentEl.createDiv({
+        cls: "vault-relay-summary-cards",
+        attr: {
+          style:
+            "display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px;",
+        },
+      });
+
+      // Card 1: Changes (combines Create + Update)
+      if (totalChanges > 0) {
+        let secondaryText = "";
+        if (totalCreates > 0 && totalUpdates > 0) {
+          secondaryText = `+ ${totalCreates} new · ~ ${totalUpdates} updated`;
+        } else if (totalCreates > 0) {
+          secondaryText = `+ ${totalCreates} new`;
+        } else if (totalUpdates > 0) {
+          secondaryText = `~ ${totalUpdates} updated`;
+        }
+
+        this.renderSummaryCard(
+          summaryGrid,
+          "Changes",
+          totalChanges,
+          secondaryText,
+          "var(--interactive-accent)"
+        );
       }
-      if (sem.pullRemoveLocal > 0) {
-        delNotice.createEl("div", {
-          text: `• ${sem.pullRemoveLocal} file(s) will be removed locally (moved to trash according to Obsidian Files & links trash settings).`,
-          attr: { style: "color: var(--text-normal);" },
-        });
+
+      // Card 2: Moves (Exact semantic moves)
+      if (totalMoves > 0) {
+        this.renderSummaryCard(
+          summaryGrid,
+          "Moves",
+          totalMoves,
+          "",
+          "var(--color-purple, #9b59b6)"
+        );
+      }
+
+      // Card 3: Conflicts (Combines Content + Delete Conflicts, visually prominent)
+      if (totalConflicts > 0) {
+        let secondaryText = "";
+        if (sem.contentConflicts > 0 && sem.deleteConflicts > 0) {
+          secondaryText = `${sem.contentConflicts} content · ${sem.deleteConflicts} delete`;
+        } else if (sem.contentConflicts > 0) {
+          secondaryText = `${sem.contentConflicts} content`;
+        } else if (sem.deleteConflicts > 0) {
+          secondaryText = `${sem.deleteConflicts} delete`;
+        }
+
+        this.renderSummaryCard(
+          summaryGrid,
+          "Conflicts",
+          totalConflicts,
+          secondaryText,
+          "var(--color-red, #e74c3c)",
+          true
+        );
       }
     }
 
-    // 4. Conflict Banner (if any)
+    // 5. Destructive Changes Banner (appears only when deletions exist, before Sync Now)
+    if (hasDeletions) {
+      const delBanner = contentEl.createDiv({
+        cls: "vault-relay-destructive-banner",
+        attr: {
+          style:
+            "margin-bottom: 14px; padding: 10px 14px; border-radius: 6px; background-color: rgba(231, 76, 60, 0.08); border: 1px solid var(--color-red, #e74c3c); font-size: 0.88em; line-height: 1.4;",
+        },
+      });
+      delBanner.createDiv({
+        text: "⚠ Destructive changes",
+        attr: { style: "font-weight: 600; color: var(--color-red, #e74c3c); margin-bottom: 3px;" },
+      });
+
+      const delParts: string[] = [];
+      if (sem.pushDeleteRemote > 0) {
+        delParts.push(`${sem.pushDeleteRemote} ${sem.pushDeleteRemote === 1 ? "file" : "files"} will be deleted from GitHub`);
+      }
+      if (sem.pullRemoveLocal > 0) {
+        delParts.push(`${sem.pullRemoveLocal} ${sem.pullRemoveLocal === 1 ? "file" : "files"} will be removed locally`);
+      }
+
+      delBanner.createDiv({
+        text: delParts.join(" · "),
+        attr: { style: "color: var(--text-normal);" },
+      });
+    }
+
+    // 6. Conflict Review Banner (if any unresolved conflicts)
     if (sem.totalConflicts > 0) {
       const banner = contentEl.createDiv({
+        cls: "vault-relay-conflict-banner",
         attr: {
           style:
             "display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; background-color: rgba(231, 76, 60, 0.12); border: 1px solid var(--color-red, #e74c3c); border-radius: 6px; padding: 10px 14px; margin-bottom: 14px;",
@@ -200,7 +274,7 @@ export class SyncDashboardModal extends Modal {
 
       banner.createDiv({
         text: conflictText,
-        attr: { style: "font-weight: 500; font-size: 0.9em; color: var(--color-red, #e74c3c);" },
+        attr: { style: "font-weight: 600; font-size: 0.9em; color: var(--color-red, #e74c3c);" },
       });
       const reviewBtn = banner.createEl("button", {
         text: "Review Conflicts",
@@ -212,11 +286,12 @@ export class SyncDashboardModal extends Modal {
       };
     }
 
-    // 5. Primary Sync Action Area
+    // 7. Primary Sync Action Area
     const syncCard = contentEl.createDiv({
+      cls: "vault-relay-sync-action-area",
       attr: {
         style:
-          "padding: 16px; border-radius: 8px; background-color: var(--background-secondary); border: 1px solid var(--background-modifier-border); margin-bottom: 16px; text-align: center;",
+          "padding: 14px; border-radius: 8px; background-color: var(--background-secondary); border: 1px solid var(--background-modifier-border); margin-bottom: 14px; text-align: center;",
       },
     });
 
@@ -245,18 +320,28 @@ export class SyncDashboardModal extends Modal {
         attr: { style: "width: 100%; min-height: 44px; font-size: 1.05em; font-weight: 600; cursor: pointer;" },
       });
 
-      const hasChanges = sem.totalPushMutations > 0 || sem.totalPullMutations > 0 || sem.totalConflicts > 0;
-      if (!hasChanges) {
+      if (!hasActionableChanges) {
         syncBtn.setText("Repository Up to Date (Sync)");
+      } else if (sem.totalConflicts > 0) {
+        syncBtn.setText("Sync Blocked by Conflicts");
+        syncBtn.disabled = true;
+        syncBtn.removeClass("mod-cta");
+        syncBtn.style.opacity = "0.6";
+        syncBtn.style.cursor = "not-allowed";
       }
 
       syncBtn.onclick = async () => {
+        if (sem.totalConflicts > 0) {
+          new Notice("Please review and resolve conflicts before syncing.");
+          return;
+        }
         await this.handleUnifiedSync();
       };
     }
 
-    // 6. Utility Actions: Preview Details + Advanced Toggle
+    // 8. Utility Actions: Preview Details + Advanced Toggle
     const actionsRow = contentEl.createDiv({
+      cls: "vault-relay-actions-row",
       attr: { style: "display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;" },
     });
 
@@ -277,27 +362,57 @@ export class SyncDashboardModal extends Modal {
       this.render();
     };
 
-    // 7. Collapsible Advanced Section
+    // 9. Lightweight Footer (Unchanged presentation)
+    const footer = contentEl.createDiv({
+      cls: "vault-relay-dashboard-footer",
+      attr: { style: "text-align: center; padding: 4px 0 2px 0; font-size: 0.82em; color: var(--text-muted);" },
+    });
+    footer.setText(`${unchangedCount} files already in sync`);
+
+    // 10. Collapsible Advanced Section
     if (this.showAdvanced) {
       this.renderAdvancedSection(contentEl);
     }
   }
 
-  private renderMetricBadge(container: HTMLElement, label: string, count: number, color: string): void {
-    const badge = container.createDiv({
+  private renderSummaryCard(
+    container: HTMLElement,
+    title: string,
+    primaryCount: number,
+    secondaryText: string,
+    color: string,
+    isWarning?: boolean
+  ): void {
+    const card = container.createDiv({
       attr: {
-        style:
-          "padding: 10px 8px; border-radius: 6px; background-color: var(--background-secondary); border: 1px solid var(--background-modifier-border); text-align: center; display: flex; flex-direction: column; justify-content: center; min-height: 54px;",
+        style: `padding: 12px 14px; border-radius: 8px; background-color: ${
+          isWarning ? "rgba(231, 76, 60, 0.08)" : "var(--background-secondary)"
+        }; border: 1px solid ${
+          isWarning ? "var(--color-red, #e74c3c)" : "var(--background-modifier-border)"
+        }; display: flex; flex-direction: column; justify-content: center; min-height: 64px; text-align: left;`,
       },
     });
-    badge.createDiv({
-      text: String(count),
-      attr: { style: `font-size: 1.25em; font-weight: 700; color: ${color}; line-height: 1.2;` },
+    card.addClass("vault-relay-summary-card");
+    if (isWarning) {
+      card.addClass("vault-relay-summary-card-warning");
+    }
+
+    card.createDiv({
+      text: title,
+      attr: { style: "font-size: 0.78em; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;" },
     });
-    badge.createDiv({
-      text: label,
-      attr: { style: "font-size: 0.72em; color: var(--text-muted); margin-top: 3px; line-height: 1.2; word-break: break-word;" },
+
+    card.createDiv({
+      text: `${primaryCount} ${primaryCount === 1 ? "file" : "files"}`,
+      attr: { style: `font-size: 1.22em; font-weight: 700; color: ${color}; line-height: 1.2; margin-bottom: 2px;` },
     });
+
+    if (secondaryText) {
+      card.createDiv({
+        text: secondaryText,
+        attr: { style: "font-size: 0.75em; color: var(--text-muted); line-height: 1.2; word-break: break-word;" },
+      });
+    }
   }
 
   private async handleUnifiedSync(): Promise<void> {

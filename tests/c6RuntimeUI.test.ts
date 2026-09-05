@@ -16,6 +16,7 @@ import { PullResultModal } from "../src/ui/pullResultModal";
 import { PushResultModal } from "../src/ui/pushResultModal";
 import { SyncDashboardModal } from "../src/ui/syncDashboardModal";
 import { ConflictResolutionModal } from "../src/ui/conflictResolutionModal";
+import { SyncPreviewModal } from "../src/ui/syncPreviewModal";
 import { computeSemanticPreview, getSemanticCategoryLabel } from "../src/sync/semanticSummary";
 import { getPhaseLabel } from "../src/sync/progressTypes";
 import {
@@ -471,5 +472,316 @@ describe("C6 — Runtime UI Tests (C6-UI-DEL-001..006, C6-UI-MOVE-001..003, C6-U
     dashInternal.report = normalReport;
     dashInternal.render?.();
     expect(getAllText(dashModal.contentEl as unknown as MockElement)).not.toContain("Destructive Operations Pending");
+    expect(getAllText(dashModal.contentEl as unknown as MockElement)).not.toContain("Destructive changes");
+  });
+
+  // =========================================================================
+  // 6. DEFAULT DASHBOARD UX SIMPLIFICATION (C6-UI-DASH-001..010)
+  // =========================================================================
+  describe("Default Dashboard UX Simplification (C6-UI-DASH-001..010)", () => {
+    it("C6-UI-DASH-001: Create + Update collapse into one Changes card with '+ X new · ~ Y updated'", () => {
+      const report = makeMockReport(
+        [
+          { path: "new1.md", category: "LOCAL_ONLY", localSha: "s1" },
+          { path: "new2.md", category: "LOCAL_ONLY", localSha: "s2" },
+          { path: "new3.md", category: "REMOTE_ONLY", remoteSha: "s3" },
+          { path: "mod1.md", category: "LOCAL_CHANGED", localSha: "s4", baseSha: "s0" },
+          { path: "mod2.md", category: "REMOTE_CHANGED", remoteSha: "s5", baseSha: "s0" },
+        ],
+        {
+          LOCAL_ONLY: 2,
+          REMOTE_ONLY: 1,
+          LOCAL_CHANGED: 1,
+          REMOTE_CHANGED: 1,
+          UNCHANGED: 10,
+        }
+      );
+
+      const modal = new SyncDashboardModal(app, plugin);
+      modal.isModalOpen = true;
+      const internal = modal as unknown as DashboardModalInternal;
+      internal.report = report;
+      internal.render?.();
+
+      const root = modal.contentEl as unknown as MockElement;
+      const text = getAllText(root);
+
+      expect(text).toContain("Changes");
+      expect(text).toContain("5 files");
+      expect(text).toContain("+ 3 new · ~ 2 updated");
+
+      const summaryCards = root.findAll((el: MockElement) => el.hasClass("vault-relay-summary-card"));
+      expect(summaryCards.length).toBe(1);
+      expect(getAllText(summaryCards[0])).toContain("Changes");
+    });
+
+    it("C6-UI-DASH-002: Normal conflict + delete conflict collapse into one Conflicts card with subtype counts", () => {
+      const report = makeMockReport(
+        [
+          { path: "cf1.md", category: "POTENTIAL_CONFLICT", localSha: "s1", remoteSha: "s2", baseSha: "s0" },
+          { path: "cf2.md", category: "DELETE_CONFLICT", deleteConflictType: "REMOTE_DELETED_LOCAL_MODIFIED", localSha: "s3", baseSha: "s0" },
+        ],
+        {
+          POTENTIAL_CONFLICT: 1,
+          DELETE_CONFLICT: 1,
+          UNCHANGED: 10,
+        }
+      );
+
+      const modal = new SyncDashboardModal(app, plugin);
+      modal.isModalOpen = true;
+      const internal = modal as unknown as DashboardModalInternal;
+      internal.report = report;
+      internal.render?.();
+
+      const root = modal.contentEl as unknown as MockElement;
+      const text = getAllText(root);
+
+      expect(text).toContain("Conflicts");
+      expect(text).toContain("2 files");
+      expect(text).toContain("1 content · 1 delete");
+
+      const conflictCards = root.findAll((el: MockElement) => el.hasClass("vault-relay-summary-card-warning"));
+      expect(conflictCards.length).toBe(1);
+
+      expect(text).toContain("Review Conflicts");
+      expect(text).toContain("Sync Blocked by Conflicts");
+    });
+
+    it("C6-UI-DASH-003: Exact Move remains separate and is not double-counted in Changes", () => {
+      const report = makeMockReport(
+        [
+          { path: "old.md", category: "LOCAL_DELETED", isMove: true, movedTo: "new.md", baseSha: "s1" },
+          { path: "new.md", category: "LOCAL_ONLY", isMove: true, movedFrom: "old.md", localSha: "s1" },
+        ],
+        {
+          LOCAL_DELETED: 1,
+          LOCAL_ONLY: 1,
+          UNCHANGED: 10,
+        }
+      );
+
+      const modal = new SyncDashboardModal(app, plugin);
+      modal.isModalOpen = true;
+      const internal = modal as unknown as DashboardModalInternal;
+      internal.report = report;
+      internal.render?.();
+
+      const root = modal.contentEl as unknown as MockElement;
+      const text = getAllText(root);
+
+      expect(text).toContain("Moves");
+      expect(text).toContain("1 file");
+
+      const summaryCards = root.findAll((el: MockElement) => el.hasClass("vault-relay-summary-card"));
+      expect(summaryCards.length).toBe(1);
+      expect(getAllText(summaryCards[0])).toContain("Moves");
+      expect(text).not.toContain("Changes");
+    });
+
+    it("C6-UI-DASH-004: Delete operations create one destructive banner rather than permanent delete cards", () => {
+      const report = makeMockReport(
+        [
+          { path: "del_remote1.md", category: "LOCAL_DELETED", baseSha: "s1" },
+          { path: "del_remote2.md", category: "LOCAL_DELETED", baseSha: "s2" },
+          { path: "del_local1.md", category: "REMOTE_DELETED", baseSha: "s3" },
+        ],
+        {
+          LOCAL_DELETED: 2,
+          REMOTE_DELETED: 1,
+          UNCHANGED: 10,
+        }
+      );
+
+      const modal = new SyncDashboardModal(app, plugin);
+      modal.isModalOpen = true;
+      const internal = modal as unknown as DashboardModalInternal;
+      internal.report = report;
+      internal.render?.();
+
+      const root = modal.contentEl as unknown as MockElement;
+      const text = getAllText(root);
+
+      const banners = root.findAll((el: MockElement) => el.hasClass("vault-relay-destructive-banner"));
+      expect(banners.length).toBe(1);
+      expect(text).toContain("Destructive changes");
+      expect(text).toContain("2 files will be deleted from GitHub");
+      expect(text).toContain("1 file will be removed locally");
+
+      const summaryCards = root.findAll((el: MockElement) => el.hasClass("vault-relay-summary-card"));
+      expect(summaryCards.length).toBe(0);
+    });
+
+    it("C6-UI-DASH-005: Delete banner is absent when delete counts are zero", () => {
+      const report = makeMockReport(
+        [
+          { path: "new.md", category: "LOCAL_ONLY", localSha: "s1" },
+        ],
+        {
+          LOCAL_ONLY: 1,
+          UNCHANGED: 10,
+        }
+      );
+
+      const modal = new SyncDashboardModal(app, plugin);
+      modal.isModalOpen = true;
+      const internal = modal as unknown as DashboardModalInternal;
+      internal.report = report;
+      internal.render?.();
+
+      const root = modal.contentEl as unknown as MockElement;
+      const text = getAllText(root);
+
+      const banners = root.findAll((el: MockElement) => el.hasClass("vault-relay-destructive-banner"));
+      expect(banners.length).toBe(0);
+      expect(text).not.toContain("Destructive changes");
+    });
+
+    it("C6-UI-DASH-006: Unchanged appears as lightweight footer text, not primary metric card", () => {
+      const report = makeMockReport(
+        [
+          { path: "note.md", category: "LOCAL_CHANGED", localSha: "s2", baseSha: "s1" },
+        ],
+        {
+          LOCAL_CHANGED: 1,
+          UNCHANGED: 106,
+        }
+      );
+
+      const modal = new SyncDashboardModal(app, plugin);
+      modal.isModalOpen = true;
+      const internal = modal as unknown as DashboardModalInternal;
+      internal.report = report;
+      internal.render?.();
+
+      const root = modal.contentEl as unknown as MockElement;
+      const text = getAllText(root);
+
+      const footers = root.findAll((el: MockElement) => el.hasClass("vault-relay-dashboard-footer"));
+      expect(footers.length).toBe(1);
+      expect(footers[0].textContent).toBe("106 files already in sync");
+      expect(text).toContain("106 files already in sync");
+
+      const summaryCards = root.findAll((el: MockElement) => el.hasClass("vault-relay-summary-card"));
+      for (const card of summaryCards) {
+        expect(getAllText(card)).not.toContain("Unchanged");
+      }
+    });
+
+    it("C6-UI-DASH-007: Zero-change dashboard displays 'Everything is in sync' without zero-card clutter", () => {
+      const report = makeMockReport([], { UNCHANGED: 106 });
+
+      const modal = new SyncDashboardModal(app, plugin);
+      modal.isModalOpen = true;
+      const internal = modal as unknown as DashboardModalInternal;
+      internal.report = report;
+      internal.render?.();
+
+      const root = modal.contentEl as unknown as MockElement;
+      const text = getAllText(root);
+
+      const zeroCards = root.findAll((el: MockElement) => el.hasClass("vault-relay-zero-state"));
+      expect(zeroCards.length).toBe(1);
+      expect(text).toContain("✓ Everything is in sync");
+      expect(text).toContain("106 files synchronized");
+
+      const summaryCards = root.findAll((el: MockElement) => el.hasClass("vault-relay-summary-card"));
+      expect(summaryCards.length).toBe(0);
+      expect(text).not.toMatch(/Changes\s+0/i);
+      expect(text).not.toMatch(/Moves\s+0/i);
+      expect(text).not.toMatch(/Conflicts\s+0/i);
+    });
+
+    it("C6-UI-DASH-008: Default dashboard renders maximum three semantic summary cards", () => {
+      const report = makeMockReport(
+        [
+          { path: "new.md", category: "LOCAL_ONLY", localSha: "s1" },
+          { path: "mod.md", category: "LOCAL_CHANGED", localSha: "s2", baseSha: "s0" },
+          { path: "old.md", category: "LOCAL_DELETED", isMove: true, movedTo: "renamed.md", baseSha: "s3" },
+          { path: "renamed.md", category: "LOCAL_ONLY", isMove: true, movedFrom: "old.md", localSha: "s3" },
+          { path: "cf.md", category: "POTENTIAL_CONFLICT", localSha: "s4", remoteSha: "s5", baseSha: "s6" },
+          { path: "del.md", category: "LOCAL_DELETED", baseSha: "s7" },
+        ],
+        {
+          LOCAL_ONLY: 2,
+          LOCAL_CHANGED: 1,
+          LOCAL_DELETED: 2,
+          POTENTIAL_CONFLICT: 1,
+          UNCHANGED: 50,
+        }
+      );
+
+      const modal = new SyncDashboardModal(app, plugin);
+      modal.isModalOpen = true;
+      const internal = modal as unknown as DashboardModalInternal;
+      internal.report = report;
+      internal.render?.();
+
+      const root = modal.contentEl as unknown as MockElement;
+      const summaryCards = root.findAll((el: MockElement) => el.hasClass("vault-relay-summary-card"));
+
+      expect(summaryCards.length).toBe(3);
+      const cardTexts = summaryCards.map((c: MockElement) => getAllText(c));
+      expect(cardTexts.some((t) => t.includes("Changes"))).toBe(true);
+      expect(cardTexts.some((t) => t.includes("Moves"))).toBe(true);
+      expect(cardTexts.some((t) => t.includes("Conflicts"))).toBe(true);
+    });
+
+    it("C6-UI-DASH-009: Preview Details still exposes complete 8-category breakdown", () => {
+      const report = makeMockReport(
+        [
+          { path: "create.md", category: "LOCAL_ONLY", localSha: "s1" },
+          { path: "update.md", category: "LOCAL_CHANGED", localSha: "s2", baseSha: "s0" },
+          { path: "del_remote.md", category: "LOCAL_DELETED", baseSha: "s3" },
+          { path: "rem_local.md", category: "REMOTE_DELETED", baseSha: "s4" },
+          { path: "move_from.md", category: "LOCAL_DELETED", isMove: true, movedTo: "move_to.md", baseSha: "s5" },
+          { path: "move_to.md", category: "LOCAL_ONLY", isMove: true, movedFrom: "move_from.md", localSha: "s5" },
+          { path: "conflict.md", category: "POTENTIAL_CONFLICT", localSha: "s6", remoteSha: "s7", baseSha: "s8" },
+          { path: "del_conflict.md", category: "DELETE_CONFLICT", localSha: "s9", baseSha: "s10" },
+        ],
+        {
+          LOCAL_ONLY: 2,
+          LOCAL_CHANGED: 1,
+          LOCAL_DELETED: 2,
+          REMOTE_DELETED: 1,
+          POTENTIAL_CONFLICT: 1,
+          DELETE_CONFLICT: 1,
+          UNCHANGED: 20,
+        }
+      );
+
+      const modal = new SyncPreviewModal(app, plugin);
+      const renderable = modal as unknown as {
+        report: SyncPreviewReport;
+        renderReport: () => void;
+      };
+      renderable.report = report;
+      renderable.renderReport();
+
+      const root = modal.contentEl as unknown as MockElement;
+      const text = getAllText(root);
+
+      expect(text).toContain("Local Only");
+      expect(text).toContain("Local Changed");
+      expect(text).toContain("Delete from GitHub");
+      expect(text).toContain("Remove locally");
+      expect(text).toContain("Moves");
+      expect(text).toContain("Delete Conflict");
+      expect(text).toContain("Conflicts");
+      expect(text).toContain("Unchanged");
+    });
+
+    it("C6-UI-DASH-010: Narrow viewport css contains summary cards 1fr wrap and touch target >= 44px", () => {
+      const cssPath = path.resolve(__dirname, "../styles.css");
+      const css = fs.readFileSync(cssPath, "utf8");
+
+      expect(css).toContain(".vault-relay-summary-cards");
+      expect(css).toContain("@media (max-width: 480px)");
+      expect(css).toMatch(/grid-template-columns:\s*1fr/);
+
+      expect(css).toContain("min-height: 44px");
+      expect(css).toContain("min-width: 44px");
+    });
   });
 });
+
