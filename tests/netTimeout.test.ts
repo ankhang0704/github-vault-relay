@@ -27,17 +27,35 @@ import { UnifiedSyncEngine } from "../src/sync/unifiedSyncEngine";
 import type VaultRelayPlugin from "../src/main";
 
 describe("Network Timeout & Offline Fail-Fast Policy (NET-TIMEOUT-001..010)", () => {
-  let originalNavigator: unknown;
+  let hadNavigator = false;
+  let originalOnLine: boolean | undefined;
 
   beforeEach(() => {
-    originalNavigator = globalThis.navigator;
+    hadNavigator = "navigator" in globalThis && globalThis.navigator !== undefined;
+    originalOnLine = globalThis.navigator?.onLine;
+    // Default each test to an online environment so offline signal does not preempt timeout tests
+    Object.defineProperty(globalThis, "navigator", {
+      value: { onLine: true },
+      configurable: true,
+      writable: true,
+    });
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    if (originalNavigator !== undefined) {
+    if (!hadNavigator) {
+      try {
+        delete (globalThis as Record<string, unknown>).navigator;
+      } catch {
+        Object.defineProperty(globalThis, "navigator", {
+          value: undefined,
+          configurable: true,
+          writable: true,
+        });
+      }
+    } else {
       Object.defineProperty(globalThis, "navigator", {
-        value: originalNavigator,
+        value: { onLine: originalOnLine ?? true },
         configurable: true,
         writable: true,
       });
