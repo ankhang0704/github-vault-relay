@@ -130,6 +130,8 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           new Notice("Please enter a token to connect.");
           return;
         }
+        button.setDisabled(true);
+        button.setButtonText("Connecting...");
         try {
           if (this.tokenInputVal) {
             await setStoredPat(
@@ -147,6 +149,9 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           this.display();
         } catch (err) {
           new Notice(`Connection failed: ${sanitizeErrorMessage(err)}`);
+        } finally {
+          button.setDisabled(false);
+          button.setButtonText("Save & Connect");
         }
       });
       button.buttonEl.style.minHeight = "44px";

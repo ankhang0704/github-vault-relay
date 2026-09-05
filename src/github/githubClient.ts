@@ -1,4 +1,4 @@
-﻿/**
+/**
  * GitHub API Client for GitHub Vault Relay
  *
  * Implements hardened, conservative communication with GitHub REST and Git Data APIs.
@@ -27,6 +27,8 @@ import { isOversized } from "../sync/fileSizePolicy";
 
 export type GitHubRequestFn = (params: RequestUrlParam) => Promise<RequestUrlResponse>;
 
+export const DEFAULT_REQUEST_TIMEOUT_MS = 10000; // 10 seconds conservative application timeout
+
 export class GitHubError extends Error {
   public status?: number;
   public statusText?: string;
@@ -36,6 +38,34 @@ export class GitHubError extends Error {
     this.name = "GitHubError";
     this.status = status;
     this.statusText = statusText;
+  }
+}
+
+export class GitHubTimeoutError extends GitHubError {
+  public readonly isTimeout = true;
+
+  constructor(timeoutMs: number, tokenToRedact?: string) {
+    super(
+      `Network request timed out after ${timeoutMs}ms. Please check your internet connection.`,
+      0,
+      "TIMEOUT",
+      tokenToRedact
+    );
+    this.name = "GitHubTimeoutError";
+  }
+}
+
+export class GitHubOfflineError extends GitHubError {
+  public readonly isOffline = true;
+
+  constructor(tokenToRedact?: string) {
+    super(
+      "Device is offline (network disconnected or airplane mode).",
+      0,
+      "OFFLINE",
+      tokenToRedact
+    );
+    this.name = "GitHubOfflineError";
   }
 }
 
@@ -89,6 +119,7 @@ export interface GitHubClientConfig {
   repo: string;
   branch: string;
   requestFn?: GitHubRequestFn;
+  timeoutMs?: number;
 }
 
 /**
@@ -117,6 +148,7 @@ export class GitHubClient {
   private repo: string;
   private branch: string;
   private requestFn: GitHubRequestFn;
+  private timeoutMs: number;
   private readonly baseUrl = "https://api.github.com";
 
   constructor(config: GitHubClientConfig) {
@@ -126,25 +158,61 @@ export class GitHubClient {
     this.repo = normalized.repo;
     this.branch = config.branch ? config.branch.trim() : "main";
     this.requestFn = config.requestFn || requestUrl;
+    this.timeoutMs = config.timeoutMs !== undefined ? config.timeoutMs : DEFAULT_REQUEST_TIMEOUT_MS;
   }
 
   /**
-   * Helper to perform authenticated HTTP requests to GitHub REST API with retries and token redaction.
+   * Executes an HTTP request with an application-level timeout envelope.
+   * Obsidian's requestUrl does not expose transport-level socket cancellation (AbortSignal),
+   * so this envelope returns control to the application after timeoutMs while guaranteeing:
+   * 1. Late-settling underlying promises never trigger unhandled promise rejections.
+   * 2. Late completions do not trigger callbacks or alter application state.
+   */
+  private async executeWithTimeout(
+    rawPromise: Promise<RequestUrlResponse>,
+    timeoutMs: number
+  ): Promise<RequestUrlResponse> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new GitHubTimeoutError(timeoutMs, this.token));
+      }, timeoutMs);
+    });
+
+    try {
+      return await Promise.race([rawPromise, timeoutPromise]);
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      // CRITICAL: Suppress unhandled promise rejection if the underlying socket
+      // rejects after the timeout envelope has already returned control to the caller.
+      rawPromise.catch(() => {
+        // Suppress late rejection
+      });
+    }
+  }
+
+  /**
+   * Helper to perform authenticated HTTP requests to GitHub REST API with retries,
+   * bounded timeouts, and token redaction.
    */
   private async request<T>(
     endpoint: string,
-    options?: { method?: "GET" | "POST" | "PATCH"; body?: unknown; headers?: Record<string, string> }
+    options?: {
+      method?: "GET" | "POST" | "PATCH";
+      body?: unknown;
+      headers?: Record<string, string>;
+      timeoutMs?: number;
+    }
   ): Promise<T> {
     const method = options?.method || "GET";
+    const timeoutMs = options?.timeoutMs !== undefined ? options.timeoutMs : this.timeoutMs;
 
-    // Offline preflight check
+    // Offline preflight check: Fail immediately with clear message if navigator explicitly reports offline
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      throw new GitHubError(
-        "Device is offline (network disconnected or airplane mode).",
-        0,
-        undefined,
-        this.token
-      );
+      throw new GitHubOfflineError(this.token);
     }
 
     if (!this.token) {
@@ -190,13 +258,15 @@ export class GitHubClient {
       attempt++;
 
       try {
-        const response = await this.requestFn({
+        const rawPromise = this.requestFn({
           url,
           method,
           headers,
           body: serializedBody,
           throw: false,
         });
+
+        const response = await this.executeWithTimeout(rawPromise, timeoutMs);
 
         if (response.status >= 200 && response.status < 300) {
           return response.json as T;
@@ -237,6 +307,7 @@ export class GitHubClient {
         }
         throw new GitHubError(errorMsg, response.status, undefined, this.token);
       } catch (err) {
+        // GitHubError (including GitHubTimeoutError and GitHubOfflineError) fails fast and is not retried
         if (err instanceof GitHubError) {
           throw err;
         }

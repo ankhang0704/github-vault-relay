@@ -66,9 +66,11 @@ export class SyncPreviewModal extends Modal {
       const engine = new SyncEngine(this.app, this.plugin.settings, client);
       this.report = await engine.generatePreview();
       this.isLoading = false;
+      if (!this.isModalOpen) return;
       this.renderReport();
     } catch (err) {
       this.isLoading = false;
+      if (!this.isModalOpen) return;
       const safeMsg = sanitizeErrorMessage(err);
       this.renderError(safeMsg);
       new Notice(`GitHub Vault Relay scan error: ${safeMsg}`);

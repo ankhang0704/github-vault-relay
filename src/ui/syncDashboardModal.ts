@@ -99,6 +99,7 @@ export class SyncDashboardModal extends Modal {
   }
 
   private render(): void {
+    if (!this.isModalOpen) return;
     const { contentEl } = this;
     contentEl.empty();
 

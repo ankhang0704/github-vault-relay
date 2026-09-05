@@ -212,26 +212,30 @@ export class App {
         return null;
       },
       create: async (path: string, data: string) => {
+        const now = Date.now();
         const encoded = new TextEncoder().encode(data);
-        filesMap.set(path, { content: encoded.buffer as ArrayBuffer, mtime: Date.now() });
+        filesMap.set(path, { content: encoded.buffer as ArrayBuffer, mtime: now });
         const tf = new TFile();
         tf.path = path;
-        tf.stat = { mtime: Date.now(), ctime: Date.now(), size: encoded.byteLength };
+        tf.stat = { mtime: now, ctime: now, size: encoded.byteLength };
         return tf;
       },
       createBinary: async (path: string, data: ArrayBuffer) => {
-        filesMap.set(path, { content: data, mtime: Date.now() });
+        const now = Date.now();
+        filesMap.set(path, { content: data, mtime: now });
         const tf = new TFile();
         tf.path = path;
-        tf.stat = { mtime: Date.now(), ctime: Date.now(), size: data.byteLength };
+        tf.stat = { mtime: now, ctime: now, size: data.byteLength };
         return tf;
       },
       modify: async (file: TFile, data: string) => {
+        const now = Date.now();
         const encoded = new TextEncoder().encode(data);
-        filesMap.set(file.path, { content: encoded.buffer as ArrayBuffer, mtime: Date.now() });
+        filesMap.set(file.path, { content: encoded.buffer as ArrayBuffer, mtime: now });
       },
       modifyBinary: async (file: TFile, data: ArrayBuffer) => {
-        filesMap.set(file.path, { content: data, mtime: Date.now() });
+        const now = Date.now();
+        filesMap.set(file.path, { content: data, mtime: now });
       },
       createFolder: async (path: string) => {
         const tf = new TFolder();
