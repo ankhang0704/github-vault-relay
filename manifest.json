@@ -1,7 +1,7 @@
 {
   "id": "github-vault-relay",
   "name": "GitHub Vault Relay",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "minAppVersion": "0.15.0",
   "description": "A conservative GitHub bridge for Obsidian Mobile — without running Git on the phone.",
   "author": "Vault Relay Contributors",

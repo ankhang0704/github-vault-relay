@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.1] - 2026-09-05 (Pre-release)
+
+### Added
+- **Windows Production Acceptance Verified**: Completed rigorous Hard Mode acceptance across 5 sequential batches (100 local-to-remote bulk push, 100 remote-to-local bulk pull, 11 concurrent mixed conflict scenarios, binary real-world multi-format tests, and double-sync/offline/restart reliability).
+- **Fast-forward Commit SHA for Sequential Conflict Resolution**: Automatic fast-forward of in-flight conflict records when preceding conflict resolutions advance the remote branch, preventing false staleness blocks during multi-conflict sessions.
+- **Compact Semantic Dashboard**: Default dashboard UX simplification consolidating 8 metric cards into compact, truthful semantic cards (Changes, Moves, Conflicts, Destructive banner) with zero-state clean view.
+
+### Changed
+- **File-level Remote Revalidation**: `revalidateRemoteRecord` validates the exact Git tree blob SHA for the targeted path, preventing spurious resolution aborts caused by unrelated commits on the branch.
+
 ## [0.6.0] - 2026-09-05 (Release Candidate)
 
 ### Added
