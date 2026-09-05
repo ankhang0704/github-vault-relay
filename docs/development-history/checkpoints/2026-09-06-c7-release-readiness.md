@@ -1,9 +1,9 @@
 # Checkpoint 7 (C7): Release Readiness, Empty-Repository Closure & Documentation Freeze
 
 **Date:** 2026-09-06  
-**Version:** 0.7.0  
+**Version:** 0.7.0 / 1.0.0  
 **Phase:** C7 Release Readiness & Empty-Tree Closure  
-**Status:** AUTOMATED GATES PASS | LIVE INTEGRATION PASS | VERIFIED | READY FOR REAL-DEVICE FIELD ACCEPTANCE  
+**Status:** AUTOMATED GATES PASS | LIVE INTEGRATION PASS | VERIFIED | REAL WINDOWS PASS | REAL IPHONE PASS | 1.0.0 READY  
 
 ---
 
@@ -110,8 +110,12 @@ Executed against live GitHub repository `https://github.com/ankhang0704/vault-re
   - Content & delete conflicts
   - Stale-device delete with zero resurrection
   - Binary camera photo transfer & exact byte verification.
-- **C7 Real Windows Acceptance**: `NOT RUN` (Protocol defined in `docs/MANUAL_TEST_MATRIX.md`)
-- **C7 Real iPhone Acceptance**: `NOT RUN` (Protocol defined in `docs/MANUAL_TEST_MATRIX.md`)
+- **C7 Real Windows Acceptance**: `PASS` (Verified across zero-file delete push, clean zero-state dashboard, first note creation from empty state, remote delete pull, and alternating stress cycles).
+- **C7 Real iPhone Acceptance**: `PASS` (Verified on iOS via BRAT across zero-file delete push, clean zero-state dashboard, first note creation from empty state, remote delete pull, and alternating stress cycles).
+- **C7 Overall**: `VERIFIED`
+- **C1–C7 Overall**: `VERIFIED`
+- **MVP Complete**: `YES`
+- **1.0.0 Ready**: `YES`
 
 ---
 

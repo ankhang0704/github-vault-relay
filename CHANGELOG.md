@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0] - 2026-09-06
+
+### Added
+- **First Stable Production Release (1.0.0)**: Production-ready MVP release of GitHub Vault Relay, providing conservative, two-way GitHub-backed Obsidian synchronization across Desktop (Windows, macOS, Linux) and Mobile (iOS / iPhone / iPad and Android) without running native Git on mobile.
+- **Unified Safe Sync (`[ Sync ]`)**: Single-action coordination combining planning, safe remote pulls, local replanning, and safe local pushes into a single deterministic operation.
+- **Full Filesystem Lifecycle Synchronization**: Native support for Create, Edit, Delete, and Move/Rename across all supported platforms.
+- **Single-Commit Atomic Push**: All local additions, edits, renames, and deletions in a sync batch are committed in a single atomic Git commit using GitHub's low-level Git Data API (`/git/blobs`, `/git/trees`, `/git/commits`, `/git/refs`).
+- **Binary Support & 25 MiB Safety Ceiling**: Byte-exact streaming for binary attachments (PNG, JPG, PDF, audio, canvas, etc.) without text-encoding corruption, protected by a 25 MiB per-file safety ceiling to prevent mobile memory exhaustion (iOS Jetsam).
+- **Safe Deletion & Move Ordering**: Moves batch destination creation and source deletion atomically; pulls verify destination materialization before source deletion. Deletion requires prior baseline proof.
+- **Deterministic Conflict Preservation**: Three-way conflict detection (Keep Local, Use Remote, Keep Both) ensuring zero silent overwrites or unexpected data loss.
+- **Contextual Delete Conflict Resolution**: Explicit handling when a note is deleted on one side and modified on the other (`[ Keep File ]`, `[ Delete File ]`, `[ Cancel ]`).
+- **Stale-Device Deletion Propagation**: Stale or offline devices cleanly pull remote deletions upon reconnect without resurrecting deleted files.
+- **Zero-File & Canonical Empty-Tree Convergence**: Full lifecycle support for empty repositories (0 files) using Git's canonical empty root tree SHA `4b825dc642cb6eb9a060e54bf8d69288fbee4904` and transitions back to 1+ files without synthetic placeholders (`.gitkeep`).
+- **SecretStorage Credential Security**: GitHub PAT stored strictly in Obsidian's secure `SecretStorage` (`github-vault-relay-pat`) with automated regex token redaction across all logs, toasts, and UI dialogs.
+- **Crash Recovery & Rollback Engine**: Durable journals in `.obsidian/github-vault-relay/pull-recovery/` and `delete-recovery/` with automatic rollback of interrupted operations on app launch.
+- **Atomic State Storage**: Robust `.tmp` staging and `.bak` fallbacks preventing corrupted metadata.
+- **Mutation Lease Locking**: In-memory `MutationCoordinator` preventing concurrent or reentrant sync, push, pull, or conflict operations within the Obsidian instance.
+- **Conservative History Protection**: Ref updates strictly enforce `force: false`. Remote HEAD is revalidated before push and verified authoritatively post-push.
+- **Offline & Network Resilience**: Fail-closed network behavior that aborts safely with zero vault corruption when connectivity is lost.
+
+### Limitations & Deliberate Constraints
+- **Unborn GitHub Repositories**: The target GitHub repository must have at least one initial commit and default branch before connection (standard Git constraint; Git Data API cannot construct trees or update refs on an unborn HEAD). Repositories that become empty through sync convergence (0 files) are fully supported.
+- **No Background / Real-Time Sync**: Sync runs only when explicitly triggered by the user to protect mobile battery life and eliminate unexpected commit noise.
+- **No Absolute Zero Data Loss Guarantee**: Vault Relay halts safely and preserves both versions when state is ambiguous, but cannot prevent data loss from out-of-band external Git force-pushes or host operating system compromises.
+- **No Distributed Transaction Guarantees**: Unified Sync is not a distributed two-phase commit transaction: a successful Pull is retained even if a subsequent Push fails.
+- **No Canvas 3-Way Merge**: Canvas files are synchronized as atomic units.
+- **No Empty Directory Sync**: Git tracks file paths, not directory nodes.
+
+---
+
 ## [0.7.0] - 2026-09-06 (Pre-release)
 
 ### Added

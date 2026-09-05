@@ -15,7 +15,7 @@ Welcome to the documentation repository for **GitHub Vault Relay**. This index o
 - **[System Architecture](ARCHITECTURE.md)**: Detailed system context, component diagrams, Unified Sync sequence, Safe Push Git object construction, conflict resolution state machine, and crash recovery lifecycle.
 - **[Manual Test Matrix](MANUAL_TEST_MATRIX.md)**: Executable acceptance protocol (RT-01 through RT-22) for real Windows Desktop and iOS Mobile (BRAT) testing.
 - **[Contributing Guidelines](../CONTRIBUTING.md)**: Development prerequisites, quality gate commands (`npm run verify`), safety invariants, and AI-assisted development policy.
-- **[Changelog](../CHANGELOG.md)**: Chronological version history from 0.2.0 through 0.5.0 Release Candidate.
+- **[Changelog](../CHANGELOG.md)**: Chronological version history from 0.2.0 through 1.0.0 Stable Release.
 
 ---
 

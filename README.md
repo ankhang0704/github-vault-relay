@@ -3,7 +3,7 @@
 > **A conservative, mobile-first GitHub sync bridge for Obsidian — without running Git on your phone.**
 
 [![CI](https://github.com/ankhang0704/github-vault-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/ankhang0704/github-vault-relay/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](https://github.com/ankhang0704/github-vault-relay/releases)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/ankhang0704/github-vault-relay/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 GitHub Vault Relay connects your **Obsidian Mobile (iPhone / iPad)** and **Desktop** vaults directly to your GitHub repository using GitHub's REST and Git Data APIs over HTTPS. It requires **no native Git installation, no command line tools, no isomorphic-git polyfills, and zero background daemons**.

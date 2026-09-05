@@ -2,8 +2,8 @@
 
 > **Canonical reference document for repository architecture, factual technical guarantees, portfolio narratives, and engineering verification.**  
 > **Repository:** [https://github.com/ankhang0704/github-vault-relay](https://github.com/ankhang0704/github-vault-relay)  
-> **Current Version:** `0.7.0` (Release Candidate / Pre-release)  
-> **Status:** AUTOMATED GATES PASS (450/450 tests) | C6 REAL ACCEPTANCE PASS | C7 EMPTY TREE VERIFIED | C7 REAL ACCEPTANCE PENDING  
+> **Current Version:** `1.0.0` (Stable Release)  
+> **Status:** AUTOMATED GATES PASS (450/450 tests) | C1–C7 VERIFIED | REAL WINDOWS PASS | REAL IPHONE PASS | MVP COMPLETE | 1.0.0 READY  
 
 ---
 
@@ -61,11 +61,12 @@ The following are deliberate product non-goals:
 - **Real Windows C6 Production Acceptance:** PASS (100 local->remote push, 100 remote->local pull, 11 mixed conflicts, binary batch, double-sync lock, offline/reconnect, restart, storage cleanup, final exact convergence)
 - **Real iPhone C6 Production Acceptance:** PASS (Exact BRAT build, SecretStorage persistence, mixed create/edit/delete/move both directions, content conflict, delete conflict, stale-device delete / zero resurrection, binary transfer, restart, final convergence)
 - **C7 Empty-Tree Repository Closure:** AUTOMATED PASS & LIVE INTEGRATION PASS (Canonical empty tree SHA `4b825dc642cb6eb9a060e54bf8d69288fbee4904`, 14 automated tests in `c7EmptyTree.test.ts`, 100-cycle stress test, verified live against `ankhang0704/vault-relay-acceptance`)
-- **C7 Real Windows Acceptance:** `NOT RUN` (Protocol defined in `docs/MANUAL_TEST_MATRIX.md`)
-- **C7 Real iPhone Acceptance:** `NOT RUN` (Protocol defined in `docs/MANUAL_TEST_MATRIX.md`)
-- **Current Published Release:** `0.7.0` Pre-release (Release Candidate)
+- **C7 Real Windows Acceptance:** `PASS`
+- **C7 Real iPhone Acceptance:** `PASS`
+- **C1–C7:** `VERIFIED`
+- **Current Published Release:** `1.0.0` Stable
 - **MVP Complete:** `YES` (All features, safe delete/move, and empty-tree edge case closed)
-- **1.0.0 Ready:** `NO` (Awaiting final C7 real-device acceptance signoff; 0.7.0 pre-release prepared)
+- **1.0.0 Ready:** `YES` (C1–C7 fully verified on real Windows & real iPhone; 1.0.0 stable release published)
 
 ---
 
@@ -233,8 +234,9 @@ Tested across 12 upgrade paths (`tests/c5UpgradeMigration.test.ts`):
 ## 21. Real-Device Evidence
 - **C6 Real Windows Acceptance:** `PASS` (100 local->remote push, 100 remote->local pull, 11 mixed conflicts, binary batch, double-sync lock, offline/reconnect, restart, storage cleanup, final exact convergence).
 - **C6 Real iPhone Acceptance:** `PASS` (Exact BRAT build, SecretStorage persistence, mixed create/edit/delete/move both directions, content conflict, delete conflict, stale-device delete / zero resurrection, binary transfer, restart, final convergence).
-- **C7 Real Windows Acceptance:** `NOT RUN` (Protocol defined in `docs/MANUAL_TEST_MATRIX.md`).
-- **C7 Real iPhone Acceptance:** `NOT RUN` (Protocol defined in `docs/MANUAL_TEST_MATRIX.md`).
+- **C7 Real Windows Acceptance:** `PASS` (Protocol verified across zero-file delete push, clean zero-state dashboard, first note creation from empty state, remote delete pull, and alternating stress cycles).
+- **C7 Real iPhone Acceptance:** `PASS` (Protocol verified on iOS via BRAT across zero-file delete push, clean zero-state dashboard, first note creation from empty state, remote delete pull, and alternating stress cycles).
+- **C1–C7 Real-Device Signoff:** `VERIFIED`
 
 ---
 
@@ -255,6 +257,7 @@ Tested across 12 upgrade paths (`tests/c5UpgradeMigration.test.ts`):
 - **2026-09-04:** C5 Production Hardening (Mutation lease, fail-closed mutations, pull rollback journal, 12-scenario migration matrix, 359 tests, 0.5.0 RC prerelease).
 - **2026-09-05:** C6 Safe Deletion, Exact Moves & Mobile-Safe UI Transparency (Git tree sha:null remote delete, Obsidian trash local delete, delete-recovery journal, exact-SHA move pairing, semantic summary layer suppressing move double-counting, explicit delete/move confirm/result modals, 426 tests across 40 suites, 0.6.0 RC).
 - **2026-09-06:** C7 Release Readiness & Empty-Tree Closure (Canonical empty root tree `4b825dc642cb6eb9a060e54bf8d69288fbee4904` commit handling, zero-drift empty convergence, first file creation from empty state, 450 tests across 41 suites, documentation freeze, 0.7.0 RC prerelease).
+- **2026-09-06:** 1.0.0 Stable Release published (C1–C7 real-device acceptance complete on Windows and iPhone; full MVP lifecycle verified).
 
 ---
 
@@ -281,6 +284,7 @@ GitHub Vault Relay was developed using a disciplined human-in-the-loop, AI-assis
 ### SAFE PORTFOLIO CLAIMS
 | Claim | Factual Evidence Base |
 | :--- | :--- |
+| **Production 1.0.0 Stable Release** | C1–C7 fully verified across automated suites and real-device acceptance on Windows Desktop and iOS Mobile (iPhone). |
 | **Mobile-First Git Sync Bridge without Native Git** | Communicates exclusively via HTTPS using Obsidian's `requestUrl()` API and GitHub Git Data API. |
 | **Optimistic Concurrency & History Protection** | All branch updates pass `force: false`. Remote HEAD revalidated before mutation. |
 | **Single-Commit Batching** | Each Safe Push batch commits all eligible note changes in a single atomic Git commit. |
@@ -295,8 +299,6 @@ GitHub Vault Relay was developed using a disciplined human-in-the-loop, AI-assis
 ### DO NOT CLAIM / NOT YET VERIFIED
 | Unsupported Claim | Reason | Factually Accurate Position |
 | :--- | :--- | :--- |
-| *"Production 1.0.0 Stable Release"* | C7 real-device acceptance is pending. | Currently at version `0.7.0` Release Candidate / Pre-release. |
-| *"Verified on real iPhones in C7"* | C7 automated tests and live integration passed, but C7 real iOS device test is `NOT RUN`. | C6 real iPhone acceptance PASS; C7 empty-tree real iPhone acceptance `NOT RUN`. |
 | *"Absolute Zero Data Loss Guarantee"* | External Git force-pushes or host malware can cause loss outside plugin control. | Halts safely and preserves both versions when state is ambiguous. |
 | *"Sub-10ms synchronization on all devices"* | 10ms was an in-memory mock classification benchmark. Real network latency is higher. | Bounded hash caching minimizes local file hashing. |
 | *"End-to-end two-phase transaction"* | Pull and Push are distinct sequential phases; successful Pull is kept if Push fails. | Unified sync combines Safe Pull, Re-plan, and Safe Push into one user action. |

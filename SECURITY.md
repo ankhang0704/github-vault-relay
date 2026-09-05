@@ -8,7 +8,8 @@ GitHub Vault Relay is designed with a defense-in-depth, conservative security ar
 
 | Version | Supported | Status |
 | :--- | :--- | :--- |
-| **0.7.x** | :white_check_mark: | Active Release Candidate (pre-release) |
+| **1.0.x** | :white_check_mark: | Active Stable Release |
+| **0.7.x** | :white_check_mark: | Supported pre-release |
 | **0.6.x** | :white_check_mark: | Supported pre-release |
 | **< 0.6.0** | :x: | Deprecated preview builds |
 
