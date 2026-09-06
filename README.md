@@ -58,26 +58,48 @@ To guarantee rock-solid data safety on mobile devices, the following are deliber
 
 ---
 
-## 🔑 GitHub Personal Access Token (PAT) Setup
+## 🔑 GitHub token setup
 
-### Creating a Fine-Grained PAT (Recommended)
+GitHub Vault Relay requires a GitHub fine-grained personal access token (PAT) scoped exclusively to the repository used for sync.
 
-1. Open GitHub -> **Settings** -> **Developer Settings** -> **Personal Access Tokens** -> **Fine-grained tokens**.
-2. Click **Generate new token**.
-3. Set **Token name** (e.g., `Obsidian Mobile Vault Relay`).
-4. Set **Expiration** (e.g., 90 days or 1 year).
-5. Under **Repository access**, select **Only select repositories** and pick your vault repository.
-6. Under **Repository permissions**, configure:
-   - **Contents**: `Access: Read and write` (Metadata read access is included automatically).
-7. Click **Generate token** and copy the token string (`github_pat_...`).
+### 1. Create a fine-grained token
 
-### Connection Wizard
+Navigate to the token creation page on GitHub:
+1. Open [GitHub](https://github.com).
+2. Go to **Settings** → **Developer settings** → **Personal access tokens** → **Fine-grained tokens**.
+3. Click **Generate new token**.
+4. Set a **Token name** (e.g., `Obsidian Vault Relay`) and choose an **Expiration** (e.g., 90 days or 1 year).
 
-1. Open Obsidian -> **Settings** -> **GitHub Vault Relay**.
-2. Paste your token into the **GitHub Personal Access Token** field.
-3. Click **Save & Connect**.
-4. The wizard automatically discovers your accessible repositories and branch names.
-5. Select your target repository and default branch (e.g., `main`), then close settings.
+### 2. Limit repository access
+
+Under **Repository access**:
+- Select **Only select repositories**.
+- Choose only the specific repository used by Vault Relay.
+
+### 3. Set repository permissions
+
+Under **Repository permissions**, configure the minimum required access:
+- **Contents**: `Read and write` (required to read notes, save note changes, and update branch commits).
+- **Metadata**: `Read-only` (automatically assigned by GitHub).
+- **Actions**: `No access required`.
+
+Workflows, Administration, Issues, Pull requests, and other unrelated permissions should remain disabled unless GitHub itself grants unavoidable read-only metadata access.
+
+> [!NOTE]
+> **Least Privilege:** Do not grant more permissions than listed above.
+
+### 4. Add the token to Vault Relay
+
+1. Click **Generate token** and copy the generated token string (`github_pat_...`).
+2. Open Obsidian → **Settings** → **GitHub Vault Relay**.
+3. Paste the token into the **GitHub Personal Access Token** field and click **Save & Connect**.
+4. The wizard automatically discovers accessible repositories and branches. Select your target repository and default branch (e.g., `main`), then close settings.
+
+> [!IMPORTANT]
+> **Token Security & Storage:**
+> - The token is stored securely using Obsidian `SecretStorage` (`app.secretStorage`).
+> - The token is not written into your vault notes, never stored in plugin `data.json`, and never synced.
+> - Vault Relay connects directly to GitHub's Git Data API over HTTPS and does not require Actions permission.
 
 ---
 
