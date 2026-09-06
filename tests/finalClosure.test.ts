@@ -10,7 +10,7 @@ import { sanitizeErrorMessage } from "../src/security/redact";
 const manifest: PluginManifest = {
   id: "github-vault-relay",
   name: "GitHub Vault Relay",
-  version: "1.0.4",
+  version: "1.0.5",
   minAppVersion: "1.11.4",
   description: "Test manifest",
   author: "Test",

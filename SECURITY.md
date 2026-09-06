@@ -1,6 +1,6 @@
 # Security Policy
 
-Vault Relay is a conservative GitHub bridge. The current supported release is `1.0.4`; older releases are not the active security baseline.
+Vault Relay is a conservative GitHub bridge. The current supported release is `1.0.5`; older releases are not the active security baseline.
 
 ## Credential storage
 
