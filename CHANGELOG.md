@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.1] - 2026-09-06
+
+### Changed
+- **Obsidian Community Directory Compliance**: Corrected `minAppVersion` in `manifest.json` from `0.15.0` to `1.11.4` to truthfully reflect the Obsidian runtime requirement for `App.secretStorage`.
+- **Truthful Version Mapping**: Updated `versions.json` mappings to reflect `1.11.4` minimum application version for all builds requiring `SecretStorage`.
+- **Command ID Standards**: Removed redundant plugin ID prefix from command IDs (`sync-dashboard`, `preview-sync`, `pull-safe-changes`, `push-safe-changes`, `test-connection`) to conform to Obsidian Community plugin standards.
+- **Manifest Description Formatting**: Replaced unicode em-dash with standard punctuation in `manifest.json` and `package.json` descriptions.
+- **Policy Disclosures & Licensing**: Added explicit `Network & Privacy Disclosures` and `License & Attribution` sections to `README.md` per Obsidian Developer Policies.
+
 ## [1.0.0] - 2026-09-06
 
 ### Added

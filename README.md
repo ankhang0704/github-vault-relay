@@ -3,7 +3,7 @@
 > **A conservative, mobile-first GitHub sync bridge for Obsidian — without running Git on your phone.**
 
 [![CI](https://github.com/ankhang0704/github-vault-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/ankhang0704/github-vault-relay/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/ankhang0704/github-vault-relay/releases)
+[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/ankhang0704/github-vault-relay/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 GitHub Vault Relay connects your **Obsidian Mobile (iPhone / iPad)** and **Desktop** vaults directly to your GitHub repository using GitHub's REST and Git Data APIs over HTTPS. It requires **no native Git installation, no command line tools, no isomorphic-git polyfills, and zero background daemons**.
@@ -192,6 +192,39 @@ In Git, a Move is represented as **`DELETE old_path` + `ADD new_path`**:
 - **Repository Size Limit**: Repositories returning truncated Git trees (>100,000 files) are blocked for safety.
 - **Single Repository / Branch**: Multi-repo and multi-branch concurrent sync is not supported.
 - **Unborn Repositories**: The target GitHub repository must have at least one initial commit and default branch (standard Git constraint; Git Data API cannot construct trees or update refs on an unborn HEAD). Repositories that become empty through sync convergence (0 files) are fully supported.
+
+---
+
+## 🌐 Network & Privacy Disclosures
+
+To comply with the [Obsidian Developer Policies](https://docs.obsidian.md/Developer+policies), GitHub Vault Relay explicitly discloses the following operational policies in plain language:
+
+- **GitHub Account Required**: Use of this plugin requires an active [GitHub](https://github.com) account and an accessible repository to store vault data.
+- **Remote Service Identity**: The **only** remote endpoint contacted by this plugin is GitHub's official REST and Git Data APIs at `https://api.github.com`.
+- **Purpose of Network Requests**: Network communication is initiated exclusively when you configure settings or trigger a sync operation. Requests are made to:
+  - Verify your token authentication and account identity (`/user`).
+  - Enumerate repositories and branches you select in settings (`/user/repos`, `/repos/{owner}/{repo}/branches`).
+  - Read remote Git trees and commit hashes to detect remote changes.
+  - Download note contents, canvas files, and binary attachments from GitHub (`/repos/{owner}/{repo}/git/blobs/{sha}`).
+  - Upload locally modified note contents, create Git trees, create commits, and update branch references (`/repos/{owner}/{repo}/git/refs/heads/{branch}`).
+- **Vault Data Transmitted**: When sync is triggered, the contents, paths, and binary data of notes and attachments within your vault (excluding default ignored paths such as `.obsidian/`, `.git/`, `_fit/`, and `_vault-relay/`) are sent directly over HTTPS to your chosen repository on GitHub.
+- **No Intermediary Server or Relay**: Despite the name "Relay", **there is no third-party server, cloud proxy, relay backend, or caching server operated by the plugin authors or any third party**. All communication flows directly between your Obsidian app and GitHub.
+- **No Client-Side Telemetry**: GitHub Vault Relay contains **zero client-side telemetry, zero analytics, zero usage tracking, and zero automated crash-reporting pings**.
+- **Secure Token Storage (Obsidian SecretStorage)**: Your GitHub Personal Access Token (PAT) is stored exclusively in Obsidian's native `SecretStorage` (`app.secretStorage`, key: `github-vault-relay-pat`). It is never written to disk in plaintext, never saved in plugin settings (`data.json`), never stored in `localStorage`, and never synced. All error messages, debug logs, and toast notices pass through an automated redaction layer that strips personal tokens before display.
+- **Destructive Sync Behavior & Git History Limitations**:
+  - Safe Push updates branch references using `force: false`. It never force pushes and will abort if the remote branch has advanced out-of-band.
+  - Safe Deletion only removes files when prior synchronized baseline existence evidence is present; untracked or missing baseline files are never assumed to be deleted.
+  - Files larger than 25 MiB are skipped to protect mobile devices from memory termination (iOS Jetsam).
+  - Unborn repositories without at least one initial commit cannot be targeted by the Git Data API.
+
+---
+
+## 📄 License & Attribution
+
+GitHub Vault Relay is free and open-source software licensed under the [MIT License](LICENSE) — Copyright (c) 2026 Vault Relay Contributors.
+
+### Third-Party Licenses
+This plugin is bundled with zero third-party runtime dependencies. Build-time TypeScript runtime helper routines are provided by `tslib` under the [0BSD License](https://opensource.org/licenses/0BSD).
 
 ---
 

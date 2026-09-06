@@ -65,7 +65,7 @@ export default class VaultRelayPlugin extends Plugin {
 
     // Register Primary Command: Open Sync Dashboard
     this.addCommand({
-      id: "github-vault-relay-sync-dashboard",
+      id: "sync-dashboard",
       name: "Open Sync Dashboard",
       callback: () => {
         new SyncDashboardModal(this.app, this).open();
@@ -74,7 +74,7 @@ export default class VaultRelayPlugin extends Plugin {
 
     // Backward-compatible Command: Preview Sync Status (Read-Only)
     this.addCommand({
-      id: "github-vault-relay-preview-sync",
+      id: "preview-sync",
       name: "Preview sync status (Read-Only)",
       callback: () => {
         new SyncPreviewModal(this.app, this).open();
@@ -83,7 +83,7 @@ export default class VaultRelayPlugin extends Plugin {
 
     // Backward-compatible Command: Pull Safe Remote Changes
     this.addCommand({
-      id: "github-vault-relay-pull-safe-changes",
+      id: "pull-safe-changes",
       name: "Pull safe remote changes (GitHub -> Local)",
       callback: () => {
         new PullConfirmModal(this.app, this).open();
@@ -92,7 +92,7 @@ export default class VaultRelayPlugin extends Plugin {
 
     // Backward-compatible Command: Push Safe Local Changes
     this.addCommand({
-      id: "github-vault-relay-push-safe-changes",
+      id: "push-safe-changes",
       name: "Push safe local changes (Local -> GitHub)",
       callback: () => {
         new PushConfirmModal(this.app, this).open();
@@ -101,7 +101,7 @@ export default class VaultRelayPlugin extends Plugin {
 
     // Register Command: Test GitHub Connection
     this.addCommand({
-      id: "github-vault-relay-test-connection",
+      id: "test-connection",
       name: "Test GitHub connection",
       callback: async () => {
         if (!this.settings.owner || !this.settings.repo) {
