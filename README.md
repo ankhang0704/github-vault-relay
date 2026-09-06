@@ -98,7 +98,7 @@ The source computes both the canonical storage path and the live configuration-d
 
 The plugin talks directly to `https://api.github.com` when settings are configured or a user-triggered sync/connection action runs. It has no relay server, analytics, telemetry, or crash-reporting service.
 
-Vault file paths and contents included by the configured exclusion rules are sent to the selected GitHub repository during sync. Do not put secrets in notes unless you intend to store them in that repository.
+Vault Relay enumerates vault paths and reads allowed file bytes to compare local content with the selected GitHub repository. Vault API enumeration is supplemented by Obsidian's `DataAdapter` for user dot-folders such as `.agents/` and `.vscode/`; it does not use Node/Electron filesystem APIs. The live `app.vault.configDir`, `.git/`, `.trash/`, and `_fit/` remain explicitly excluded, while user `_vault-relay/` content remains syncable. Allowed paths and contents are sent to the selected GitHub repository during sync. Do not put secrets in notes unless you intend to store them in that repository.
 
 PAT redaction is implemented by `src/security/redact.ts` and used by GitHub, storage, sync, and UI error paths. Production diagnostics pass caught errors through the sanitizer; focused closure tests also guard against direct caught-error logging.
 

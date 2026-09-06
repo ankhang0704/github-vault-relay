@@ -15,7 +15,7 @@
  * - Post-write verification before advancing baseline state.
  */
 
-import { App, TFile } from "obsidian";
+import { App } from "obsidian";
 import { GitHubClient } from "../github/githubClient";
 import { VaultRelaySettings } from "../settings";
 import { isCanonicalTextPath, canonicalizeTextBytes, prepareContentBytesForPath } from "./canonicalContent";
@@ -42,41 +42,26 @@ import {
   SyncStateData,
 } from "./syncTypes";
 import { sanitizeErrorMessage } from "../security/redact";
+import { LocalFileStore } from "./localFileStore";
 
 export class PullEngine {
   private app: App;
   private settings: VaultRelaySettings;
   private githubClient: GitHubClient;
+  private localStore: LocalFileStore;
 
   constructor(app: App, settings: VaultRelaySettings, githubClient: GitHubClient) {
     this.app = app;
     this.settings = { ...settings, excludedPaths: ensureConfigDirExcluded(settings.excludedPaths, app.vault.configDir) };
     this.githubClient = githubClient;
+    this.localStore = new LocalFileStore(app, this.settings.excludedPaths);
   }
 
   /**
    * Helper to ensure all parent directories exist in the Obsidian vault.
    */
   private async ensureParentFolderExists(filePath: string): Promise<void> {
-    const normalized = normalizePath(filePath);
-    const lastSlash = normalized.lastIndexOf("/");
-    if (lastSlash === -1) return;
-
-    const folderPath = normalized.substring(0, lastSlash);
-    const segments = folderPath.split("/");
-    let currentPath = "";
-
-    for (const segment of segments) {
-      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
-      const abstractFile = this.app.vault.getAbstractFileByPath(currentPath);
-      if (!abstractFile) {
-        try {
-          await this.app.vault.createFolder(currentPath);
-        } catch {
-          // If folder already exists or adapter handled it, continue
-        }
-      }
-    }
+    await this.localStore.ensureParentFolderExists(filePath);
   }
 
   /**
@@ -84,7 +69,7 @@ export class PullEngine {
    */
   public async scanLocalVault(): Promise<Map<string, LocalFileEntry>> {
     const localFiles = new Map<string, LocalFileEntry>();
-    const allVaultFiles = this.app.vault.getFiles();
+    const allVaultFiles = await this.localStore.listFiles();
 
     for (const file of allVaultFiles) {
       if (isPathExcluded(file.path, this.settings.excludedPaths)) {
@@ -92,14 +77,14 @@ export class PullEngine {
       }
 
       try {
-        const binaryContent = await this.app.vault.readBinary(file);
+        const binaryContent = await this.localStore.readBinary(file.path);
         const sha = await calculateCanonicalGitBlobSha(binaryContent, file.path);
 
         localFiles.set(file.path, {
           path: file.path,
           sha,
-          size: file.stat.size,
-          mtime: file.stat.mtime,
+          size: file.size,
+          mtime: file.mtime,
         });
       } catch (err) {
         console.warn(`[Vault Relay] Failed to read ${file.path}:`, sanitizeErrorMessage(err));
@@ -437,8 +422,7 @@ export class PullEngine {
           }
         }
 
-        const file = this.app.vault.getAbstractFileByPath(path);
-        if (!file) {
+        if (!(await this.localStore.exists(path))) {
           // Already absent locally. Clean obsolete baseline entry.
           delete state.files[path];
           stateModified = true;
@@ -452,20 +436,9 @@ export class PullEngine {
           continue;
         }
 
-        if (!(file instanceof TFile)) {
-          counts.failed++;
-          results.push({
-            path,
-            action: "PULL_DELETE",
-            status: "FAILED",
-            message: "Target is a directory, not a file.",
-          });
-          continue;
-        }
-
         try {
           // Pre-delete local check: has local file changed since planning?
-          const currentBytes = await this.app.vault.readBinary(file);
+          const currentBytes = await this.localStore.readBinary(path);
           const currentSha = await calculateCanonicalGitBlobSha(currentBytes, path);
           if (item.localSha && currentSha.toLowerCase() !== item.localSha.toLowerCase()) {
             // Local file was modified! Converted to conflict - DO NOT delete
@@ -489,7 +462,7 @@ export class PullEngine {
           );
 
           // Delete file via canonical Obsidian trash/vault API
-          await StorageManager.deleteVaultFile(this.app, file);
+          await StorageManager.deleteVaultFile(this.app, path);
 
           // Verify absence
           const stillExists = await this.app.vault.adapter.exists(path);
@@ -581,8 +554,7 @@ export class PullEngine {
           const expectedLocalSha = await calculateRawGitBlobSha(contentBytes);
 
           // Verify no concurrent local file creation occurred
-          const existingFile = this.app.vault.getAbstractFileByPath(path);
-          if (existingFile) {
+          if (await this.localStore.exists(path)) {
             // Divert to conflict
             const conflictPath = await this.preserveConflictCopy(
               path,
@@ -615,14 +587,13 @@ export class PullEngine {
           );
 
           // Create local file
-          await this.app.vault.createBinary(path, contentBytes.buffer);
+          await this.localStore.writeBinary(path, contentBytes.buffer);
 
           // Post-write verification
-          const writtenFile = this.app.vault.getAbstractFileByPath(path);
-          if (!(writtenFile instanceof TFile)) {
+          if (!(await this.localStore.exists(path))) {
             throw new Error("Created file not found in vault after write.");
           }
-          const verifiedBytes = await this.app.vault.readBinary(writtenFile);
+          const verifiedBytes = await this.localStore.readBinary(path);
           const verifiedLocalSha = await calculateCanonicalGitBlobSha(verifiedBytes, path);
           if (verifiedLocalSha.toLowerCase() !== expectedLocalSha.toLowerCase()) {
             throw new Error("Post-write verification failed: local content does not match the verified remote blob.");
@@ -670,13 +641,12 @@ export class PullEngine {
           const contentBytes = prepareContentBytesForPath(rawBytes, path);
           const expectedLocalSha = await calculateRawGitBlobSha(contentBytes);
 
-          const existingAbstract = this.app.vault.getAbstractFileByPath(path);
-          if (!(existingAbstract instanceof TFile)) {
+          if (!(await this.localStore.exists(path))) {
             throw new Error("Target file for update not found in local vault.");
           }
 
           // Immediate pre-write verification: Ensure local file was NOT modified since planning!
-          const currentDiskBytes = await this.app.vault.readBinary(existingAbstract);
+          const currentDiskBytes = await this.localStore.readBinary(path);
           originalBytes = currentDiskBytes.slice(0);
           const currentLocalSha = await calculateCanonicalGitBlobSha(currentDiskBytes, path);
 
@@ -712,10 +682,10 @@ export class PullEngine {
             originalBytes
           );
           writeAttempted = true;
-          await this.app.vault.modifyBinary(existingAbstract, contentBytes.buffer);
+          await this.localStore.writeBinary(path, contentBytes.buffer);
 
           // Post-write verification
-          const verifiedBytes = await this.app.vault.readBinary(existingAbstract);
+          const verifiedBytes = await this.localStore.readBinary(path);
           const verifiedLocalSha = await calculateCanonicalGitBlobSha(verifiedBytes, path);
           if (verifiedLocalSha.toLowerCase() !== expectedLocalSha.toLowerCase()) {
             throw new Error("Post-write verification failed: local content does not match the verified remote blob.");
@@ -743,10 +713,9 @@ export class PullEngine {
           let rollbackMessage = "";
           if (writeAttempted && originalBytes) {
             try {
-              const current = this.app.vault.getAbstractFileByPath(path);
-              if (!(current instanceof TFile)) throw new Error("target disappeared during rollback");
-              await this.app.vault.modifyBinary(current, originalBytes);
-              const restored = await this.app.vault.readBinary(current);
+              if (!(await this.localStore.exists(path))) throw new Error("target disappeared during rollback");
+              await this.localStore.writeBinary(path, originalBytes);
+              const restored = await this.localStore.readBinary(path);
               const restoredSha = await calculateCanonicalGitBlobSha(restored, path);
               const originalSha = await calculateCanonicalGitBlobSha(originalBytes, path);
               if (restoredSha !== originalSha) throw new Error("restored content hash mismatch");
@@ -923,9 +892,8 @@ export class PullEngine {
       const effRemoteSha = remoteSha || (await calculateRawGitBlobSha(rawBytes));
       let effLocalSha = localSha || "";
       if (!effLocalSha) {
-        const localAbstract = this.app.vault.getAbstractFileByPath(originalPath);
-        if (localAbstract instanceof TFile) {
-          const localBytes = await this.app.vault.readBinary(localAbstract);
+        if (await this.localStore.exists(originalPath)) {
+          const localBytes = await this.localStore.readBinary(originalPath);
           effLocalSha = await calculateCanonicalGitBlobSha(localBytes, originalPath);
         }
       }

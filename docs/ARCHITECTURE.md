@@ -1,6 +1,6 @@
 # GitHub Vault Relay: System Architecture
 
-This document describes the architecture that exists in the current `1.0.4` source tree. File references are the evidence; diagrams are summaries, not a redesign proposal.
+This document describes the architecture that exists in the current `1.0.5` source tree. File references are the evidence; diagrams are summaries, not a redesign proposal.
 
 ## System context
 
@@ -27,8 +27,9 @@ flowchart TD
     Unified --> Push[PushEngine]
     Pull --> Client[GitHubClient]
     Push --> Client
-    Pull --> Store[StorageManager]
-    Push --> Store
+    Pull --> LocalStore[LocalFileStore]
+    Push --> LocalStore
+    LocalStore --> Store[StorageManager]
     Conf[ConflictManager] --> Client
     Conf --> Store
     Settings[settings.ts] --> Secrets[secretStore.ts]
@@ -36,6 +37,7 @@ flowchart TD
 ```
 
 - `SyncEngine` scans local files, fetches the remote tree, and produces a preview report.
+- `LocalFileStore` combines Vault/TFile access for visible files with `DataAdapter` enumeration and byte I/O for hidden user paths.
 - `syncClassifier.ts` implements the ten `SyncCategory` states.
 - `PullEngine` applies verified remote content and remote deletion/move operations.
 - `PushEngine` creates Git objects and advances the branch safely.
@@ -124,11 +126,11 @@ Pull fetches and validates remote blobs before writes. Before changing a local f
 2. verifies the remote blob's raw SHA;
 3. canonicalizes text or preserves binary bytes;
 4. writes a recovery journal and optional original backup;
-5. writes and rereads the local file;
+5. writes and rereads the local file through Vault APIs or `DataAdapter`, according to path visibility;
 6. updates `state.json` only when verification permits it;
 7. removes recovery evidence after durable state handling.
 
-For remote deletion, `StorageManager.beginDeleteRecovery()` snapshots and verifies the original bytes before `app.fileManager.trashFile()` runs. For an exact-SHA move, the destination is written and verified before the source is removed.
+For remote deletion, `StorageManager.beginDeleteRecovery()` snapshots and verifies the original bytes before trash runs. Visible files use `app.fileManager.trashFile()`; hidden files use `DataAdapter.trashLocal()` and never fall back to destructive hard delete. For an exact-SHA move, the destination is written and verified before the source is removed.
 
 ## Safe Push and optimistic concurrency
 
@@ -172,7 +174,7 @@ delete-recovery/
 
 State and metadata use `.tmp` staging and `.bak` fallback recovery. Startup runs legacy migration, atomic-file recovery, interrupted Pull recovery, interrupted Delete recovery, and orphan conflict cleanup.
 
-`StorageManager` and all scan/filter flows use the live `app.vault.configDir`. The `.obsidian` value in `pathFilter.ts` is only a fallback for utility calls without an `App`; runtime settings and engine constructors always add the active config directory.
+`StorageManager` and all scan/filter flows use the live `app.vault.configDir`. The `.obsidian` value in `pathFilter.ts` is only a fallback for utility calls without an `App`; runtime settings and engine constructors always add the active config directory. The positive reserved policy excludes the live config directory, `.git/`, `.trash/`, and `_fit/`; `.agents/`, `.vscode/`, other user dot-folders, and `_vault-relay/` are syncable.
 
 ## Network and security boundaries
 
@@ -186,4 +188,4 @@ State and metadata use `.tmp` staging and `.bak` fallback recovery. Startup runs
 
 ## Community compatibility in the current source
 
-`settings.ts` exposes declarative setting definitions for Obsidian `>=1.13.0` and retains synchronous `display()` compatibility for the manifest minimum `1.11.4`. Runtime feature detection is used for newer button styling APIs. The source tests document these compatibility choices; they do not change the sync model.
+`settings.ts` exposes declarative setting definitions for Obsidian `>=1.13.0`, including a rendered asynchronous repository selector and `visible`-guarded Advanced Settings, and retains synchronous `display()` compatibility for the manifest minimum `1.11.4`. Runtime feature detection is used for newer button styling APIs. The source tests document these compatibility choices; they do not change the sync model.

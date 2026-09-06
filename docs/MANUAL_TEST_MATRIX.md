@@ -1,23 +1,34 @@
 # GitHub Vault Relay: Real-Device Manual Acceptance Test Matrix
 
 > **Executable Protocol for Real Runtime Acceptance of the current release**
-> **Target Release:** `1.0.4` Stable Release
+> **Target Release:** `1.0.5` Stable Release
 > **Build Identity:**  
-> - Version: `1.0.4`
-> - `main.js` Length: 169,912 bytes
-> - `main.js` SHA-256: `917683089E5FDB8B049D6D4A13FE66C15362054890B93B82A2B37101391AD86B`
-> - `manifest.json` Length: 350 bytes  
-> - `manifest.json` SHA-256: `397FFB59B787457F70A7A939ADDD5F934C3E34DCAEE835C2B184388826AC8488`
-> - `styles.css` Length: 4,222 bytes  
-> - `styles.css` SHA-256: `BF3B1FA38D46DA8B21E677C443A07520C5C7152E74F9C76CFAEAF2F169CB9EAB`  
-> **Automated baseline:** `npm run verify` PASS on 2026-09-06; 43 test files / 473 passing tests.
-> **Real-device baseline:** `NOT RUN` in this canonical matrix. Do not infer Windows/iOS PASS from automated tests.
+> - Version: `1.0.5`
+> - `main.js` Length: 174,203 bytes
+> - `main.js` SHA-256: `EA394047EBE981DE65C143A361FDAA9CEF32EC82B24411B1F44A2E9E49B6C9CC`
+> - `manifest.json` Length: 350 bytes
+> - `manifest.json` SHA-256: `21A918F9EFF960A7121D8E923FB036EDD53BD9B2B3244513E22C70D4D2005B1E`
+> - `styles.css` Length: 4,222 bytes
+> - `styles.css` SHA-256: `BF3B1FA38D46DA8B21E677C443A07520C5C7152E74F9C76CFAEAF2F169CB9EAB`
+> **Automated baseline:** `npm run verify` PASS on 2026-09-06; 44 test files / 478 passing tests.
+> **Real-device release-gate baseline:** PASS — Windows settings, hidden paths, normal files, and restart; iPhone settings, hidden paths, normal files, and force-close/restart.
+
+## 1.0.5 Release-Gate Physical Sign-Off
+
+The maintainer reported the following physical acceptance results for the exact 1.0.5 regression recovery build:
+
+| Platform | Settings | Hidden paths | Normal files | Restart behavior | Overall |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Windows / Obsidian Desktop | PASS | PASS | PASS | PASS | PASS |
+| iPhone / Obsidian Mobile | PASS | PASS | PASS | PASS | PASS |
+
+This records the supplied acceptance truth. Device model, OS build, and timestamp details were not included in the release request.
 
 ---
 
 ## Final Product Closure Checklist (maintainer execution required)
 
-Run these five scenarios on a real iPhone with Obsidian Mobile and record the evidence below. These rows intentionally remain `NOT RUN` until the maintainer provides device results.
+Run these five scenarios on a real iPhone with Obsidian Mobile and record the evidence below. The targeted 1.0.5 release-gate sign-off above is complete; rows below remain `NOT RUN` unless explicitly executed and recorded.
 
 | ID | Scenario | Expected evidence | Status |
 | :--- | :--- | :--- | :--- |
@@ -63,7 +74,7 @@ Execute this focused UI validation first before resuming runtime acceptance:
 
 | ID | Test Scenario | Precondition | Action | Expected Result | Actual Result | Status | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **RT-01** | Install/update exact 1.0.4 release | Clean test vault or earlier version | Copy `main.js`, `manifest.json`, `styles.css` to `<configDir>/plugins/github-vault-relay/`; enable plugin | Plugin loads with version 1.0.4 and minimum Obsidian version 1.11.4; console has zero fatal errors; SHA-256 matches build identity | | **NOT RUN** | |
+| **RT-01** | Install/update exact 1.0.5 release | Clean test vault or earlier version | Copy `main.js`, `manifest.json`, `styles.css` to `<configDir>/plugins/github-vault-relay/`; enable plugin | Plugin loads with version 1.0.5 and minimum Obsidian version 1.11.4; console has zero fatal errors; SHA-256 matches build identity | | **NOT RUN** | |
 | **RT-02** | Connection / PAT persistence | Test GitHub repo with fine-grained PAT | Enter PAT in Settings -> Connection Wizard; click **Save & Connect** | Repositories and branches discovered; repo selected; PAT stored in SecretStorage; restarts without re-prompting | | **NOT RUN** | |
 | **RT-03** | Remote-only Pull | A new note `remote-sample.md` created directly on GitHub | Open Sync Dashboard -> Click **Sync** (or Safe Pull) | Note is downloaded to local vault; content is byte/LF identical; classified as `UNCHANGED` on subsequent scan | | **NOT RUN** | |
 | **RT-04** | Local-only Push | A new note `local-sample.md` created in Obsidian vault | Open Sync Dashboard -> Click **Sync** | Single Git commit created on GitHub; branch ref updated (`force: false`); file appears on GitHub | | **NOT RUN** | |
@@ -102,7 +113,7 @@ Execute this focused UI validation first before resuming runtime acceptance:
 
 | ID | Test Scenario | Precondition | Action | Expected Result | Actual Result | Status | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **RT-01** | Install exact 1.0.4 release via BRAT | Obsidian on iOS with BRAT installed | BRAT -> Add Beta Plugin -> `https://github.com/ankhang0704/github-vault-relay` | BRAT downloads release 1.0.4 assets; plugin enables cleanly on iPhone | | **NOT RUN** | |
+| **RT-01** | Install exact 1.0.5 release via BRAT | Obsidian on iOS with BRAT installed | BRAT -> Add Beta Plugin -> `https://github.com/ankhang0704/github-vault-relay` | BRAT downloads release 1.0.5 assets; plugin enables cleanly on iPhone | | **NOT RUN** | |
 | **RT-02** | Connection / PAT persistence | Mobile vault | Paste fine-grained PAT; click **Save & Connect** | Discovers repos/branches; token stored by Obsidian SecretStorage; survives iOS app restart | | **NOT RUN** | |
 | **RT-03** | Remote-only Pull | Note created on GitHub | Open Sync Dashboard -> Tap **Sync** | Note downloaded to iPhone; displays properly in Obsidian Mobile | | **NOT RUN** | |
 | **RT-04** | Local-only Push | Note written on iPhone | Open Sync Dashboard -> Tap **Sync** | Single Git commit pushed to GitHub over cellular/Wi-Fi; ref updated safely | | **NOT RUN** | |
@@ -157,4 +168,4 @@ Execute this focused UI validation first before resuming runtime acceptance:
 
 All rows above start as `NOT RUN`. A maintainer may replace a row's status only after recording the device, Obsidian version, build identity, timestamp, actual result, and notes.
 
-Automated tests cover the implementation; they do not sign off Windows or iOS behavior. The current canonical status is therefore **real-device acceptance: NOT RUN**.
+Automated tests cover the implementation; they do not replace physical acceptance. The canonical 1.0.5 release-gate status is **real-device acceptance: PASS** for the eight supplied platform/category checks above. Rows not included in that sign-off remain **NOT RUN**.

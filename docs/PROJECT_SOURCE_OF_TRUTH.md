@@ -7,15 +7,15 @@ This is the current factual reference for Vault Relay. When this document confli
 | Fact | Canonical value | Evidence |
 | :--- | :--- | :--- |
 | Plugin/package | `github-vault-relay` | `manifest.json`, `package.json` |
-| Release | `1.0.4` | `manifest.json`, `package.json`, Git tag `1.0.4` after release |
+| Release | `1.0.5` | `manifest.json`, `package.json`, Git tag `1.0.5` after release |
 | Minimum Obsidian version | `1.11.4` | `manifest.json`, `tests/manifest.test.ts` |
 | Mobile | Supported; `isDesktopOnly: false` | `manifest.json`, `tests/manifest.test.ts` |
 | Remote service | GitHub REST/Git Data API over HTTPS | `src/github/githubClient.ts` |
-| Test files | `43` | `tests/*.test.ts`, current `vitest run` output |
-| Passing tests | `473` | current `vitest run` output |
+| Test files | `44` | `tests/*.test.ts`, current `vitest run` output |
+| Passing tests | `478` | current `vitest run` output |
 | Quality gate | `PASS` (`npm run verify`, 2026-09-06) | `package.json`, local gate run |
 
-`main.js` is a generated, ignored build artifact. The current production build identity is recorded by the verification run and should be regenerated rather than hand-edited. The manual matrix records the matching release asset hashes for reproducible device testing.
+`main.js` is a generated, ignored build artifact. The current production build identity is recorded by the verification run and should be regenerated rather than hand-edited. The manual matrix records the matching 1.0.5 release asset hashes for reproducible device testing.
 
 ## Product boundary
 
@@ -27,7 +27,7 @@ Non-goals are background/scheduled sync, sync-on-save, fuzzy rename inference, e
 
 The main flow is:
 
-1. `SyncEngine` inventories local files and reads the remote branch/tree.
+1. `SyncEngine` inventories visible Vault files and adapter-enumerated hidden user files, then reads the remote branch/tree.
 2. `syncClassifier.ts` compares local entries, remote blobs, and `state.json`.
 3. `PullEngine` applies safe remote changes with blob verification and recovery journals.
 4. `UnifiedSyncEngine` rescans after Pull.
@@ -65,7 +65,7 @@ Without a baseline entry, a missing file is deliberately treated as `LOCAL_ONLY`
 
 ## Safe Pull
 
-`PullEngine` fetches the remote branch/tree, filters unsafe or excluded paths, classifies changes, downloads verified blobs, and applies only eligible changes. Text is written in canonical LF form; binary content is byte-exact. Existing local content is checked before overwrite. Pull writes are journaled under `pull-recovery/`; remote deletions are snapshotted under `delete-recovery/` and routed through `app.fileManager.trashFile()`.
+`PullEngine` fetches the remote branch/tree, filters unsafe or excluded paths, classifies changes, downloads verified blobs, and applies only eligible changes. Visible files use the Vault/TFile API; hidden user paths use `app.vault.adapter`. Text is written in canonical LF form; binary content is byte-exact. Existing local content is checked before overwrite. Pull writes are journaled under `pull-recovery/`; visible deletions use `app.fileManager.trashFile()`, while hidden deletions use adapter trash only after recovery evidence is verified.
 
 For an exact-SHA remote move, the destination is materialized and verified before the source is removed. If destination materialization fails, the source remains.
 
@@ -93,7 +93,7 @@ It contains `state.json`, `conflicts_meta.json`, conflict payloads, `pull-recove
 
 `StorageManager.migrateLegacyStorage()` handles legacy root `_vault-relay/` state, intermediate `${configDir}/vault-relay/`, and the intermediate plugin directory. Root `_vault-relay/` user files are preserved as normal content. State writes use `.tmp` and `.bak` recovery paths.
 
-Custom configuration directories are covered end-to-end: settings loading and migration, parsed/user rules, local scans, remote tree filtering, path validation through active exclusions, and all sync engine constructors ensure `${app.vault.configDir}/` is excluded. The module-level `.obsidian` value remains only the fallback for pure utility callers that do not have an Obsidian `App`.
+Custom configuration directories are covered end-to-end: settings loading and migration, parsed/user rules, local scans, remote tree filtering, path validation through active exclusions, and all sync engine constructors ensure `${app.vault.configDir}/` is excluded. The explicit reserved exclusions are the live config directory, `.git/`, `.trash/`, and `_fit/`; `.agents/`, `.vscode/`, other user dot-folders, and `_vault-relay/` remain syncable. The module-level `.obsidian` value remains only the fallback for pure utility callers that do not have an Obsidian `App`.
 
 ## Secret and network model
 
@@ -109,9 +109,9 @@ The canonical executable gate is:
 npm run verify
 ```
 
-It runs ESLint with zero warnings, TypeScript typechecking, Vitest, and the production build. Current automated test evidence is 43 files and 473 passing tests. Historical checkpoint totals in `docs/development-history/` and older Changelog entries are snapshots, not current totals.
+It runs ESLint with zero warnings, TypeScript typechecking, Vitest, and the production build. Current automated test evidence is 44 files and 478 passing tests. Historical checkpoint totals in `docs/development-history/` and older Changelog entries are snapshots, not current totals.
 
-The current manual acceptance matrix is a protocol. Its device rows must remain `NOT RUN` until a real Windows/iOS run is recorded; automated tests do not prove real-device acceptance.
+The current manual acceptance matrix records the 1.0.5 release-gate result: Windows settings, hidden paths, normal files, and restart PASS; iPhone settings, hidden paths, normal files, and force-close/restart PASS. Any matrix row not explicitly included in that sign-off remains `NOT RUN`; automated tests do not replace physical acceptance.
 
 ## Ownership and AI-assisted engineering
 
@@ -121,4 +121,4 @@ Engineering work was AI-assisted: architecture exploration, implementation/refac
 
 ## Closure status
 
-The two code-level closure findings are resolved and covered by focused tests: the live config directory is excluded throughout the sync path, and caught errors/error-like diagnostic objects are sanitized before production logging or user-facing diagnostics. Real-device acceptance remains `NOT RUN` until the maintainer executes the short iPhone/Obsidian checklist in `MANUAL_TEST_MATRIX.md`.
+The 1.0.5 regression findings are resolved and covered by focused tests: declarative settings preserve repository selection and advanced visibility, hidden user paths use the adapter-backed inventory/storage path, the live config directory and reserved paths remain excluded, and hidden deletion retains recovery evidence. The maintainer-recorded Windows and iPhone release-gate acceptance is PASS as summarized in `docs/MANUAL_TEST_MATRIX.md`.

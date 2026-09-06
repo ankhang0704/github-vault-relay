@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*", "1.*"]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tagged version
+        shell: bash
+        run: |
+          test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
+          test "$(node -p "require('./manifest.json').version")" = "$(node -p "require('./package.json').version")"
+
+      - name: Run quality gates and build
+        run: npm run verify
+
+      - name: Attest exact release assets
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            main.js
+            styles.css
+            manifest.json
+
+      - name: Record release asset hashes
+        run: sha256sum main.js styles.css manifest.json
+
+      - name: Create release from exact attested assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" main.js manifest.json styles.css --title "$GITHUB_REF_NAME" --generate-notes
+
+      - name: Verify exact local release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh attestation verify main.js -R "$GITHUB_REPOSITORY"
+          gh attestation verify styles.css -R "$GITHUB_REPOSITORY"
+          gh attestation verify manifest.json -R "$GITHUB_REPOSITORY"

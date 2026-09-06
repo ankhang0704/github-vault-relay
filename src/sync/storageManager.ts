@@ -20,6 +20,7 @@ import { createEmptyState, deserializeState, serializeState } from "./syncState"
 import { getDefaultExclusions, normalizePath } from "./pathFilter";
 import { validatePathSafety } from "./pathSafety";
 import { sanitizeErrorMessage } from "../security/redact";
+import { LocalFileStore, usesAdapter } from "./localFileStore";
 
 export const PLUGIN_ID = "github-vault-relay";
 export const LEGACY_ROOT_DIR = "_vault-relay";
@@ -281,6 +282,7 @@ export class StorageManager {
     }
 
     const listing = await app.vault.adapter.list(recoveryDir);
+    const localStore = new LocalFileStore(app, getDefaultExclusions(app.vault.configDir));
     const journalPaths = listing.files.filter((path) => path.endsWith(".json"));
     const state = await this.loadState(app);
     const cleanupAfterStateSave: string[] = [];
@@ -298,9 +300,8 @@ export class StorageManager {
           throw new Error("Invalid recovery journal.");
         }
 
-        const current = app.vault.getAbstractFileByPath(record.path);
-        if (current instanceof TFile) {
-          const currentBytes = await app.vault.readBinary(current);
+        if (await localStore.exists(record.path)) {
+          const currentBytes = await localStore.readBinary(record.path);
           const currentSha = await calculateCanonicalGitBlobSha(currentBytes, record.path);
           if (currentSha === record.expectedLocalSha) {
             state.files[record.path] = {
@@ -330,15 +331,8 @@ export class StorageManager {
         const backupSha = await calculateCanonicalGitBlobSha(backup, record.path);
         if (backupSha !== record.originalLocalSha) throw new Error("Recovery backup hash mismatch.");
 
-        const target = app.vault.getAbstractFileByPath(record.path);
-        if (target instanceof TFile) {
-          await app.vault.modifyBinary(target, backup);
-        } else {
-          await app.vault.createBinary(record.path, backup);
-        }
-        const restored = app.vault.getAbstractFileByPath(record.path);
-        if (!(restored instanceof TFile)) throw new Error("Recovered file is missing.");
-        const restoredSha = await calculateCanonicalGitBlobSha(await app.vault.readBinary(restored), record.path);
+        await localStore.writeBinary(record.path, backup);
+        const restoredSha = await calculateCanonicalGitBlobSha(await localStore.readBinary(record.path), record.path);
         if (restoredSha !== record.originalLocalSha) throw new Error("Recovered file hash mismatch.");
         rolledBack++;
         cleanupImmediately.push(journalPath);
@@ -446,8 +440,24 @@ export class StorageManager {
    * Safely deletes a file from the vault, respecting the user's Obsidian trash preference
    * via app.fileManager.trashFile.
    */
-  public static async deleteVaultFile(app: App, file: TFile): Promise<void> {
-    await app.fileManager.trashFile(file);
+  public static async deleteVaultFile(app: App, fileOrPath: TFile | string): Promise<void> {
+    if (fileOrPath instanceof TFile) {
+      await app.fileManager.trashFile(fileOrPath);
+      return;
+    }
+
+    const safePath = validatePathSafety(fileOrPath, getDefaultExclusions(app.vault.configDir));
+    if (!safePath.valid) throw new Error(`Unsafe local delete path: ${safePath.reason}`);
+    if (!usesAdapter(safePath.normalizedPath)) {
+      const file = app.vault.getAbstractFileByPath(safePath.normalizedPath);
+      if (!(file instanceof TFile)) throw new Error(`Local file is missing: ${safePath.normalizedPath}`);
+      await app.fileManager.trashFile(file);
+      return;
+    }
+
+    // DataAdapter.trashLocal preserves the user's vault-trash semantics without
+    // requiring a TFile. There is deliberately no destructive remove fallback.
+    await app.vault.adapter.trashLocal(safePath.normalizedPath);
   }
 
   public static async recoverInterruptedDeletes(
@@ -459,6 +469,7 @@ export class StorageManager {
     }
 
     const listing = await app.vault.adapter.list(recoveryDir);
+    const localStore = new LocalFileStore(app, getDefaultExclusions(app.vault.configDir));
     const journalPaths = listing.files.filter((path) => path.endsWith(".json"));
     const state = await this.loadState(app);
     const cleanupImmediately: string[] = [];
@@ -475,7 +486,7 @@ export class StorageManager {
         }
 
         const isStillInState = !!state.files[record.path];
-        const fileOnDisk = app.vault.getAbstractFileByPath(record.path);
+        const fileOnDisk = await localStore.exists(record.path);
 
         if (!isStillInState) {
           // COMMITTED DELETE: Baseline was already successfully updated to prune this path.
@@ -497,7 +508,7 @@ export class StorageManager {
             const backup = await app.vault.adapter.readBinary(normalizedBackup);
             const backupSha = await calculateCanonicalGitBlobSha(backup, record.path);
             if (backupSha === record.originalSha) {
-              await app.vault.createBinary(record.path, backup);
+              await localStore.writeBinary(record.path, backup);
               restored++;
               cleanupImmediately.push(journalPath);
               continue;
@@ -505,8 +516,8 @@ export class StorageManager {
           }
         } else {
           // Crash occurred before local delete was executed
-          if (fileOnDisk instanceof TFile) {
-            const diskBytes = await app.vault.readBinary(fileOnDisk);
+          if (fileOnDisk) {
+            const diskBytes = await localStore.readBinary(record.path);
             const diskSha = await calculateCanonicalGitBlobSha(diskBytes, record.path);
             if (diskSha === record.originalSha) {
               // Local file is completely intact. Delete was never executed.
@@ -526,8 +537,8 @@ export class StorageManager {
           ) {
             const backup = await app.vault.adapter.readBinary(normalizedBackup);
             const backupSha = await calculateCanonicalGitBlobSha(backup, record.path);
-            if (backupSha === record.originalSha && fileOnDisk instanceof TFile) {
-              await app.vault.modifyBinary(fileOnDisk, backup);
+            if (backupSha === record.originalSha && fileOnDisk) {
+              await localStore.writeBinary(record.path, backup);
               restored++;
               cleanupImmediately.push(journalPath);
               continue;
@@ -832,6 +843,7 @@ export class StorageManager {
    */
   public static async migrateLegacyStorage(app: App): Promise<{ migrated: boolean; error?: string }> {
     try {
+      const localStore = new LocalFileStore(app, getDefaultExclusions(app.vault.configDir));
       await this.recoverAtomicStorage(app);
       const canonicalDir = this.getPluginStorageDir(app);
       const canonicalConflictsDir = this.getConflictsDirPath(app);
@@ -1155,9 +1167,8 @@ export class StorageManager {
               const migratedBytes = new Uint8Array(await app.vault.adapter.readBinary(dest));
               const remoteSha = await calculateRawGitBlobSha(migratedBytes);
               let localSha = "";
-              const localFile = app.vault.getAbstractFileByPath(originalPath);
-              if (localFile instanceof TFile) {
-                const localBytes = await app.vault.readBinary(localFile);
+              if (await localStore.exists(originalPath)) {
+                const localBytes = await localStore.readBinary(originalPath);
                 localSha = await calculateCanonicalGitBlobSha(localBytes, originalPath);
               }
 

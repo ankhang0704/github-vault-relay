@@ -5,10 +5,24 @@ All notable changes to GitHub Vault Relay will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current repository evidence is 43 test files and 473 passing tests; `npm run verify` passed locally on 2026-09-06. Test totals in older release entries are historical snapshots from those releases, not current totals.
+Current repository evidence is 44 test files and 478 passing tests; `npm run verify` passed locally on 2026-09-06. Test totals in older release entries are historical snapshots from those releases, not current totals.
 Paths and implementation details in older entries are historical release snapshots; the current internal path is `${app.vault.configDir}/github-vault-relay/`.
 
 ---
+
+## [1.0.5] - 2026-09-06
+
+### Fixed
+- **Settings Regression Recovery**: Restored the Obsidian >=1.13 declarative repository selector with loading, empty, error, and token-missing states while preserving saved values; restored Advanced Settings expand/collapse visibility with the legacy `display()` path retained for Obsidian 1.11.4–1.12.x.
+- **Hidden User Dot-Folders**: Added an adapter-backed local file store so user folders such as `.agents/`, `.vscode/`, and other dot-prefixed folders are enumerated, read, written, moved, and verified on mobile and desktop.
+- **Hidden Delete Recovery**: Hidden-file deletion uses `DataAdapter.trashLocal()` only after durable recovery evidence is written and verified; no destructive hard-delete fallback is used.
+- **Reserved Path Policy**: The live `app.vault.configDir`, `.git/`, `.trash/`, and `_fit/` remain excluded; `_vault-relay/` remains normal syncable user content.
+
+### Verification
+- `npm run verify`: PASS — 44 test files, 478 tests passing.
+- Physical release-gate acceptance: Windows settings, hidden paths, normal files, and restart PASS; iPhone settings, hidden paths, normal files, and force-close/restart PASS.
+- Vault Enumeration recommendation: accepted as required sync behavior.
+- `display()` recommendation: accepted as intentional backward compatibility for the manifest minimum.
 
 ## [1.0.4] - 2026-09-06
 

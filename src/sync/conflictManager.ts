@@ -7,7 +7,7 @@
  * - Keep Both: preserves local note untouched and saves remote version as a conflict copy.
  */
 
-import { App, TFile } from "obsidian";
+import { App } from "obsidian";
 import { GitHubClient } from "../github/githubClient";
 import { VaultRelaySettings } from "../settings";
 import { StorageManager } from "./storageManager";
@@ -18,6 +18,7 @@ import { sanitizeErrorMessage } from "../security/redact";
 import { prepareContentBytesForPath } from "./canonicalContent";
 import { validatePathSafety } from "./pathSafety";
 import { ensureConfigDirExcluded } from "./pathFilter";
+import { LocalFileStore } from "./localFileStore";
 import {
   acquireMutationLease,
   getActiveMutationLabel,
@@ -54,11 +55,13 @@ export class ConflictManager {
   private githubClient: GitHubClient;
   private inFlightResolutions: Set<string> = new Set();
   private resolvedRecordIds: Set<string> = new Set();
+  private localStore: LocalFileStore;
 
   constructor(app: App, settings: VaultRelaySettings, githubClient: GitHubClient) {
     this.app = app;
     this.settings = { ...settings, excludedPaths: ensureConfigDirExcluded(settings.excludedPaths, app.vault.configDir) };
     this.githubClient = githubClient;
+    this.localStore = new LocalFileStore(app, this.settings.excludedPaths);
   }
 
   public isResolving(path: string): boolean {
@@ -390,15 +393,14 @@ export class ConflictManager {
       if (!safety.valid) {
         return { success: false, message: `Conflict path is unsafe: ${safety.reason}` };
       }
-      const file = this.app.vault.getAbstractFileByPath(record.path);
-      if (!(file instanceof TFile)) {
+      if (!(await this.localStore.exists(record.path))) {
         return {
           success: false,
           message: "Local file was removed since conflict was reviewed. Aborted to prevent data loss.",
         };
       }
-      const currentBytes = await this.app.vault.readBinary(file);
-      const currentLocalSha = await calculateCanonicalGitBlobSha(currentBytes, file.path);
+      const currentBytes = await this.localStore.readBinary(record.path);
+      const currentLocalSha = await calculateCanonicalGitBlobSha(currentBytes, record.path);
       if (currentLocalSha.toLowerCase() !== record.localSha.toLowerCase()) {
         return {
           success: false,
@@ -424,11 +426,10 @@ export class ConflictManager {
       );
 
       try {
-        await this.app.vault.modifyBinary(file, bytes.buffer);
-        const verifiedFile = this.app.vault.getAbstractFileByPath(record.path);
-        if (!(verifiedFile instanceof TFile)) throw new Error("Local file is missing after write.");
+        await this.localStore.writeBinary(record.path, bytes.buffer);
+        if (!(await this.localStore.exists(record.path))) throw new Error("Local file is missing after write.");
         const verifiedSha = await calculateCanonicalGitBlobSha(
-          await this.app.vault.readBinary(verifiedFile),
+          await this.localStore.readBinary(record.path),
           record.path
         );
         if (verifiedSha !== expectedLocalSha) {
@@ -436,11 +437,10 @@ export class ConflictManager {
         }
       } catch (err) {
         try {
-          const rollbackTarget = this.app.vault.getAbstractFileByPath(record.path);
-          if (rollbackTarget instanceof TFile) {
-            await this.app.vault.modifyBinary(rollbackTarget, currentBytes);
+          if (await this.localStore.exists(record.path)) {
+            await this.localStore.writeBinary(record.path, currentBytes);
             const rollbackSha = await calculateCanonicalGitBlobSha(
-              await this.app.vault.readBinary(rollbackTarget),
+              await this.localStore.readBinary(record.path),
               record.path
             );
             if (rollbackSha === currentLocalSha) {
@@ -464,11 +464,10 @@ export class ConflictManager {
         await StorageManager.saveState(this.app, state);
       } catch (err) {
         try {
-          const rollbackTarget = this.app.vault.getAbstractFileByPath(record.path);
-          if (rollbackTarget instanceof TFile) {
-            await this.app.vault.modifyBinary(rollbackTarget, currentBytes);
+          if (await this.localStore.exists(record.path)) {
+            await this.localStore.writeBinary(record.path, currentBytes);
             const rollbackSha = await calculateCanonicalGitBlobSha(
-              await this.app.vault.readBinary(rollbackTarget),
+              await this.localStore.readBinary(record.path),
               record.path
             );
             if (rollbackSha === currentLocalSha) {
@@ -527,14 +526,13 @@ export class ConflictManager {
       if (!safety.valid) {
         return { success: false, message: `Conflict path is unsafe: ${safety.reason}` };
       }
-      const file = this.app.vault.getAbstractFileByPath(record.path);
-      if (!(file instanceof TFile)) {
+      if (!(await this.localStore.exists(record.path))) {
         return {
           success: false,
           message: "Local file was removed since conflict was reviewed. Refresh conflicts before resolving.",
         };
       }
-      const currentBytes = await this.app.vault.readBinary(file);
+      const currentBytes = await this.localStore.readBinary(record.path);
       const currentLocalSha = await calculateCanonicalGitBlobSha(currentBytes, record.path);
       if (currentLocalSha.toLowerCase() !== record.localSha.toLowerCase()) {
         return {
@@ -564,28 +562,24 @@ export class ConflictManager {
       let copyPath = `${base} (remote conflict ${dateStr})${ext}`;
       let suffix = 1;
       let copyAlreadyExists = false;
-      while (this.app.vault.getAbstractFileByPath(copyPath)) {
-        const existing = this.app.vault.getAbstractFileByPath(copyPath);
-        if (existing instanceof TFile) {
-          const existingBytes = new Uint8Array(await this.app.vault.readBinary(existing));
-          if (
-            existingBytes.byteLength === bytes.byteLength &&
-            existingBytes.every((byte, index) => byte === bytes[index])
-          ) {
-            copyAlreadyExists = true;
-            break;
-          }
+      while (await this.localStore.exists(copyPath)) {
+        const existingBytes = new Uint8Array(await this.localStore.readBinary(copyPath));
+        if (
+          existingBytes.byteLength === bytes.byteLength &&
+          existingBytes.every((byte, index) => byte === bytes[index])
+        ) {
+          copyAlreadyExists = true;
+          break;
         }
         copyPath = `${base} (remote conflict ${dateStr}_${suffix})${ext}`;
         suffix++;
       }
 
       if (!copyAlreadyExists) {
-        await this.app.vault.createBinary(copyPath, bytes.buffer);
+        await this.localStore.writeBinary(copyPath, bytes.buffer);
       }
-      const verifiedCopy = this.app.vault.getAbstractFileByPath(copyPath);
-      if (!(verifiedCopy instanceof TFile)) throw new Error("Remote conflict copy is missing after write.");
-      const verifiedBytes = new Uint8Array(await this.app.vault.readBinary(verifiedCopy));
+      if (!(await this.localStore.exists(copyPath))) throw new Error("Remote conflict copy is missing after write.");
+      const verifiedBytes = new Uint8Array(await this.localStore.readBinary(copyPath));
       if (
         verifiedBytes.byteLength !== bytes.byteLength ||
         !verifiedBytes.every((byte, index) => byte === bytes[index])
@@ -658,19 +652,13 @@ export class ConflictManager {
         const bytes = prepareContentBytesForPath(remoteBytes, record.path);
         const expectedLocalSha = await calculateCanonicalGitBlobSha(bytes, record.path);
 
-        const existingFile = this.app.vault.getAbstractFileByPath(record.path);
-        if (existingFile instanceof TFile) {
-          await this.app.vault.modifyBinary(existingFile, bytes.buffer);
-        } else {
-          await this.app.vault.createBinary(record.path, bytes.buffer);
-        }
+        await this.localStore.writeBinary(record.path, bytes.buffer);
 
-        const verifiedFile = this.app.vault.getAbstractFileByPath(record.path);
-        if (!(verifiedFile instanceof TFile)) {
+        if (!(await this.localStore.exists(record.path))) {
           throw new Error("Failed to materialize restored remote file locally.");
         }
         const verifiedSha = await calculateCanonicalGitBlobSha(
-          await this.app.vault.readBinary(verifiedFile),
+          await this.localStore.readBinary(record.path),
           record.path
         );
         if (verifiedSha !== expectedLocalSha) {
@@ -787,8 +775,7 @@ export class ConflictManager {
           return { success: false, message: staleRemoteMessage };
         }
 
-        const file = this.app.vault.getAbstractFileByPath(record.path);
-        if (!file || !(file instanceof TFile)) {
+        if (!(await this.localStore.exists(record.path))) {
           // Already absent locally
           const state = await StorageManager.loadState(this.app);
           delete state.files[record.path];
@@ -798,7 +785,7 @@ export class ConflictManager {
           return { success: true, message: `Local file was already absent for ${record.path}.` };
         }
 
-        const currentBytes = await this.app.vault.readBinary(file);
+        const currentBytes = await this.localStore.readBinary(record.path);
         const currentSha = await calculateCanonicalGitBlobSha(currentBytes, record.path);
         if (record.localSha && currentSha.toLowerCase() !== record.localSha.toLowerCase()) {
           return {
@@ -814,7 +801,7 @@ export class ConflictManager {
           currentBytes
         );
 
-        await StorageManager.deleteVaultFile(this.app, file);
+        await StorageManager.deleteVaultFile(this.app, record.path);
 
         const stillExists = await this.app.vault.adapter.exists(record.path);
         if (stillExists) {

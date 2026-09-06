@@ -60,6 +60,8 @@ export class VaultRelaySettingTab extends PluginSettingTab {
   private showManualSetup = false;
   private tokenExists = false;
   private isCheckingToken = false;
+  private repositoryLoadState: "TOKEN_MISSING" | "LOADING" | "LOADED" | "EMPTY" | "ERROR" = "TOKEN_MISSING";
+  private repositoryLoadError = "";
 
   constructor(app: App, plugin: VaultRelayPlugin) {
     super(app, plugin);
@@ -108,6 +110,55 @@ export class VaultRelaySettingTab extends PluginSettingTab {
               });
             },
           },
+          {
+            name: "Repository",
+            desc: "Select a repository discovered from your GitHub account, or use the saved value as a manual fallback.",
+            render: (setting: Setting) => {
+              const currentFullName = this.plugin.settings.owner && this.plugin.settings.repo
+                ? `${this.plugin.settings.owner}/${this.plugin.settings.repo}`
+                : "";
+              const statusText = this.repositoryLoadState === "LOADING"
+                ? "Loading repositories..."
+                : this.repositoryLoadState === "ERROR"
+                  ? `Repository discovery failed${this.repositoryLoadError ? `: ${this.repositoryLoadError}` : "."}`
+                  : this.repositoryLoadState === "EMPTY"
+                    ? "No accessible repositories were returned."
+                    : this.repositoryLoadState === "TOKEN_MISSING"
+                      ? "Save a token to load repositories."
+                      : "Choose a repository.";
+
+              setting.setDesc(statusText);
+              setting.addDropdown((dropdown) => {
+                if (currentFullName && !this.discoveredRepos.some((repo) => repo.fullName === currentFullName)) {
+                  dropdown.addOption(currentFullName, `${currentFullName} (saved)`);
+                }
+                for (const repo of this.discoveredRepos) {
+                  dropdown.addOption(repo.fullName, `${repo.fullName} ${repo.isPrivate ? "🔒" : "🌐"}`);
+                }
+                if (this.discoveredRepos.length === 0 && !currentFullName) {
+                  dropdown.addOption("__no_repository__", statusText);
+                }
+                if (currentFullName) dropdown.setValue(currentFullName);
+                else if (this.discoveredRepos.length > 0) dropdown.setValue(this.discoveredRepos[0].fullName);
+                else dropdown.setValue("__no_repository__");
+                dropdown.setDisabled(this.repositoryLoadState !== "LOADED" && this.discoveredRepos.length === 0 && !currentFullName);
+                dropdown.onChange((value) => {
+                  const selected = this.discoveredRepos.find((repo) => repo.fullName === value);
+                  if (!selected) return;
+                  void (async () => {
+                    this.plugin.settings.owner = selected.owner;
+                    this.plugin.settings.repo = selected.name;
+                    this.plugin.settings.branch = selected.defaultBranch || "main";
+                    await this.plugin.saveSettings();
+                    await this.discoverBranches(selected.owner, selected.name);
+                    this.refreshTab();
+                  })().catch((err) => {
+                    new Notice(`Failed to save repository selection: ${sanitizeErrorMessage(err)}`);
+                  });
+                });
+              });
+            },
+          },
         ],
       },
       {
@@ -115,8 +166,24 @@ export class VaultRelaySettingTab extends PluginSettingTab {
         heading: "Advanced / Security",
         items: [
           {
+            name: "Advanced Settings",
+            desc: "Show branch, manual repository, credential, and exclusion controls.",
+            render: (setting: Setting) => {
+              setting.addButton((button) => {
+                button
+                  .setButtonText(this.showManualSetup ? "Collapse Advanced Settings" : "Expand Advanced Settings")
+                  .onClick(() => {
+                    this.showManualSetup = !this.showManualSetup;
+                    this.refreshTab();
+                  });
+                button.buttonEl.addClass("vault-relay-btn-lg");
+              });
+            },
+          },
+          {
             name: "Repository Owner",
             desc: "GitHub username or organization that owns the repository (e.g. 'octocat').",
+            visible: () => this.showManualSetup,
             control: {
               type: "text",
               key: "owner",
@@ -126,6 +193,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           {
             name: "Repository Name",
             desc: "Name of the GitHub repository (e.g. 'my-notes').",
+            visible: () => this.showManualSetup,
             control: {
               type: "text",
               key: "repo",
@@ -135,15 +203,26 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           {
             name: "Branch",
             desc: "Target Git branch (default: 'main').",
-            control: {
-              type: "text",
-              key: "branch",
-              placeholder: "main",
+            visible: () => this.showManualSetup,
+            render: (setting: Setting) => {
+              setting.addDropdown((dropdown) => {
+                if (this.discoveredBranches.length > 0) {
+                  for (const branch of this.discoveredBranches) dropdown.addOption(branch.name, branch.name);
+                } else {
+                  dropdown.addOption(this.plugin.settings.branch || "main", this.plugin.settings.branch || "main");
+                }
+                dropdown.setValue(this.plugin.settings.branch || "main");
+                dropdown.onChange((value) => {
+                  this.plugin.settings.branch = value.trim() || "main";
+                  void this.plugin.saveSettings();
+                });
+              });
             },
           },
           {
             name: "Excluded Paths",
             desc: "Directories or file paths excluded from scanning and syncing (one per line).",
+            visible: () => this.showManualSetup,
             render: (setting: Setting) => {
               setting.addTextArea((textArea) => {
                 textArea
@@ -182,6 +261,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
                 });
               }
             },
+            visible: () => this.showManualSetup,
           },
         ],
       },
@@ -549,6 +629,11 @@ export class VaultRelaySettingTab extends PluginSettingTab {
         this.tokenExists = exists;
         this.refreshTab();
       }
+      if (exists && this.repositoryLoadState === "TOKEN_MISSING") {
+        void this.discoverRepositories();
+      } else if (!exists) {
+        this.repositoryLoadState = "TOKEN_MISSING";
+      }
     } catch (err) {
       console.warn("[GitHub Vault Relay] Failed to check token status:", sanitizeErrorMessage(err));
     } finally {
@@ -564,6 +649,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
       this.tokenExists = false;
       this.discoveredRepos = [];
       this.discoveredBranches = [];
+      this.repositoryLoadState = "TOKEN_MISSING";
       new Notice("Stored GitHub PAT cleared from SecretStorage.");
       this.refreshTab();
     }).open();
@@ -653,7 +739,11 @@ export class VaultRelaySettingTab extends PluginSettingTab {
 
   private async discoverRepositories(): Promise<void> {
     const token = await getStoredPat(this.app, this.plugin.settings.owner, this.plugin.settings.repo);
-    if (!token) return;
+    if (!token) {
+      this.repositoryLoadState = "TOKEN_MISSING";
+      this.refreshTab();
+      return;
+    }
 
     const client = new GitHubClient({
       token,
@@ -664,7 +754,11 @@ export class VaultRelaySettingTab extends PluginSettingTab {
 
     try {
       this.isDiscovering = true;
+      this.repositoryLoadState = "LOADING";
+      this.repositoryLoadError = "";
+      this.refreshTab();
       this.discoveredRepos = await client.listUserRepositories(100);
+      this.repositoryLoadState = this.discoveredRepos.length > 0 ? "LOADED" : "EMPTY";
       if (this.discoveredRepos.length > 0 && (!this.plugin.settings.owner || !this.plugin.settings.repo)) {
         const first = this.discoveredRepos[0];
         this.plugin.settings.owner = first.owner;
@@ -672,11 +766,16 @@ export class VaultRelaySettingTab extends PluginSettingTab {
         this.plugin.settings.branch = first.defaultBranch || "main";
         await this.plugin.saveSettings();
         await this.discoverBranches(first.owner, first.name);
+      } else if (this.plugin.settings.owner && this.plugin.settings.repo) {
+        await this.discoverBranches(this.plugin.settings.owner, this.plugin.settings.repo);
       }
     } catch (err) {
-      new Notice(`Failed to discover repositories: ${sanitizeErrorMessage(err)}`);
+      this.repositoryLoadState = "ERROR";
+      this.repositoryLoadError = sanitizeErrorMessage(err);
+      new Notice(`Failed to discover repositories: ${this.repositoryLoadError}`);
     } finally {
       this.isDiscovering = false;
+      this.refreshTab();
     }
   }
 

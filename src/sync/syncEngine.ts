@@ -20,6 +20,7 @@ import { ensureConfigDirExcluded, isPathExcluded } from "./pathFilter";
 import { classifySyncState } from "./syncClassifier";
 import { StorageManager } from "./storageManager";
 import { detectCaseCollisions } from "./pathSafety";
+import { LocalFileStore } from "./localFileStore";
 import {
   LocalFileEntry,
   RemoteBlobEntry,
@@ -74,7 +75,8 @@ export class SyncEngine {
    */
   public async scanLocalVault(bypassCache = false): Promise<Map<string, LocalFileEntry>> {
     const localFiles = new Map<string, LocalFileEntry>();
-    const allVaultFiles = this.app.vault.getFiles();
+    const localStore = new LocalFileStore(this.app, this.settings.excludedPaths);
+    const allVaultFiles = await localStore.listFiles();
     const livePaths = new Set<string>();
 
     for (const file of allVaultFiles) {
@@ -84,8 +86,8 @@ export class SyncEngine {
       livePaths.add(file.path);
 
       try {
-        const mtime = file.stat.mtime;
-        const size = file.stat.size;
+        const mtime = file.mtime;
+        const size = file.size;
 
         const cached = !bypassCache ? this.localHashCache.get(file.path) : undefined;
         let sha: string;
@@ -93,7 +95,7 @@ export class SyncEngine {
         if (cached && cached.mtime === mtime && cached.size === size) {
           sha = cached.sha;
         } else {
-          const binaryContent = await this.app.vault.readBinary(file);
+          const binaryContent = await localStore.readBinary(file.path);
           sha = await calculateCanonicalGitBlobSha(binaryContent, file.path);
           this.localHashCache.set(file.path, { mtime, size, sha });
         }

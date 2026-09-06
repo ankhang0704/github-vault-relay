@@ -91,6 +91,7 @@ export interface MockVault {
     readBinary: (path: string) => Promise<ArrayBuffer>;
     exists: (path: string) => Promise<boolean>;
     mkdir: (path: string) => Promise<void>;
+    trashLocal: (path: string) => Promise<void>;
     remove: (path: string) => Promise<void>;
     rename: (path: string, newPath: string) => Promise<void>;
     rmdir: (path: string, recursive?: boolean) => Promise<void>;
@@ -307,6 +308,12 @@ export class App {
         remove: async (path: string) => {
           filesMap.delete(path);
         },
+        trashLocal: async (path: string) => {
+          const entry = filesMap.get(path);
+          if (!entry) throw new Error(`File not found: ${path}`);
+          filesMap.set(`.trash/${path}`, entry);
+          filesMap.delete(path);
+        },
         rename: async (path: string, newPath: string) => {
           const entry = filesMap.get(path);
           if (!entry) throw new Error(`File not found: ${path}`);
@@ -325,7 +332,7 @@ export class App {
         list: async (path: string) => {
           const files: string[] = [];
           const folders = new Set<string>();
-          const prefix = path.endsWith("/") ? path : path + "/";
+          const prefix = path ? (path.endsWith("/") ? path : path + "/") : "";
           for (const k of filesMap.keys()) {
             if (k.startsWith(prefix)) {
               const rel = k.substring(prefix.length);
@@ -489,6 +496,7 @@ export interface MockDropdownComponent {
   addOption: (val: string, display: string) => MockDropdownComponent;
   setValue: (val: string) => MockDropdownComponent;
   getValue: () => string;
+  setDisabled: (disabled: boolean) => MockDropdownComponent;
   onChange: (fn: (val: string) => void) => MockDropdownComponent;
 }
 
@@ -590,6 +598,7 @@ export class Setting {
         return dropdownComponent;
       },
       getValue: () => currentVal,
+      setDisabled: (disabled: boolean) => { selectEl.disabled = disabled; return dropdownComponent; },
       onChange: (fn: (val: string) => void) => {
         selectEl.onchange = () => fn(currentVal);
         return dropdownComponent;

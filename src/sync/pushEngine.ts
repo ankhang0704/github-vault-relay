@@ -17,7 +17,7 @@
  * - Advances local baseline state.json ONLY after verified remote success.
  */
 
-import { App, TFile } from "obsidian";
+import { App } from "obsidian";
 import { GitHubClient, GitHubError } from "../github/githubClient";
 import { GitHubTreeItemInput } from "../github/githubTypes";
 import { VaultRelaySettings } from "../settings";
@@ -36,6 +36,7 @@ import {
   SyncStateData,
 } from "./syncTypes";
 import { sanitizeErrorMessage } from "../security/redact";
+import { LocalFileStore } from "./localFileStore";
 import {
   acquireMutationLease,
   getActiveMutationLabel,
@@ -83,7 +84,8 @@ export class PushEngine {
    */
   public async scanLocalVault(): Promise<Map<string, LocalFileEntry>> {
     const localFiles = new Map<string, LocalFileEntry>();
-    const allVaultFiles = this.app.vault.getFiles();
+    const localStore = new LocalFileStore(this.app, this.settings.excludedPaths);
+    const allVaultFiles = await localStore.listFiles();
 
     for (const file of allVaultFiles) {
       if (isPathExcluded(file.path, this.settings.excludedPaths)) {
@@ -91,14 +93,14 @@ export class PushEngine {
       }
 
       try {
-        const binaryContent = await this.app.vault.readBinary(file);
+        const binaryContent = await localStore.readBinary(file.path);
         const sha = await calculateCanonicalGitBlobSha(binaryContent, file.path);
 
         localFiles.set(file.path, {
           path: file.path,
           sha,
-          size: file.stat.size,
-          mtime: file.stat.mtime,
+          size: file.size,
+          mtime: file.mtime,
         });
       } catch (err) {
         console.warn(`[Vault Relay] Failed to read ${file.path}:`, sanitizeErrorMessage(err));
@@ -168,6 +170,7 @@ export class PushEngine {
   }
 
   private async executeSafePushUnlocked(onProgress?: SyncProgressCallback): Promise<PushExecutionReport> {
+    const localStore = new LocalFileStore(this.app, this.settings.excludedPaths);
     const report: PushExecutionReport = {
       timestamp: Date.now(),
       branch: this.settings.branch,
@@ -273,7 +276,6 @@ export class PushEngine {
       path: string;
       category: "LOCAL_ONLY" | "LOCAL_CHANGED" | "LOCAL_DELETED";
       localSha: string;
-      localFile?: TFile;
       rawBytes?: Uint8Array;
       remotePriorSha?: string;
       isMove?: boolean;
@@ -326,16 +328,14 @@ export class PushEngine {
 
       switch (previewItem.category) {
         case "LOCAL_ONLY": {
-          const file = this.app.vault.getAbstractFileByPath(path);
-          if (file instanceof TFile && localEntry) {
+          if (localEntry) {
             try {
-              const arrayBuf = await this.app.vault.readBinary(file);
+              const arrayBuf = await localStore.readBinary(path);
               const rawBytes = new Uint8Array(arrayBuf);
               eligibleItems.push({
                 path,
                 category: "LOCAL_ONLY",
                 localSha: localEntry.sha,
-                localFile: file,
                 rawBytes,
                 isMove: previewItem.isMove,
                 movedFrom: previewItem.movedFrom,
@@ -355,16 +355,14 @@ export class PushEngine {
         }
 
         case "LOCAL_CHANGED": {
-          const file = this.app.vault.getAbstractFileByPath(path);
-          if (file instanceof TFile && localEntry) {
+          if (localEntry) {
             try {
-              const arrayBuf = await this.app.vault.readBinary(file);
+              const arrayBuf = await localStore.readBinary(path);
               const rawBytes = new Uint8Array(arrayBuf);
               eligibleItems.push({
                 path,
                 category: "LOCAL_CHANGED",
                 localSha: localEntry.sha,
-                localFile: file,
                 rawBytes,
                 remotePriorSha: remoteEntry?.sha,
               });
@@ -668,21 +666,19 @@ export class PushEngine {
     // but unreviewed local bytes must never be committed.
     for (const item of eligibleItems) {
       if (item.category === "LOCAL_DELETED") {
-        const currentFile = this.app.vault.getAbstractFileByPath(item.path);
-        if (currentFile) {
+        if (await localStore.exists(item.path)) {
           report.status = "ABORTED";
           report.summaryMessage = `Local file was recreated during Push: ${item.path}. Branch update was not attempted.`;
           return report;
         }
         continue;
       }
-      const currentFile = this.app.vault.getAbstractFileByPath(item.path);
-      if (!(currentFile instanceof TFile)) {
+      if (!(await localStore.exists(item.path))) {
         report.status = "ABORTED";
         report.summaryMessage = `Local file changed or disappeared during Push: ${item.path}. Branch update was not attempted.`;
         return report;
       }
-      const currentBytes = await this.app.vault.readBinary(currentFile);
+      const currentBytes = await localStore.readBinary(item.path);
       const currentSha = await calculateCanonicalGitBlobSha(currentBytes, item.path);
       if (currentSha.toLowerCase() !== item.localSha.toLowerCase()) {
         report.status = "ABORTED";
@@ -913,6 +909,7 @@ export class PushEngine {
       },
       results: [],
     };
+    const localStore = new LocalFileStore(this.app, this.settings.excludedPaths);
 
     const isDeletionResolution = resolution.action === "PUSH_DELETE";
 
@@ -992,16 +989,14 @@ export class PushEngine {
 
     if (isDeletionResolution) {
       // For authorized deletion, local file must be absent
-      const file = this.app.vault.getAbstractFileByPath(resolution.path);
-      if (file) {
+      if (await localStore.exists(resolution.path)) {
         report.status = "FAIL";
         report.summaryMessage = `Cannot push deletion: local file still exists at ${resolution.path}.`;
         return report;
       }
     } else {
       // 4. Local file revalidation (Guards against LOCAL RACE)
-      const file = this.app.vault.getAbstractFileByPath(resolution.path);
-      if (!file || !(file instanceof TFile)) {
+      if (!(await localStore.exists(resolution.path))) {
         report.status = "FAIL";
         report.summaryMessage = `Local file no longer exists or is not a file: ${resolution.path}. Safe Push aborted.`;
         return report;
@@ -1009,7 +1004,7 @@ export class PushEngine {
 
       let rawBytes: Uint8Array;
       try {
-        const arrayBuffer = await this.app.vault.readBinary(file);
+        const arrayBuffer = await localStore.readBinary(resolution.path);
         rawBytes = new Uint8Array(arrayBuffer);
       } catch (err) {
         report.status = "FAIL";
@@ -1113,19 +1108,18 @@ export class PushEngine {
     report.newCommitSha = newCommitSha;
 
     if (isDeletionResolution) {
-      if (this.app.vault.getAbstractFileByPath(resolution.path)) {
+      if (await localStore.exists(resolution.path)) {
         report.status = "ABORTED";
         report.summaryMessage = `Local file was recreated during conflict deletion: ${resolution.path}. Branch update was not attempted.`;
         return report;
       }
     } else {
-      const latestFile = this.app.vault.getAbstractFileByPath(resolution.path);
-      if (!(latestFile instanceof TFile)) {
+      if (!(await localStore.exists(resolution.path))) {
         report.status = "ABORTED";
         report.summaryMessage = `Local file changed or disappeared during conflict resolution: ${resolution.path}. Branch update was not attempted.`;
         return report;
       }
-      const latestBytes = await this.app.vault.readBinary(latestFile);
+      const latestBytes = await localStore.readBinary(resolution.path);
       const latestLocalSha = await calculateCanonicalGitBlobSha(latestBytes, resolution.path);
       if (latestLocalSha.toLowerCase() !== currentLocalSha.toLowerCase()) {
         report.status = "ABORTED";
