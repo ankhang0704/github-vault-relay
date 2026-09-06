@@ -61,8 +61,6 @@ export class VaultRelaySettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.addClass("vault-relay-settings");
 
-    containerEl.createEl("h2", { text: "GitHub Vault Relay Settings" });
-
     const backend = getActiveStorageBackend(this.app);
     const backendLabel =
       backend === "SECRET_STORAGE"
@@ -104,7 +102,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
     );
 
     // Section 1: GitHub Connection Wizard (Primary Connection Flow: ONE primary CTA only)
-    containerEl.createEl("h3", { text: "Connection Wizard", attr: { style: "margin-top: 10px;" } });
+    new Setting(containerEl).setName("Connection Wizard").setHeading();
 
     const tokenSetting = new Setting(containerEl)
       .setName("GitHub Fine-Grained PAT")
@@ -120,8 +118,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
         this.tokenInputVal = value.trim();
       });
       text.inputEl.type = "password";
-      text.inputEl.style.width = "100%";
-      text.inputEl.style.maxWidth = "280px";
+      text.inputEl.addClass("vault-relay-token-input");
     });
 
     tokenSetting.addButton((button) => {
@@ -154,8 +151,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           button.setButtonText("Save & Connect");
         }
       });
-      button.buttonEl.style.minHeight = "44px";
-      button.buttonEl.style.padding = "8px 16px";
+      button.buttonEl.addClass("vault-relay-btn-lg");
     });
 
     // Repository Dropdown (if repos discovered or discovered previously)
@@ -210,7 +206,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
     }
 
     // Section 2: Advanced / Security
-    containerEl.createEl("h3", { text: "Advanced / Security", attr: { style: "margin-top: 24px;" } });
+    new Setting(containerEl).setName("Advanced / Security").setHeading();
 
     // Stored Credential Setting (Clear Token moved out of primary flow into Advanced / Security)
     const credSetting = new Setting(containerEl)
@@ -237,8 +233,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
               this.display();
             }).open();
           });
-        button.buttonEl.style.minHeight = "44px";
-        button.buttonEl.style.padding = "8px 16px";
+        button.buttonEl.addClass("vault-relay-btn-lg");
       });
     }
 
@@ -249,8 +244,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
 
     advToggleSetting.addButton((btn) => {
       btn.setButtonText(this.showManualSetup ? "Hide Manual Setup" : "Show Manual Setup");
-      btn.buttonEl.style.minHeight = "44px";
-      btn.buttonEl.style.padding = "8px 16px";
+      btn.buttonEl.addClass("vault-relay-btn-lg");
       btn.onClick(() => {
         this.showManualSetup = !this.showManualSetup;
         this.display();
@@ -312,19 +306,19 @@ export class VaultRelaySettingTab extends PluginSettingTab {
         )
         .addTextArea((textArea) => {
           textArea
-            .setPlaceholder(".obsidian/\n.git/\n_fit/")
+            .setPlaceholder(`${this.app.vault.configDir}/\n.git/\n_fit/`)
             .setValue(this.plugin.settings.excludedPaths.join("\n"))
             .onChange(async (value) => {
               this.plugin.settings.excludedPaths = parseExclusionRules(value);
               await this.plugin.saveSettings();
             });
           textArea.inputEl.rows = 4;
-          textArea.inputEl.style.width = "100%";
+          textArea.inputEl.addClass("vault-relay-textarea");
         });
     }
 
     // Section 3: Connection Diagnostics & Sync Actions
-    containerEl.createEl("h3", { text: "Diagnostics & Sync", attr: { style: "margin-top: 20px;" } });
+    new Setting(containerEl).setName("Diagnostics & Sync").setHeading();
 
     const actionsSetting = new Setting(containerEl)
       .setName("Sync Operations")
@@ -334,8 +328,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
       button.setButtonText("Open Sync Dashboard").setCta().onClick(() => {
         new SyncDashboardModal(this.app, this.plugin).open();
       });
-      button.buttonEl.style.minHeight = "44px";
-      button.buttonEl.style.padding = "8px 16px";
+      button.buttonEl.addClass("vault-relay-btn-lg");
     });
 
     actionsSetting.addButton((button) => {
@@ -377,8 +370,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           button.setDisabled(false);
         }
       });
-      button.buttonEl.style.minHeight = "44px";
-      button.buttonEl.style.padding = "8px 16px";
+      button.buttonEl.addClass("vault-relay-btn-lg");
     });
   }
 

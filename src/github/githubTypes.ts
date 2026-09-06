@@ -68,9 +68,11 @@ export interface GitHubCreateBlobResponse {
   url: string;
 }
 
+export type GitMode = "100644" | "100755" | "040000";
+
 export interface GitHubTreeItemInput {
   path: string;
-  mode: "100644" | "100755" | "040000" | string;
+  mode: GitMode;
   type: "blob" | "tree" | "commit";
   sha: string | null;
 }

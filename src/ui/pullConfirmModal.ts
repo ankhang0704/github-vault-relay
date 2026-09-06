@@ -33,8 +33,6 @@ export class PullConfirmModal extends Modal {
   public onOpen(): void {
     this.modalEl.addClass("vault-relay-modal");
     this.modalEl.addClass("vault-relay-confirm-modal");
-    this.modalEl.style.maxWidth = "600px";
-    this.modalEl.style.width = "90vw";
     this.runPreflight();
   }
 
@@ -85,11 +83,11 @@ export class PullConfirmModal extends Modal {
 
     const iconDiv = container.createDiv({ attr: { style: "margin-bottom: 16px;" } });
     setIcon(iconDiv, "refresh-cw");
-    iconDiv.style.animation = "spin 1s linear infinite";
+    iconDiv.addClass("vault-relay-spin");
 
-    container.createEl("h3", { text: "Scanning Remote & Local State..." });
+    container.createEl("h3", { text: "Scanning remote & local state..." });
     container.createEl("p", {
-      text: "Checking branch HEAD and building Safe Pull plan...",
+      text: "Checking branch head and building safe pull plan...",
       attr: { style: "color: var(--text-muted); font-size: 0.9em;" },
     });
   }
@@ -98,7 +96,7 @@ export class PullConfirmModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
 
-    contentEl.createEl("h2", { text: "GitHub Vault Relay - Safe Pull" });
+    contentEl.createEl("h2", { text: "GitHub vault relay - safe pull" });
 
     const errBox = contentEl.createDiv({
       attr: {
@@ -107,7 +105,7 @@ export class PullConfirmModal extends Modal {
       },
     });
     errBox.createEl("h4", {
-      text: "Preflight Check Failed",
+      text: "Preflight check failed",
       attr: { style: "margin: 0 0 8px 0; color: var(--text-error, #e74c3c);" },
     });
     errBox.createEl("p", { text: message, attr: { style: "margin: 0; color: var(--text-muted); font-size: 0.95em;" } });
@@ -124,7 +122,7 @@ export class PullConfirmModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
 
-    contentEl.createEl("h2", { text: "Confirm Safe Pull (GitHub → Local)", attr: { style: "margin: 0 0 8px 0;" } });
+    contentEl.createEl("h2", { text: "Confirm safe pull (GitHub → local)", attr: { style: "margin: 0 0 8px 0;" } });
 
     // Truncated tree warning
     if (this.previewReport.truncatedRemoteTree) {
@@ -135,7 +133,7 @@ export class PullConfirmModal extends Modal {
         },
       });
       warnBox.createEl("strong", {
-        text: "🚫 Safe Pull Blocked: Truncated Git Tree",
+        text: "🚫 Safe pull blocked: Truncated Git tree",
         attr: { style: "color: var(--text-error, #e74c3c);" },
       });
       warnBox.createEl("p", {
@@ -159,7 +157,7 @@ export class PullConfirmModal extends Modal {
     if (semantic.pullRemoveLocal > 0) {
       noticeText += " Files to remove locally will be moved to trash according to your Obsidian trash settings.";
     }
-    notice.createEl("div", { text: noticeText });
+    notice.createDiv({ text: noticeText });
 
     // Summary of Actions
     const summaryBox = contentEl.createDiv({
@@ -169,11 +167,11 @@ export class PullConfirmModal extends Modal {
       },
     });
 
-    summaryBox.createEl("h4", { text: "Planned Actions Summary", attr: { style: "margin: 0 0 10px 0;" } });
+    summaryBox.createEl("h4", { text: "Planned actions summary", attr: { style: "margin: 0 0 10px 0;" } });
 
-    const list = summaryBox.createEl("div", { attr: { style: "font-size: 0.9em; line-height: 1.6;" } });
-    list.createEl("div", { text: `• New files to create locally: ${semantic.pullCreate}` });
-    list.createEl("div", { text: `• Files to update locally: ${semantic.pullUpdate}` });
+    const list = summaryBox.createDiv({ attr: { style: "font-size: 0.9em; line-height: 1.6;" } });
+    list.createDiv({ text: `• New files to create locally: ${semantic.pullCreate}` });
+    list.createDiv({ text: `• Files to update locally: ${semantic.pullUpdate}` });
 
     // Explicit Destructive Section
     if (semantic.pullRemoveLocal > 0) {
@@ -191,23 +189,23 @@ export class PullConfirmModal extends Modal {
     }
 
     if (semantic.pullMoves > 0) {
-      list.createEl("div", {
+      list.createDiv({
         text: `• Moves to apply locally: ${semantic.pullMoves}`,
         attr: { style: "color: var(--color-purple, #9b59b6); font-weight: 500;" },
       });
     }
 
     if (semantic.deleteConflicts > 0) {
-      list.createEl("div", {
+      list.createDiv({
         text: `• Delete conflicts (require review): ${semantic.deleteConflicts}`,
         attr: { style: "color: var(--color-red, #e74c3c); font-weight: 500;" },
       });
     }
 
-    list.createEl("div", { text: `• Potential conflicts (preserved to internal conflict storage): ${semantic.contentConflicts}` });
-    list.createEl("div", { text: `• Oversized files (>25 MiB, skipped): ${semantic.oversized}` });
-    list.createEl("div", { text: `• Local changes / notes kept untouched: ${semantic.totalPushMutations}` });
-    list.createEl("div", { text: `• Unchanged files: ${semantic.unchanged}` });
+    list.createDiv({ text: `• Potential conflicts (preserved to internal conflict storage): ${semantic.contentConflicts}` });
+    list.createDiv({ text: `• Oversized files (>25 MiB, skipped): ${semantic.oversized}` });
+    list.createDiv({ text: `• Local changes / notes kept untouched: ${semantic.totalPushMutations}` });
+    list.createDiv({ text: `• Unchanged files: ${semantic.unchanged}` });
 
     // Action Buttons
     const actions = contentEl.createDiv({

@@ -126,8 +126,24 @@ export class MockLocalStorage implements Storage {
 if (typeof globalThis.localStorage === "undefined") {
   (globalThis as unknown as { localStorage: Storage }).localStorage = new MockLocalStorage();
 }
-if (typeof (globalThis as unknown as { window?: { localStorage: Storage } }).window === "undefined") {
-  (globalThis as unknown as { window: { localStorage: Storage } }).window = { localStorage: globalThis.localStorage };
+if (typeof (globalThis as unknown as { window?: Record<string, unknown> }).window === "undefined") {
+  (globalThis as unknown as { window: Record<string, unknown> }).window = {
+    localStorage: globalThis.localStorage,
+    get setTimeout() { return globalThis.setTimeout; },
+    get clearTimeout() { return globalThis.clearTimeout; },
+    crypto: globalThis.crypto,
+  };
+} else {
+  const win = (globalThis as unknown as { window: Record<string, unknown> }).window;
+  Object.defineProperty(win, "setTimeout", {
+    get() { return globalThis.setTimeout; },
+    configurable: true,
+  });
+  Object.defineProperty(win, "clearTimeout", {
+    get() { return globalThis.clearTimeout; },
+    configurable: true,
+  });
+  if (!win.crypto) win.crypto = globalThis.crypto;
 }
 
 export class MockSecretStorage {
@@ -501,6 +517,11 @@ export class Setting {
 
   setClass(cls: string): this {
     this.settingEl.addClass(cls);
+    return this;
+  }
+
+  setHeading(): this {
+    this.settingEl.addClass("setting-item-heading");
     return this;
   }
 

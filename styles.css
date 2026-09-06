@@ -1,13 +1,64 @@
+.modal.vault-relay-modal,
 .vault-relay-modal {
   box-sizing: border-box;
   max-height: min(90vh, 900px);
   max-height: min(90dvh, 900px);
-  max-width: calc(100vw - 16px) !important;
+  max-width: calc(100vw - 16px);
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   overflow-x: hidden;
   overflow-y: auto;
   padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+
+.vault-relay-modal-sm {
+  width: 90vw;
+  max-width: 480px;
+}
+
+.vault-relay-modal-md {
+  width: 90vw;
+  max-width: 600px;
+}
+
+.vault-relay-modal-lg {
+  width: 92vw;
+  max-width: 700px;
+}
+
+.vault-relay-modal-xl {
+  width: 90vw;
+  max-width: 850px;
+}
+
+.vault-relay-confirm-modal {
+  width: 90vw;
+  max-width: 600px;
+}
+
+.vault-relay-confirm-modal.vault-relay-modal-sm {
+  max-width: 480px;
+}
+
+.vault-relay-result-modal {
+  width: 90vw;
+  max-width: 600px;
+}
+
+.vault-relay-conflict-modal {
+  width: 92vw;
+  max-width: 700px;
+}
+
+.vault-relay-dashboard-modal {
+  width: 92vw;
+  max-width: 680px;
+  padding: 16px;
+}
+
+.vault-relay-preview-modal {
+  width: 90vw;
+  max-width: 850px;
 }
 
 .vault-relay-modal button,
@@ -17,6 +68,43 @@
   padding: 8px 12px;
   white-space: normal;
   transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.vault-relay-btn-lg {
+  min-height: 44px;
+  padding: 8px 16px;
+}
+
+.vault-relay-token-input {
+  width: 100%;
+  max-width: 280px;
+}
+
+.vault-relay-textarea {
+  width: 100%;
+}
+
+@keyframes vault-relay-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.vault-relay-spin {
+  animation: vault-relay-spin 1s linear infinite;
+}
+
+.vault-relay-status-visible {
+  display: block;
+  color: var(--text-normal);
+}
+
+.vault-relay-status-error {
+  display: block;
+  color: var(--color-red, #e74c3c);
 }
 
 .vault-relay-modal button:disabled,
@@ -76,9 +164,9 @@
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.vault-relay-summary-card-warning {
-  border-color: var(--color-red, #e74c3c) !important;
-  background-color: rgba(231, 76, 60, 0.08) !important;
+.vault-relay-summary-card.vault-relay-summary-card-warning {
+  border-color: var(--color-red, #e74c3c);
+  background-color: rgba(231, 76, 60, 0.08);
 }
 
 .vault-relay-zero-state {
@@ -105,10 +193,11 @@
 }
 
 @media (max-width: 480px) {
+  .modal.vault-relay-modal,
   .vault-relay-modal {
-    width: calc(100vw - 12px) !important;
-    padding-left: 10px !important;
-    padding-right: 10px !important;
+    width: calc(100vw - 12px);
+    padding-left: 10px;
+    padding-right: 10px;
   }
 
   .vault-relay-summary-cards {
@@ -134,3 +223,4 @@
     margin-bottom: 6px;
   }
 }
+

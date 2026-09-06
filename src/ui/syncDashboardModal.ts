@@ -44,9 +44,6 @@ export class SyncDashboardModal extends Modal {
     this.isModalOpen = true;
     this.modalEl.addClass("vault-relay-modal");
     this.modalEl.addClass("vault-relay-dashboard-modal");
-    this.modalEl.style.maxWidth = "680px";
-    this.modalEl.style.width = "92vw";
-    this.modalEl.style.padding = "16px";
     this.runScanAndRender();
   }
 
@@ -118,8 +115,6 @@ export class SyncDashboardModal extends Modal {
 
     const refreshBtn = header.createEl("button", { text: "↻ Refresh" });
     refreshBtn.disabled = this.isLoading || this.isSyncing;
-    refreshBtn.style.minHeight = "44px";
-    refreshBtn.style.minWidth = "44px";
     refreshBtn.onclick = () => this.runScanAndRender();
 
     if (this.isLoading) {
@@ -326,8 +321,6 @@ export class SyncDashboardModal extends Modal {
         syncBtn.setText("Sync Blocked by Conflicts");
         syncBtn.disabled = true;
         syncBtn.removeClass("mod-cta");
-        syncBtn.style.opacity = "0.6";
-        syncBtn.style.cursor = "not-allowed";
       }
 
       syncBtn.onclick = async () => {

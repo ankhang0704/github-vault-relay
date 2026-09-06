@@ -64,7 +64,8 @@ export async function calculateGitBlobSha(content: string | ArrayBuffer | Uint8A
   fullPayload.set(headerBytes, 0);
   fullPayload.set(contentBytes, headerBytes.byteLength);
 
-  const subtleCrypto = globalThis.crypto?.subtle;
+  const subtleCrypto =
+    (typeof crypto !== "undefined" ? crypto : (typeof window !== "undefined" ? window.crypto : undefined))?.subtle;
   if (!subtleCrypto) {
     throw new Error("Web Crypto API (crypto.subtle) is not available in current environment.");
   }

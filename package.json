@@ -1,7 +1,7 @@
 {
   "name": "github-vault-relay",
   "version": "1.0.1",
-  "description": "A conservative GitHub bridge for Obsidian Mobile - without running Git on the phone.",
+  "description": "A conservative GitHub bridge for mobile and desktop vault sync without requiring Git on the phone.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
@@ -26,9 +26,9 @@
   "devDependencies": {
     "@eslint/js": "^9.20.0",
     "@types/node": "^22.10.1",
-    "builtin-modules": "^4.0.0",
     "esbuild": "0.28.2",
     "eslint": "^9.20.1",
+    "eslint-plugin-obsidianmd": "^0.4.2",
     "globals": "^15.15.0",
     "obsidian": "latest",
     "tslib": "2.8.1",

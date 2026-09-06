@@ -751,7 +751,7 @@ export class PushEngine {
         }
 
         if (attempt < maxRetries) {
-          await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+          await new Promise((resolve) => window.setTimeout(resolve, delays[attempt]));
         }
       }
 
@@ -1180,7 +1180,7 @@ export class PushEngine {
         }
 
         if (attempt < maxRetries) {
-          await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+          await new Promise((resolve) => window.setTimeout(resolve, delays[attempt]));
         }
       }
 

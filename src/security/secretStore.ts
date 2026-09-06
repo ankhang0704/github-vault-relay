@@ -76,9 +76,6 @@ export function getDeviceLocalStorage(): Storage | undefined {
   if (typeof window !== "undefined" && typeof window.localStorage !== "undefined") {
     return window.localStorage;
   }
-  if (typeof globalThis !== "undefined" && (globalThis as unknown as { localStorage?: Storage }).localStorage) {
-    return (globalThis as unknown as { localStorage?: Storage }).localStorage;
-  }
   return undefined;
 }
 

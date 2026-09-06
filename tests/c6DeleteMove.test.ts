@@ -1337,7 +1337,7 @@ describe("C6 — Safe Delete & Move Semantics (tests/c6DeleteMove.test.ts)", () 
   });
 
   describe("Obsidian Trash Policy & Exclusion (C6-TRASH-001..002)", () => {
-    it("C6-TRASH-001: deleteVaultFile uses app.fileManager.trashFile and falls back to vault.delete", async () => {
+    it("C6-TRASH-001: deleteVaultFile uses app.fileManager.trashFile", async () => {
       const path = "TrashTest.md";
       const file = await app.vault.create(path, "Trash content");
 
@@ -1352,16 +1352,6 @@ describe("C6 — Safe Delete & Move Semantics (tests/c6DeleteMove.test.ts)", () 
       await StorageManager.deleteVaultFile(app, file);
       expect(trashFileCalled).toBe(true);
       expect(app.vault.getAbstractFileByPath(path)).toBeNull();
-
-      // Test fallback when fileManager is unavailable
-      const path2 = "FallbackTest.md";
-      const file2 = await app.vault.create(path2, "Fallback content");
-      const appWithoutFileManager = {
-        vault: app.vault,
-      } as unknown as App;
-
-      await StorageManager.deleteVaultFile(appWithoutFileManager, file2);
-      expect(app.vault.getAbstractFileByPath(path2)).toBeNull();
     });
 
     it("C6-TRASH-002: files in .trash/ are excluded from sync and cannot be pushed to GitHub", async () => {

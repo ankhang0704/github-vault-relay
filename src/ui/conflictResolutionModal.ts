@@ -49,8 +49,6 @@ export class ConflictResolutionModal extends Modal {
     this._isOpen = true;
     this.modalEl.addClass("vault-relay-modal");
     this.modalEl.addClass("vault-relay-conflict-modal");
-    this.modalEl.style.maxWidth = "700px";
-    this.modalEl.style.width = "92vw";
 
     if (!this.conflictManager) {
       const token = await getStoredPat(this.app, this.plugin.settings.owner, this.plugin.settings.repo);
@@ -140,7 +138,7 @@ export class ConflictResolutionModal extends Modal {
       const statusDesc = card.createDiv({
         attr: { style: "margin-bottom: 8px; font-size: 0.85em; line-height: 1.4;" },
       });
-      statusDesc.createEl("div", {
+      statusDesc.createDiv({
         text: isLocalDel
           ? "Deleted on this device, modified on GitHub."
           : "Modified on this device, deleted on GitHub.",
@@ -149,7 +147,7 @@ export class ConflictResolutionModal extends Modal {
       const explanation = isLocalDel
         ? "• Keep File: Restore the GitHub version locally.\n• Delete File: Delete the GitHub version in a new commit."
         : "• Keep File: Push local modifications to GitHub in a new commit.\n• Delete File: Move the local file to Obsidian trash.";
-      statusDesc.createEl("div", {
+      statusDesc.createDiv({
         text: explanation,
         attr: { style: "color: var(--text-muted); font-size: 0.85em; white-space: pre-line;" },
       });
@@ -198,8 +196,8 @@ export class ConflictResolutionModal extends Modal {
         cancelBtn.disabled = true;
 
         statusDiv.setText(`⏳ Resolving: ${action === "keepFile" ? "Keeping file..." : "Deleting file..."}`);
-        statusDiv.style.color = "var(--text-normal)";
-        statusDiv.style.display = "block";
+        statusDiv.removeClass("vault-relay-status-error");
+        statusDiv.addClass("vault-relay-status-visible");
 
         try {
           const res =
@@ -222,7 +220,8 @@ export class ConflictResolutionModal extends Modal {
           } else {
             new Notice(`Conflict resolution failed: ${res.message}`, 8000);
             statusDiv.setText(`❌ ${res.message}`);
-            statusDiv.style.color = "var(--color-red, #e74c3c)";
+            statusDiv.removeClass("vault-relay-status-visible");
+            statusDiv.addClass("vault-relay-status-error");
             keepFileBtn.disabled = false;
             deleteFileBtn.disabled = false;
             cancelBtn.disabled = false;
@@ -230,7 +229,8 @@ export class ConflictResolutionModal extends Modal {
         } catch (err) {
           new Notice(`Unexpected resolution error: ${String(err)}`, 8000);
           statusDiv.setText(`❌ ${String(err)}`);
-          statusDiv.style.color = "var(--color-red, #e74c3c)";
+          statusDiv.removeClass("vault-relay-status-visible");
+          statusDiv.addClass("vault-relay-status-error");
           keepFileBtn.disabled = false;
           deleteFileBtn.disabled = false;
           cancelBtn.disabled = false;
@@ -277,8 +277,8 @@ export class ConflictResolutionModal extends Modal {
           keepBoth: "Saving remote copy...",
         };
         statusDiv.setText(`⏳ Resolving: ${actionLabels[action]}`);
-        statusDiv.style.color = "var(--text-normal)";
-        statusDiv.style.display = "block";
+        statusDiv.removeClass("vault-relay-status-error");
+        statusDiv.addClass("vault-relay-status-visible");
 
         if (action === "keepLocal") keepLocalBtn.setText("Pushing...");
         if (action === "useRemote") useRemoteBtn.setText("Pulling...");
@@ -327,7 +327,8 @@ export class ConflictResolutionModal extends Modal {
             if (isStale) {
               // FAILURE LIFECYCLE: Do not re-enable stale action buttons
               statusDiv.setText(`⚠ ${res.message}`);
-              statusDiv.style.color = "var(--color-red, #e74c3c)";
+              statusDiv.removeClass("vault-relay-status-visible");
+              statusDiv.addClass("vault-relay-status-error");
 
               const refreshBtn = btnRow.createEl("button", { text: "Refresh Conflicts" });
               refreshBtn.onclick = async () => {
@@ -339,7 +340,8 @@ export class ConflictResolutionModal extends Modal {
             } else {
               // Transient failure: re-enable buttons for retry
               statusDiv.setText(`❌ ${res.message}`);
-              statusDiv.style.color = "var(--color-red, #e74c3c)";
+              statusDiv.removeClass("vault-relay-status-visible");
+              statusDiv.addClass("vault-relay-status-error");
               keepLocalBtn.disabled = false;
               keepLocalBtn.setText("Keep Local");
               useRemoteBtn.disabled = false;
@@ -351,7 +353,8 @@ export class ConflictResolutionModal extends Modal {
         } catch (err) {
           new Notice(`Unexpected resolution error: ${String(err)}`, 8000);
           statusDiv.setText(`❌ ${String(err)}`);
-          statusDiv.style.color = "var(--color-red, #e74c3c)";
+          statusDiv.removeClass("vault-relay-status-visible");
+          statusDiv.addClass("vault-relay-status-error");
           keepLocalBtn.disabled = false;
           keepLocalBtn.setText("Keep Local");
           useRemoteBtn.disabled = false;

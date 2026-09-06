@@ -149,7 +149,7 @@ export class StorageManager {
    * 3. Completely safe from Obsidian Community Plugin updates.
    */
   public static getPluginStorageDir(app: App): string {
-    const configDir = (app.vault as unknown as { configDir?: string }).configDir || ".obsidian";
+    const configDir = app.vault.configDir;
     return `${configDir}/${PLUGIN_ID}`;
   }
 
@@ -158,7 +158,7 @@ export class StorageManager {
    * Example: .obsidian/vault-relay
    */
   public static getIntermediateC4Dir(app: App): string {
-    const configDir = (app.vault as unknown as { configDir?: string }).configDir || ".obsidian";
+    const configDir = app.vault.configDir;
     return `${configDir}/vault-relay`;
   }
 
@@ -166,7 +166,7 @@ export class StorageManager {
    * Returns intermediate plugin-dir state file path for migration.
    */
   public static getIntermediatePluginStateFilePath(app: App): string {
-    const configDir = (app.vault as unknown as { configDir?: string }).configDir || ".obsidian";
+    const configDir = app.vault.configDir;
     return `${configDir}/plugins/${PLUGIN_ID}/state.json`;
   }
 
@@ -443,14 +443,10 @@ export class StorageManager {
 
   /**
    * Safely deletes a file from the vault, respecting the user's Obsidian trash preference
-   * via app.fileManager.trashFile. Falls back to app.vault.delete if fileManager is unavailable.
+   * via app.fileManager.trashFile.
    */
   public static async deleteVaultFile(app: App, file: TFile): Promise<void> {
-    if (app.fileManager && typeof app.fileManager.trashFile === "function") {
-      await app.fileManager.trashFile(file);
-    } else {
-      await app.vault.delete(file);
-    }
+    await app.fileManager.trashFile(file);
   }
 
   public static async recoverInterruptedDeletes(
@@ -1018,7 +1014,7 @@ export class StorageManager {
             if (!metaRecords.some((r) => r.id === rec.id)) {
               if (rec.snapshotPath) {
                 const mappedPath = migratedConflictPaths.get(normalizePath(rec.snapshotPath));
-                rec.snapshotPath = mappedPath || rec.snapshotPath.replace(".obsidian/vault-relay/", `${canonicalDir}/`);
+                rec.snapshotPath = mappedPath || rec.snapshotPath.replace(`${app.vault.configDir}/vault-relay/`, `${canonicalDir}/`);
               }
               metaRecords.push(rec);
             }

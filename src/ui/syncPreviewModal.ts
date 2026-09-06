@@ -32,8 +32,6 @@ export class SyncPreviewModal extends Modal {
     this.modalEl.addClass("vault-relay-modal");
     this.isModalOpen = true;
     this.modalEl.addClass("vault-relay-preview-modal");
-    this.modalEl.style.maxWidth = "850px";
-    this.modalEl.style.width = "90vw";
     this.runScanAndRender();
   }
 
@@ -91,7 +89,7 @@ export class SyncPreviewModal extends Modal {
 
     const iconDiv = container.createDiv({ attr: { style: "margin-bottom: 16px;" } });
     setIcon(iconDiv, "refresh-cw");
-    iconDiv.style.animation = "spin 1s linear infinite";
+    iconDiv.addClass("vault-relay-spin");
 
     container.createEl("h3", { text: "Scanning Vault & GitHub Repository..." });
     container.createEl("p", {
@@ -148,7 +146,7 @@ export class SyncPreviewModal extends Modal {
 
     const titleArea = headerEl.createDiv();
     titleArea.createEl("h2", { text: "GitHub Vault Relay - Sync Preview", attr: { style: "margin: 0 0 4px 0;" } });
-    titleArea.createEl("div", {
+    titleArea.createDiv({
       text: `Repository: ${this.plugin.settings.owner}/${this.plugin.settings.repo} | Branch: ${this.report.branch} (${
         this.report.remoteCommitSha ? this.report.remoteCommitSha.substring(0, 7) : "HEAD"
       })`,

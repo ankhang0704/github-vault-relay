@@ -154,7 +154,7 @@ export function base64ToUint8Array(base64: string): Uint8Array {
  * Helper to pause execution for a given number of milliseconds.
  */
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 export class GitHubClient {
@@ -214,10 +214,10 @@ export class GitHubClient {
     rawPromise: Promise<RequestUrlResponse>,
     timeoutMs: number
   ): Promise<RequestUrlResponse> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timer: number | undefined;
 
     const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
+      timer = window.setTimeout(() => {
         reject(new GitHubTimeoutError(timeoutMs, this.token));
       }, timeoutMs);
     });
@@ -226,7 +226,7 @@ export class GitHubClient {
       return await Promise.race([rawPromise, timeoutPromise]);
     } finally {
       if (timer) {
-        clearTimeout(timer);
+        window.clearTimeout(timer);
       }
       // CRITICAL: Suppress unhandled promise rejection if the underlying socket
       // rejects after the timeout envelope has already returned control to the caller.

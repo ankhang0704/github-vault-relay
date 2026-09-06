@@ -19,8 +19,6 @@ export class PullResultModal extends Modal {
   public onOpen(): void {
     this.modalEl.addClass("vault-relay-modal");
     this.modalEl.addClass("vault-relay-result-modal");
-    this.modalEl.style.maxWidth = "600px";
-    this.modalEl.style.width = "90vw";
     this.render();
   }
 
@@ -65,7 +63,7 @@ export class PullResultModal extends Modal {
       },
     });
 
-    statusBanner.createEl("div", {
+    statusBanner.createDiv({
       text: `${statusIcon} ${statusTitle} — ${this.report.summaryMessage}`,
       attr: { style: `font-weight: 600; color: ${statusFg}; margin-bottom: 4px;` },
     });

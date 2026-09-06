@@ -1,6 +1,7 @@
 import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
 import globals from "globals";
+import obsidianmd from "eslint-plugin-obsidianmd";
 
 export default tseslint.config(
   {
@@ -20,6 +21,9 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    plugins: {
+      obsidianmd,
+    },
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
@@ -43,6 +47,60 @@ export default tseslint.config(
         },
       ],
       "no-console": ["warn", { allow: ["warn", "error", "info"] }],
+    },
+  },
+  {
+    files: ["src/**/*.{ts,js}"],
+    plugins: {
+      obsidianmd,
+    },
+    rules: {
+      "obsidianmd/no-static-styles-assignment": "error",
+      "obsidianmd/prefer-create-el": "warn",
+      "obsidianmd/hardcoded-config-path": "warn",
+      "obsidianmd/prefer-file-manager-trash-file": "warn",
+      "obsidianmd/prefer-window-timers": "warn",
+      "obsidianmd/no-global-this": "warn",
+      "obsidianmd/settings-tab/no-manual-html-headings": "error",
+      "obsidianmd/settings-tab/no-problematic-settings-headings": "error",
+      "obsidianmd/settings-tab/require-display": "warn",
+      "obsidianmd/settings-tab/prefer-setting-definitions": "off",
+      "obsidianmd/settings-tab/prefer-update-over-display": "warn",
+      "obsidianmd/settings-tab/no-deprecated-display": "warn",
+      "obsidianmd/commands/no-command-in-command-id": "warn",
+      "obsidianmd/commands/no-command-in-command-name": "warn",
+      "obsidianmd/commands/no-default-hotkeys": "warn",
+      "obsidianmd/commands/no-plugin-id-in-command-id": "warn",
+      "obsidianmd/commands/no-plugin-name-in-command-name": "warn",
+      "obsidianmd/vault/iterate": "warn",
+      "obsidianmd/detach-leaves": "error",
+      "obsidianmd/editor-drop-paste": "warn",
+      "obsidianmd/no-forbidden-elements": "error",
+      "obsidianmd/no-sample-code": "error",
+      "obsidianmd/no-tfile-tfolder-cast": "warn",
+      "obsidianmd/object-assign": "warn",
+      "obsidianmd/platform": "error",
+      "obsidianmd/prefer-get-language": "warn",
+      "obsidianmd/prefer-abstract-input-suggest": "warn",
+      "obsidianmd/prefer-active-doc": "off",
+      "obsidianmd/regex-lookbehind": "error",
+      "obsidianmd/sample-names": "error",
+      "obsidianmd/ui/sentence-case": "off",
+      "obsidianmd/no-plugin-as-component": "error",
+      "obsidianmd/no-view-references-in-plugin": "error",
+      "obsidianmd/no-unsupported-api": "error",
+      "obsidianmd/prefer-instanceof": "warn",
+      "obsidianmd/no-nodejs-modules": "warn",
+
+    },
+  },
+  {
+    plugins: {
+      obsidianmd,
+    },
+    rules: {
+      "obsidianmd/validate-manifest": "warn",
+      "obsidianmd/validate-license": "warn",
     },
   }
 );

@@ -22,8 +22,12 @@ describe("Plugin Identity & Manifest Integrity", () => {
 
   it("has non-empty description and minAppVersion", () => {
     expect(manifest.description).toBe(
-      "A conservative GitHub bridge for Obsidian Mobile - without running Git on the phone."
+      "A conservative GitHub bridge for mobile and desktop vault sync without requiring Git on the phone."
     );
     expect(manifest.minAppVersion).toBe("1.11.4");
+  });
+
+  it("has compliant authorUrl pointing to author profile", () => {
+    expect(manifest.authorUrl).toBe("https://github.com/ankhang0704");
   });
 });

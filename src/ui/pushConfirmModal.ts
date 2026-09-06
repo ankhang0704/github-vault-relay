@@ -33,8 +33,6 @@ export class PushConfirmModal extends Modal {
   public onOpen(): void {
     this.modalEl.addClass("vault-relay-modal");
     this.modalEl.addClass("vault-relay-confirm-modal");
-    this.modalEl.style.maxWidth = "600px";
-    this.modalEl.style.width = "90vw";
     this.runPreflight();
   }
 
@@ -85,7 +83,7 @@ export class PushConfirmModal extends Modal {
 
     const iconDiv = container.createDiv({ attr: { style: "margin-bottom: 16px;" } });
     setIcon(iconDiv, "refresh-cw");
-    iconDiv.style.animation = "spin 1s linear infinite";
+    iconDiv.addClass("vault-relay-spin");
 
     container.createEl("h3", { text: "Scanning Remote & Local State..." });
     container.createEl("p", {
@@ -167,7 +165,7 @@ export class PushConfirmModal extends Modal {
     } else {
       noticeText += " Remote modifications and conflicts are never overwritten; optimistic concurrency guards ensure zero force-push.";
     }
-    notice.createEl("div", { text: noticeText });
+    notice.createDiv({ text: noticeText });
 
     // Summary of Actions
     const summaryBox = contentEl.createDiv({
@@ -179,9 +177,9 @@ export class PushConfirmModal extends Modal {
 
     summaryBox.createEl("h4", { text: "Planned Actions Summary", attr: { style: "margin: 0 0 10px 0;" } });
 
-    const list = summaryBox.createEl("div", { attr: { style: "font-size: 0.9em; line-height: 1.6;" } });
-    list.createEl("div", { text: `• New files to create on GitHub: ${semantic.pushCreate}` });
-    list.createEl("div", { text: `• Files to update on GitHub: ${semantic.pushUpdate}` });
+    const list = summaryBox.createDiv({ attr: { style: "font-size: 0.9em; line-height: 1.6;" } });
+    list.createDiv({ text: `• New files to create on GitHub: ${semantic.pushCreate}` });
+    list.createDiv({ text: `• Files to update on GitHub: ${semantic.pushUpdate}` });
 
     // Explicit Destructive Section
     if (semantic.pushDeleteRemote > 0) {
@@ -199,23 +197,23 @@ export class PushConfirmModal extends Modal {
     }
 
     if (semantic.pushMoves > 0) {
-      list.createEl("div", {
+      list.createDiv({
         text: `• Moves to commit to GitHub: ${semantic.pushMoves}`,
         attr: { style: "color: var(--color-purple, #9b59b6); font-weight: 500;" },
       });
     }
 
     if (semantic.deleteConflicts > 0) {
-      list.createEl("div", {
+      list.createDiv({
         text: `• Delete conflicts (not pushed, require review): ${semantic.deleteConflicts}`,
         attr: { style: "color: var(--color-red, #e74c3c); font-weight: 500;" },
       });
     }
 
-    list.createEl("div", { text: `• Conflicting files (kept untouched / not pushed): ${semantic.contentConflicts}` });
-    list.createEl("div", { text: `• Oversized files (>25 MiB, skipped): ${semantic.oversized}` });
-    list.createEl("div", { text: `• Remote notes (kept untouched): ${semantic.totalPullMutations}` });
-    list.createEl("div", { text: `• Unchanged files: ${semantic.unchanged}` });
+    list.createDiv({ text: `• Conflicting files (kept untouched / not pushed): ${semantic.contentConflicts}` });
+    list.createDiv({ text: `• Oversized files (>25 MiB, skipped): ${semantic.oversized}` });
+    list.createDiv({ text: `• Remote notes (kept untouched): ${semantic.totalPullMutations}` });
+    list.createDiv({ text: `• Unchanged files: ${semantic.unchanged}` });
 
     // Action Buttons
     const actions = contentEl.createDiv({

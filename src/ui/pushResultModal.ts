@@ -19,8 +19,6 @@ export class PushResultModal extends Modal {
   public onOpen(): void {
     this.modalEl.addClass("vault-relay-modal");
     this.modalEl.addClass("vault-relay-result-modal");
-    this.modalEl.style.maxWidth = "600px";
-    this.modalEl.style.width = "90vw";
     this.render();
   }
 
@@ -65,13 +63,13 @@ export class PushResultModal extends Modal {
       },
     });
 
-    statusBanner.createEl("div", {
+    statusBanner.createDiv({
       text: `${statusIcon} ${statusTitle} — ${this.report.summaryMessage}`,
       attr: { style: `font-weight: 600; color: ${statusFg}; margin-bottom: 4px;` },
     });
 
     if (this.report.newCommitSha) {
-      statusBanner.createEl("div", {
+      statusBanner.createDiv({
         text: `New Remote Commit: ${this.report.newCommitSha.substring(0, 7)} (branch: ${this.report.branch})`,
         attr: { style: "font-family: var(--font-monospace); font-size: 0.85em; color: var(--text-muted);" },
       });

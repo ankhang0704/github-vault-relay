@@ -19,8 +19,7 @@ export class ClearTokenConfirmModal extends Modal {
     modalEl.addClass("vault-relay-modal");
     contentEl.empty();
     modalEl.addClass("vault-relay-confirm-modal");
-    modalEl.style.maxWidth = "480px";
-    modalEl.style.width = "90vw";
+    modalEl.addClass("vault-relay-modal-sm");
 
     contentEl.createEl("h3", { text: "Clear Stored GitHub Token?" });
 
@@ -39,8 +38,7 @@ export class ClearTokenConfirmModal extends Modal {
       cancelBtn.setButtonText("Cancel").onClick(() => {
         this.close();
       });
-      cancelBtn.buttonEl.style.minHeight = "44px";
-      cancelBtn.buttonEl.style.padding = "8px 16px";
+      cancelBtn.buttonEl.addClass("vault-relay-btn-lg");
     });
 
     buttonRow.addButton((confirmBtn) => {
@@ -58,8 +56,7 @@ export class ClearTokenConfirmModal extends Modal {
             confirmBtn.setButtonText("Clear Token");
           }
         });
-      confirmBtn.buttonEl.style.minHeight = "44px";
-      confirmBtn.buttonEl.style.padding = "8px 16px";
+      confirmBtn.buttonEl.addClass("vault-relay-btn-lg");
     });
   }
 

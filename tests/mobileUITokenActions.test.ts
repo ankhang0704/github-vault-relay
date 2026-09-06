@@ -55,8 +55,8 @@ describe("Mobile UI Token Actions & Placement (UI-TOKEN-001..005)", () => {
     expect(patButtons[0].hasClass("mod-cta")).toBe(true);
     expect(patButtons[0].hasClass("mod-warning")).toBe(false);
 
-    // Verify 44px mobile touch target minHeight
-    expect(patButtons[0].style["minHeight"]).toBe("44px");
+    // Verify 44px mobile touch target class
+    expect(patButtons[0].hasClass("vault-relay-btn-lg")).toBe(true);
 
     // Case 2: No token stored
     await clearStoredPat(app, "octocat", "my-vault");
@@ -106,11 +106,14 @@ describe("Mobile UI Token Actions & Placement (UI-TOKEN-001..005)", () => {
     expect(credButtons[0].hasClass("mod-cta")).toBe(false);
 
     // Verify 44px touch target
-    expect(credButtons[0].style["minHeight"]).toBe("44px");
+    expect(credButtons[0].hasClass("vault-relay-btn-lg")).toBe(true);
 
     // Verify heading preceding Stored Credential is "Advanced / Security"
-    const headings = container.findAll((el: MockElement) => el.tag === "h3");
-    const hasAdvSecHeading = headings.some((h: MockElement) => h.textContent.includes("Advanced / Security"));
+    const headings = container.findAll((el: MockElement) => el.hasClass("setting-item-heading") || el.tag === "h3");
+    const hasAdvSecHeading = headings.some((h: MockElement) => {
+      const name = h.findAll((e: MockElement) => e.hasClass("setting-item-name"))[0];
+      return (name ? name.textContent : h.textContent).includes("Advanced / Security");
+    });
     expect(hasAdvSecHeading).toBe(true);
   });
 
@@ -170,7 +173,7 @@ describe("Mobile UI Token Actions & Placement (UI-TOKEN-001..005)", () => {
     expect(cancelBtn).toBeDefined();
     expect(confirmClearBtn).toBeDefined();
     expect(confirmClearBtn!.hasClass("mod-warning")).toBe(true);
-    expect(confirmClearBtn!.style["minHeight"]).toBe("44px");
+    expect(confirmClearBtn!.hasClass("vault-relay-btn-lg")).toBe(true);
 
     // Execute confirmation
     if (confirmClearBtn && confirmClearBtn.onclick) {

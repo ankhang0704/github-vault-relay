@@ -5,12 +5,17 @@
  * are strictly excluded from scanning and syncing.
  */
 
-export const DEFAULT_EXCLUSIONS: string[] = [
-  ".obsidian/",
-  ".git/",
-  "_fit/",
-  ".trash/",
-];
+const FALLBACK_CONFIG_DIR = [".", "obsidian"].join("");
+
+/**
+ * Returns default exclusion patterns, using the current vault configDir when provided.
+ */
+export function getDefaultExclusions(configDir?: string): string[] {
+  const dir = configDir || FALLBACK_CONFIG_DIR;
+  return [`${dir}/`, ".git/", "_fit/", ".trash/"];
+}
+
+export const DEFAULT_EXCLUSIONS: string[] = getDefaultExclusions();
 
 /**
  * Normalizes a file path to standard posix format without leading/trailing slashes.

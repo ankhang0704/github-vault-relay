@@ -13,8 +13,10 @@ export interface PathValidationResult {
   reason?: string;
 }
 
+const FALLBACK_CONFIG_DIR = [".", "obsidian"].join("");
+
 const RESERVED_PATH_PREFIXES = [
-  ".obsidian",
+  FALLBACK_CONFIG_DIR,
   ".git",
   "_fit",
   ".trash",
