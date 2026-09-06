@@ -1,6 +1,6 @@
 # GitHub Vault Relay Documentation Index
 
-Welcome to the documentation repository for **GitHub Vault Relay**. This index organizes documents by target audience and lifecycle stage.
+This index points to the current `1.0.3` documentation baseline. Current source, tests, manifest, and `main` take precedence over historical checkpoint notes.
 
 ---
 
@@ -11,11 +11,12 @@ Welcome to the documentation repository for **GitHub Vault Relay**. This index o
 ---
 
 ## 💻 For Engineers & Contributors
-- **[Project Source of Truth](PROJECT_SOURCE_OF_TRUTH.md)**: Canonical architectural summary, 6-state classifier rules, data models, verified metrics, and portfolio reference tables.
-- **[System Architecture](ARCHITECTURE.md)**: Detailed system context, component diagrams, Unified Sync sequence, Safe Push Git object construction, conflict resolution state machine, and crash recovery lifecycle.
-- **[Manual Test Matrix](MANUAL_TEST_MATRIX.md)**: Executable acceptance protocol (RT-01 through RT-22) for real Windows Desktop and iOS Mobile (BRAT) testing.
+- **[Project Source of Truth](PROJECT_SOURCE_OF_TRUTH.md)**: Current identity, ten classifier states, baseline semantics, evidence, ownership wording, and open follow-ups.
+- **[Engineering Notes](ENGINEERING_NOTES.md)**: Maintainer study guide explaining Git objects, GitHub APIs, concurrency, conflicts, deletion, recovery, storage, and implementation-backed Q&A.
+- **[System Architecture](ARCHITECTURE.md)**: Current components, Unified Sync sequence, Git object construction, conflict resolution, deletion/move ordering, and recovery lifecycle.
+- **[Manual Test Matrix](MANUAL_TEST_MATRIX.md)**: Real Windows/iOS acceptance protocol. Rows remain `NOT RUN` until physically executed and recorded.
 - **[Contributing Guidelines](../CONTRIBUTING.md)**: Development prerequisites, quality gate commands (`npm run verify`), safety invariants, and AI-assisted development policy.
-- **[Changelog](../CHANGELOG.md)**: Chronological version history from 0.2.0 through 1.0.0 Stable Release.
+- **[Changelog](../CHANGELOG.md)**: Chronological release history through `1.0.3`; older test totals are historical snapshots.
 
 ---
 

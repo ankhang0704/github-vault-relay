@@ -5,6 +5,9 @@ All notable changes to GitHub Vault Relay will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Current repository evidence is 42 test files and 467 passing tests; `npm run verify` passed locally on 2026-09-06. Test totals in older release entries are historical snapshots from those releases, not current totals.
+Paths and implementation details in older entries are historical release snapshots; the current internal path is `${app.vault.configDir}/github-vault-relay/`.
+
 ---
 
 ## [1.0.3] - 2026-09-06
@@ -17,8 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Retained Legacy Settings Compatibility (Obsidian 1.11.4–1.12.x)**: Converted `display()` to synchronous `void` backed by an in-memory credential cache to maintain flicker-free rendering on supported older Obsidian releases without deprecation runtime crashes.
   - **Button Styling Modernization**: Implemented runtime feature detection for `ButtonComponent.setDestructive()` on Obsidian 1.13+ with graceful fallback to CSS utility classes on earlier versions, resolving deprecation warnings without raising `minAppVersion`.
   - **Removed Routine Production Logging**: Audited logging across all synchronization engines, restricting `console` calls strictly to actionable warnings and error diagnostics.
-  - **Official Community Review Verification**: Official Community Preview completed with 0 errors, 0 warnings, and 1 intentional backward-compatibility recommendation (`display()` retained for Obsidian 1.11.4–1.12.x).
-  - **Preserved Sync Semantics**: 100% preservation of all sync classifier states, safe delete/move protocols, mutation leasing, crash rollback journals, and 25 MiB safety limits.
+  - **Community Compliance Verification**: Repository compliance tests and lint rules cover the current settings compatibility paths; `display()` remains for Obsidian 1.11.4–1.12.x while declarative settings support Obsidian >=1.13.0.
+  - **Preserved Sync Semantics**: Release work retained the existing classifier, safe delete/move, mutation lease, recovery journal, and 25 MiB policy behavior.
 
 ## [1.0.2] - 2026-09-06
 
@@ -26,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Community Directory Full Compliance Cleanup**:
   - **Zero Inline Styles**: Converted all static inline style assignments in settings and modal dialogs to semantic CSS utility classes in `styles.css`.
   - **Accessible Settings Headings**: Migrated settings tab headings from direct HTML elements (`createEl("h2")` / `createEl("h3")`) to Obsidian's standard `Setting.setHeading()` API for consistent theme typography.
-  - **Dynamic Configuration Directory**: Replaced hardcoded `.obsidian` path references with dynamic `app.vault.configDir` across storage management and path filters.
+  - **Dynamic Configuration Directory**: Added dynamic `app.vault.configDir` handling for canonical storage and the exclusion helper; the current default exclusion constant still uses its `.obsidian` fallback until a later production follow-up.
   - **User-Safe File Deletion**: Replaced raw `app.vault.delete(file)` with `app.fileManager.trashFile(file)` for synchronized file deletions, ensuring deleted files are safely preserved in the user's configured Obsidian trash (system or local `.trash/`).
   - **Duplicate CSS Elimination**: Eliminated duplicate `max-height` declaration in `styles.css`, retaining canonical viewport constraint `min(90vh, 900px)` across desktop and mobile without `!important`.
   - **Web Crypto & Window Timers**: Standardized Web Crypto usage on standard `crypto` API and explicit window timers (`window.setTimeout`).
@@ -37,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Obsidian Community Directory Compliance**: Corrected `minAppVersion` in `manifest.json` from `0.15.0` to `1.11.4` to truthfully reflect the Obsidian runtime requirement for `App.secretStorage`.
-- **Truthful Version Mapping**: Updated `versions.json` mappings to reflect `1.11.4` minimum application version for all builds requiring `SecretStorage`.
+- **Truthful Version Mapping**: Updated the `1.0.0`–`1.0.2` `versions.json` entries to reflect the `1.11.4` minimum required by those builds.
 - **Command ID Standards**: Removed redundant plugin ID prefix from command IDs (`sync-dashboard`, `preview-sync`, `pull-safe-changes`, `push-safe-changes`, `test-connection`) to conform to Obsidian Community plugin standards.
 - **Manifest Description Formatting**: Replaced unicode em-dash with standard punctuation in `manifest.json` and `package.json` descriptions.
 - **Policy Disclosures & Licensing**: Added explicit `Network & Privacy Disclosures` and `License & Attribution` sections to `README.md` per Obsidian Developer Policies.
@@ -55,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Contextual Delete Conflict Resolution**: Explicit handling when a note is deleted on one side and modified on the other (`[ Keep File ]`, `[ Delete File ]`, `[ Cancel ]`).
 - **Stale-Device Deletion Propagation**: Stale or offline devices cleanly pull remote deletions upon reconnect without resurrecting deleted files.
 - **Zero-File & Canonical Empty-Tree Convergence**: Full lifecycle support for empty repositories (0 files) using Git's canonical empty root tree SHA `4b825dc642cb6eb9a060e54bf8d69288fbee4904` and transitions back to 1+ files without synthetic placeholders (`.gitkeep`).
-- **SecretStorage Credential Security**: GitHub PAT stored strictly in Obsidian's secure `SecretStorage` (`github-vault-relay-pat`) with automated regex token redaction across all logs, toasts, and UI dialogs.
+- **SecretStorage Credential Security**: GitHub PAT stored strictly in Obsidian's secure `SecretStorage` (`github-vault-relay-pat`) with token redaction in sanitized error and UI paths.
 - **Crash Recovery & Rollback Engine**: Durable journals in `.obsidian/github-vault-relay/pull-recovery/` and `delete-recovery/` with automatic rollback of interrupted operations on app launch.
 - **Atomic State Storage**: Robust `.tmp` staging and `.bak` fallbacks preventing corrupted metadata.
 - **Mutation Lease Locking**: In-memory `MutationCoordinator` preventing concurrent or reentrant sync, push, pull, or conflict operations within the Obsidian instance.

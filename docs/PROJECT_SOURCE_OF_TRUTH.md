@@ -1,308 +1,129 @@
 # GitHub Vault Relay: Project Source of Truth
 
-> **Canonical reference document for repository architecture, factual technical guarantees, portfolio narratives, and engineering verification.**  
-> **Repository:** [https://github.com/ankhang0704/github-vault-relay](https://github.com/ankhang0704/github-vault-relay)  
-> **Current Version:** `1.0.3` (Stable Release)  
-> **Status:** AUTOMATED GATES PASS (467/467 tests) | C1–C7 VERIFIED | REAL WINDOWS PASS | REAL IPHONE PASS | COMMUNITY PREVIEW PASS (0 errors, 0 warnings, 1 intentional recommendation) | 1.0.3 PUBLISHED  
+This is the current factual reference for Vault Relay. When this document conflicts with a checkpoint, the current source, tests, manifest, and `main` branch win.
 
----
+## Current identity
 
-## 1. Project Identity
-- **Name:** GitHub Vault Relay (`github-vault-relay`)
-- **Category:** Obsidian Community Plugin (Sync & Version Control Bridge)
-- **Tagline:** A conservative, mobile-first GitHub sync bridge for Obsidian — without running Git on the phone.
-- **Maintainer:** ankhang0704 (Vault Relay Contributors)
-- **License:** MIT License
-
----
-
-## 2. Real Problem
-- Obsidian users who manage their Markdown vaults via GitHub repositories face a severe limitation on mobile devices (iOS / iPadOS / Android).
-- Mobile operating systems run applications inside strict security sandboxes:
-  1. No native command-line Git binary exists.
-  2. Spawning child processes (`child_process`) is forbidden.
-  3. Running heavy JavaScript Git emulators (e.g. `isomorphic-git`) incurs severe memory footprints, fragile packfile re-encoding, and high risk of mobile OS termination (iOS Jetsam memory kills).
-- Existing alternatives either require running third-party synchronization cloud servers, paying proprietary sync subscriptions, or risking silent corruption when external native Git clients interact with the vault.
-
----
-
-## 3. Goals
-- Connect Obsidian vaults directly to a central GitHub repository over HTTPS using Obsidian's native `requestUrl()` API.
-- Provide a clean, unified sync action (`[ Sync ]`) that coordinates remote pulls and local pushes safely.
-- Guarantee strict data integrity: stop and preserve both versions rather than guessing or silently overwriting notes.
-- Maintain seamless co-existence with external native Git workflows on desktop (CLI, Obsidian Git, GUI clients).
-- Keep all internal sync metadata and conflict payloads completely hidden from user note graphs and search.
-
----
-
-## 4. Non-Goals (Strict Feature Freeze)
-The following are deliberate product non-goals:
-- **No background auto-sync / scheduled sync:** Sync only executes when explicitly triggered by the user.
-- **No sync-on-save:** Prevents battery exhaustion, race conditions, and excessive commit noise.
-- **No ambiguous / unverified deletion:** Deletion is never inferred without previous baseline synchronized existence evidence. Missing baseline cannot infer deletion (treated conservatively as local-only or remote-only).
-- **No empty directory synchronization:** Git tracks file paths, not empty directory nodes.
-- **No fuzzy / AI rename guessing:** Moves are recognized strictly when content SHA is byte-identical or handled safely as independent delete + add.
-- **No force push:** `force: false` is strictly enforced on all branch ref updates.
-- **No third-party Git hosts:** Exclusively GitHub REST and Git Data APIs (no GitLab, Gitea, or WebDAV).
-- **No Canvas 3-way merge:** Canvas files are treated as atomic units.
-- **No `.obsidian/` configuration sync:** Excluded by default (`.obsidian/`, `.git/`, `_fit/`).
-- **No attachment importer tool:** Binary attachments sync byte-exact, but no import wizard is bundled.
-- **No multi-account switching:** Single account and repository configuration per vault.
-
----
-
-## 5. Current Status & Baseline
-- **C1 Foundation:** VERIFIED (Inventory scanning & 6-state classification)
-- **C2 Safe Pull:** VERIFIED (Blob download, SHA verification, LF normalization, SecretStorage)
-- **C3 Safe Push:** VERIFIED (Git Data API tree/commit/ref construction, optimistic concurrency)
-- **C4 Unified Sync & Conflict Resolution:** VERIFIED (Unified single-click sync, Connection Wizard, 3-way conflict review, canonical internal storage)
-- **C5 Production Hardening:** VERIFIED (Mutation coordinator, crash rollback, upgrade matrix, failure injection, scale benchmarks, mobile accessibility)
-- **C6 Safe Delete & Move Semantics:** VERIFIED (Three-way deletion classifier, Git Data API tree omissions, ordered pull moves, crash recovery journaling, delete conflicts, 35 C6 tests)
-- **Real Windows C6 Production Acceptance:** PASS (100 local->remote push, 100 remote->local pull, 11 mixed conflicts, binary batch, double-sync lock, offline/reconnect, restart, storage cleanup, final exact convergence)
-- **Real iPhone C6 Production Acceptance:** PASS (Exact BRAT build, SecretStorage persistence, mixed create/edit/delete/move both directions, content conflict, delete conflict, stale-device delete / zero resurrection, binary transfer, restart, final convergence)
-- **C7 Empty-Tree Repository Closure:** AUTOMATED PASS & LIVE INTEGRATION PASS (Canonical empty tree SHA `4b825dc642cb6eb9a060e54bf8d69288fbee4904`, 14 automated tests in `c7EmptyTree.test.ts`, 100-cycle stress test, verified live against `ankhang0704/vault-relay-acceptance`)
-- **C7 Real Windows Acceptance:** `PASS`
-- **C7 Real iPhone Acceptance:** `PASS`
-- **C1–C7:** `VERIFIED`
-- **Current Published Release:** `1.0.3` Stable  
-- **MVP Complete:** `YES` (All features, safe delete/move, and empty-tree edge case closed)  
-- **Community Compliance:** Official Community Preview completed with 0 errors, 0 warnings, and 1 intentional backward-compatibility recommendation (`display()` retained for Obsidian 1.11.4–1.12.x alongside declarative `getSettingDefinitions()` for Obsidian >=1.13.0; `minAppVersion: 1.11.4`; zero runtime sync changes).  
-- **1.0.3 Ready:** `YES` (All quality gates PASS, community preview clean, ready for directory review)
-
----
-
-## 6. Supported Platforms
-- **Obsidian Mobile:** iOS (iPhone / iPad), Android (Obsidian v0.15.0+).
-- **Obsidian Desktop:** Windows 10/11, macOS, Linux.
-
----
-
-## 7. Architecture Summary
-Vault Relay operates as an asymmetric HTTPS bridge:
-
-```
-+-------------------------------------------------------------+
-|                     GitHub Repository                       |
-|         (Central Remote Repository / Source of Truth)       |
-+-------------------------------------------------------------+
-               ^                               ^
-               | Native Git CLI/GUI            | HTTPS REST & Git Data API
-               | (clone / commit / push)       | (Blobs, Trees, Commits, Refs)
-               v                               v
-+------------------------------+  +---------------------------+
-|      Obsidian Desktop        |  |      Obsidian Mobile      |
-|                              |  |    (iOS / Android)        |
-| • Native Git or Vault Relay  |  | • Zero native Git binary  |
-| • Full desktop environment   |  | • Obsidian requestUrl()   |
-| • Mutual Git co-existence    |  | • Unified Safe Sync       |
-+------------------------------+  +---------------------------+
-```
-
----
-
-## 8. Sync Model & 6-State Classifier
-Vault Relay compares local vault files against remote Git tree blobs and the last durable `state.json` baseline:
-
-| State Category | Local State | Remote State | Baseline Comparison | Automated Action |
-| :--- | :--- | :--- | :--- | :--- |
-| **`LOCAL_ONLY`** | Exists | Missing | New note created locally | Eligible for Safe Push (`PUSH_CREATE`) |
-| **`REMOTE_ONLY`** | Missing | Exists | New note created on remote | Eligible for Safe Pull (`PULL_CREATE`) |
-| **`LOCAL_CHANGED`** | Modified | Unchanged | Local note modified since last sync | Eligible for Safe Push (`PUSH_UPDATE`) |
-| **`REMOTE_CHANGED`** | Unchanged | Modified | Remote note updated on GitHub | Eligible for Safe Pull (`PULL_UPDATE`) |
-| **`POTENTIAL_CONFLICT`** | Modified | Modified | Both sides modified independently | Blocked from sync; preserved for manual review |
-| **`UNCHANGED`** | Identical | Identical | Hashes match baseline and each other | No-op |
-
----
-
-## 9. Safe Pull Engine
-- Fetches remote Git tree and identifies `REMOTE_ONLY` and `REMOTE_CHANGED` entries.
-- Downloads blobs via `GET /git/blobs/{sha}`.
-- Cryptographically validates the downloaded bytes against expected Git SHA-1.
-- Prepares content: canonicalizes text (`.md`, `.txt`, `.canvas`) to LF (`\n`); streams binary files byte-exact.
-- Records pre-write intentions in a journal file (`.obsidian/github-vault-relay/pull-recovery/`).
-- Writes to local vault and verifies written bytes.
-- Updates baseline in `state.json` and deletes recovery journal.
-
----
-
-## 10. Safe Push Engine
-- Identifies `LOCAL_ONLY` and `LOCAL_CHANGED` entries.
-- Uploads raw note bytes to `POST /git/blobs`.
-- Builds a new Git tree on top of the remote base tree using `POST /git/trees`.
-- Creates a single Git commit referencing the parent commit using `POST /git/commits`.
-- Re-reads local files from disk immediately before moving the branch ref to ensure local files were not edited during network transmission.
-- Updates branch ref via `PATCH /git/refs/heads/{branch}` with `force: false`.
-- Performs authoritative post-write verification using an independent `GET` request.
-- Advances local `state.json` baseline only after authoritative remote verification succeeds.
-
----
-
-## 11. Unified Sync Engine
-- Single-click action combining Pull and Push:
-  1. **Phase 1 (Scan):** Complete inventory classification.
-  2. **Phase 2 (Pull):** Pulls safe remote changes if present.
-  3. **Phase 3 (Re-scan):** Fresh scan to incorporate pulled notes and detect newly created local changes.
-  4. **Phase 4 (Push):** Pushes eligible local changes in a single atomic Git commit.
-  5. **Phase 5 (Convergence):** Final scan confirming synchronization status.
-- **Important Semantic Invariant:** Unified Sync is intentionally **not** an end-to-end all-or-nothing rollback transaction. If Safe Pull succeeds and Safe Push subsequently fails, successfully pulled notes are retained.
-
----
-
-## 12. Conflict Model
-When both local and remote notes have changed independently, Vault Relay never silently overwrites either version:
-- **Keep Local:** Performs an authorized scoped push of the reviewed local file to GitHub after revalidating that remote HEAD has not changed again.
-- **Use Remote:** Overwrites the local note with the reviewed remote version after revalidating that local content has not changed again.
-- **Keep Both:** Leaves the local note intact and saves the remote version alongside it as `filename (remote conflict YYYY-MM-DD_HHmm).ext`. Updates baseline state for both records independently.
-
----
-
-## 13. GitHub API Model
-- Uses Obsidian's runtime `requestUrl()` API to bypass CORS restrictions.
-- REST Endpoints: `/user/repos` (discovery), `/repos/{owner}/{repo}/branches/{branch}` (ref check).
-- Git Data API Endpoints: `/git/blobs`, `/git/trees`, `/git/commits`, `/git/refs`.
-- **Zero DELETE / Zero PUT contents:** Guaranteed 0 occurrences in codebase.
-- **Mutation Safety:** Automatic retry is strictly limited to idempotent `GET` requests (max 3). Non-idempotent mutations (`POST`, `PATCH`) fail closed immediately.
-- **Rate Limit Handling:** HTTP 429 parses `Retry-After` (capped to max 10s backoff).
-
----
-
-## 14. Storage Model
-All internal plugin state is stored in the hidden configuration directory:
-```
-.obsidian/github-vault-relay/
-├── state.json                  # Tracked commit SHA and per-file baseline hashes
-├── conflicts_meta.json         # Active conflict metadata registry
-├── conflicts/                  # Isolated conflict blob payloads
-└── pull-recovery/              # Interrupted write recovery journals
-```
-- Atomic storage replaces `state.json` via `.tmp` staging and `.bak` fallbacks.
-- User content residing in any root `_vault-relay/` directory is treated as standard user notes and never touched or deleted by the plugin.
-
----
-
-## 15. Secret Model
-- Canonical Key: `github-vault-relay-pat`.
-- Storage: Obsidian `SecretStorage` exclusively.
-- Plaintext persistence in `data.json` or `localStorage` is prohibited and verified by automated AST scans.
-- Sanitization: All errors and logs pass through `redactTokens()` masking token signatures.
-
----
-
-## 16. Failure & Recovery Model
-- **Offline Failure:** Operations abort cleanly with zero file or state mutations.
-- **Interrupted Pull Recovery:** Interrupted writes are detected on plugin startup and rolled back to known baselines.
-- **Interrupted State Save:** Corrupted or partial state saves automatically restore the `.bak` backup.
-- **Lost PATCH Ref Response:** Engine performs independent authoritative GET check on branch ref before declaring failure or advancing baseline.
-
----
-
-## 17. Concurrency Model
-- `MutationCoordinator` implements an in-memory lease lock keyed by the Obsidian `App` instance.
-- Prevents concurrent executions among Safe Pull, Safe Push, Unified Sync, and Conflict Resolution.
-- ConflictManager locks individual file paths during active resolution.
-
----
-
-## 18. Migration Model
-Tested across 12 upgrade paths (`tests/c5UpgradeMigration.test.ts`):
-- Clean install -> Fresh state.
-- Legacy C2/C3 (`_vault-relay/state.json`) -> Canonical storage.
-- Intermediate C4 (`.obsidian/vault-relay/`) -> Canonical storage.
-- Legacy PAT keys (`vault-relay-pat`, `vault-relay:pat`) -> Canonical `SecretStorage`.
-- All legacy source files are kept until destination records are verified byte-for-byte on disk.
-
----
-
-## 19. Test & CI Evidence
-- **Total Test Suites:** 41 test files.
-- **Total Passing Tests:** 450 tests (0 skipped, 0 failing).
-- **Linters:** ESLint (0 errors, 0 warnings with `--max-warnings 0`).
-- **Typechecker:** TypeScript `tsc --noEmit` (0 errors).
-- **Production Bundle:** `main.js` (164,265 bytes, SHA-256: `FE1ED3F3E47FDD29B8DE3E8EB77A193DD2F429641580BD20CB900CC9516FA191`).
-- **Verification Pipeline:** `npm run verify` (lint + typecheck + test + build = PASS).
-
----
-
-## 20. Verified Metrics (Lab / Network-Independent)
-*Evaluated with mock GitHub client on mixed-type vaults (.md, .txt, .canvas, PNG, JPG, PDF, bin):*
-- 100 files: Classification < 5 ms, Preview ~24 ms, Unified Sync planning < 25 ms.
-- 500 files: Classification < 15 ms, Preview ~37 ms, Unified Sync planning < 40 ms.
-- 1,000 files: Classification < 30 ms, Preview ~64 ms, Unified Sync planning < 65 ms.
-- Batch Push (10, 50, 100 files): Single Git commit, single ref update per batch.
-
----
-
-## 21. Real-Device Evidence
-- **C6 Real Windows Acceptance:** `PASS` (100 local->remote push, 100 remote->local pull, 11 mixed conflicts, binary batch, double-sync lock, offline/reconnect, restart, storage cleanup, final exact convergence).
-- **C6 Real iPhone Acceptance:** `PASS` (Exact BRAT build, SecretStorage persistence, mixed create/edit/delete/move both directions, content conflict, delete conflict, stale-device delete / zero resurrection, binary transfer, restart, final convergence).
-- **C7 Real Windows Acceptance:** `PASS` (Protocol verified across zero-file delete push, clean zero-state dashboard, first note creation from empty state, remote delete pull, and alternating stress cycles).
-- **C7 Real iPhone Acceptance:** `PASS` (Protocol verified on iOS via BRAT across zero-file delete push, clean zero-state dashboard, first note creation from empty state, remote delete pull, and alternating stress cycles).
-- **C1–C7 Real-Device Signoff:** `VERIFIED`
-
----
-
-## 22. Known Limitations
-- Standard GitHub authenticated API rate limits apply (typically 5,000 req/hr).
-- Repositories returning truncated Git trees (>100,000 files) are blocked for safety.
-- Single repository and branch configuration per vault.
-- Cellular/Wi-Fi latency dominates real-world sync speed compared to in-memory benchmarks.
-- **Unborn Repositories**: The target GitHub repository must have at least one initial commit and default branch. Git Data API cannot construct trees or update refs on an unborn HEAD. Repositories that become empty through sync convergence (0 files) are fully supported.
-
----
-
-## 23. Timeline
-- **2026-09-01:** C1 Foundation Bootstrap (Scanner & 6-state classifier).
-- **2026-09-01 → 09-02:** C2 Conservative Safe Pull (Cryptographic blob verification, LF canonicalization, SecretStorage).
-- **2026-09-02:** C3 Conservative Safe Push (Git Data API, optimistic concurrency `force: false`, ref verification).
-- **2026-09-03 → 09-04:** C4 Unified Sync & Conflict Resolution (Single-action sync, Connection Wizard, 3-way conflict review, canonical internal storage).
-- **2026-09-04:** C5 Production Hardening (Mutation lease, fail-closed mutations, pull rollback journal, 12-scenario migration matrix, 359 tests, 0.5.0 RC prerelease).
-- **2026-09-05:** C6 Safe Deletion, Exact Moves & Mobile-Safe UI Transparency (Git tree sha:null remote delete, Obsidian trash local delete, delete-recovery journal, exact-SHA move pairing, semantic summary layer suppressing move double-counting, explicit delete/move confirm/result modals, 426 tests across 40 suites, 0.6.0 RC).
-- **2026-09-06:** C7 Release Readiness & Empty-Tree Closure (Canonical empty root tree `4b825dc642cb6eb9a060e54bf8d69288fbee4904` commit handling, zero-drift empty convergence, first file creation from empty state, 450 tests across 41 suites, documentation freeze, 0.7.0 RC prerelease).
-- **2026-09-06:** 1.0.0 Stable Release published (C1–C7 real-device acceptance complete on Windows and iPhone; full MVP lifecycle verified).
-- **2026-09-06:** 1.0.1 (Directory compliance: minAppVersion 1.11.4 for SecretStorage, command ID polish, privacy disclosures).
-- **2026-09-06:** 1.0.2 (Community compliance: zero inline styles, Setting.setHeading(), dynamic configDir, app.fileManager.trashFile, duplicate CSS elimination).
-- **2026-09-06:** 1.0.3 (Community compliance closure: official preview completed with 0 errors, 0 warnings, 1 intentional recommendation; declarative getSettingDefinitions() + legacy display() dual support; promise hygiene; strict type-narrowing).
-
----
-
-## 24. AI-Assisted Development Methodology
-GitHub Vault Relay was developed using a disciplined human-in-the-loop, AI-assisted engineering methodology:
-
-### Maintainer-Owned Responsibilities
-- System purpose, problem definition, and product scope.
-- Invariant definition (zero force push, deferred deletions, SecretStorage only, 25 MiB ceiling).
-- Architecture and security threat boundary decisions.
-- Real-device manual acceptance testing on Windows and iOS devices.
-- Release candidate authorization and publishing decisions.
-
-### AI-Assisted Implementation Responsibilities
-- Code synthesis conforming to strict architectural constraints.
-- Exhaustive test harness generation (450 unit, stress, and failure-injection tests).
-- Automated static security auditing and AST property verification.
-- Refactoring and regression remediation under quality gate constraints.
-
----
-
-## 25. Canonical Portfolio Reference Tables
-
-### SAFE PORTFOLIO CLAIMS
-| Claim | Factual Evidence Base |
-| :--- | :--- |
-| **Production 1.0.0 Stable Release** | C1–C7 fully verified across automated suites and real-device acceptance on Windows Desktop and iOS Mobile (iPhone). |
-| **Mobile-First Git Sync Bridge without Native Git** | Communicates exclusively via HTTPS using Obsidian's `requestUrl()` API and GitHub Git Data API. |
-| **Optimistic Concurrency & History Protection** | All branch updates pass `force: false`. Remote HEAD revalidated before mutation. |
-| **Single-Commit Batching** | Each Safe Push batch commits all eligible note changes in a single atomic Git commit. |
-| **Deterministic Conflict Preservation** | Notes modified independently on both sides are flagged as conflicts and preserved until user resolution. |
-| **100% SecretStorage Credential Protection** | PAT stored strictly in device `SecretStorage`. Zero plaintext in `data.json` or `localStorage`. |
-| **Crash Recovery & Rollback Engine** | Startup recovery rolls back unverified pull writes using recovery journals; atomic `.bak` fallback. |
-| **Zero-File / Empty-Tree Closure** | Full lifecycle support for empty repositories (0 files) using canonical Git empty tree SHA `4b825...` without `.gitkeep`. |
-| **Strict Automated Verification** | 450 tests across 41 suites, 0 ESLint warnings, 0 type errors, Node 20 & 22 green CI. |
-
----
-
-### DO NOT CLAIM / NOT YET VERIFIED
-| Unsupported Claim | Reason | Factually Accurate Position |
+| Fact | Canonical value | Evidence |
 | :--- | :--- | :--- |
-| *"Absolute Zero Data Loss Guarantee"* | External Git force-pushes or host malware can cause loss outside plugin control. | Halts safely and preserves both versions when state is ambiguous. |
-| *"Sub-10ms synchronization on all devices"* | 10ms was an in-memory mock classification benchmark. Real network latency is higher. | Bounded hash caching minimizes local file hashing. |
-| *"End-to-end two-phase transaction"* | Pull and Push are distinct sequential phases; successful Pull is kept if Push fails. | Unified sync combines Safe Pull, Re-plan, and Safe Push into one user action. |
+| Plugin/package | `github-vault-relay` | `manifest.json`, `package.json` |
+| Release | `1.0.3` | `manifest.json`, `package.json`, Git tag `1.0.3` |
+| Minimum Obsidian version | `1.11.4` | `manifest.json`, `tests/manifest.test.ts` |
+| Mobile | Supported; `isDesktopOnly: false` | `manifest.json`, `tests/manifest.test.ts` |
+| Remote service | GitHub REST/Git Data API over HTTPS | `src/github/githubClient.ts` |
+| Test files | `42` | `tests/*.test.ts`, current `vitest run` output |
+| Passing tests | `467` | current `vitest run` output |
+| Quality gate | `PASS` (`npm run verify`, 2026-09-06) | `package.json`, local gate run |
+
+`main.js` is a generated, ignored build artifact. The current production build identity is recorded by the verification run and should be regenerated rather than hand-edited. The manual matrix records the matching release asset hashes for reproducible device testing.
+
+## Product boundary
+
+Vault Relay is a user-triggered, GitHub-backed bridge for one configured vault/repository/branch. It avoids native Git on mobile and does not claim to be a distributed transaction system. Its priority is explicit failure and preservation of ambiguous state.
+
+Non-goals are background/scheduled sync, sync-on-save, fuzzy rename inference, empty-directory sync, alternative Git forges, Canvas three-way merge, multi-account switching, and force-push behavior.
+
+## Runtime architecture
+
+The main flow is:
+
+1. `SyncEngine` inventories local files and reads the remote branch/tree.
+2. `syncClassifier.ts` compares local entries, remote blobs, and `state.json`.
+3. `PullEngine` applies safe remote changes with blob verification and recovery journals.
+4. `UnifiedSyncEngine` rescans after Pull.
+5. `PushEngine` creates blobs/tree/commit, revalidates, updates the ref with `force: false`, and verifies the result.
+6. `StorageManager` advances the durable baseline only after the operation's checks permit it.
+
+The primary UI is `SyncDashboardModal`; the older Pull, Push, Preview, and conflict commands remain registered in `src/main.ts`.
+
+## Classifier: ten implementation states
+
+The union in `src/sync/syncTypes.ts` and branches in `src/sync/syncClassifier.ts` define these ten states:
+
+| State | Actual condition | Result |
+| :--- | :--- | :--- |
+| `LOCAL_ONLY` | Local exists, remote and baseline do not | Push candidate |
+| `REMOTE_ONLY` | Remote exists, local and baseline do not | Pull candidate |
+| `LOCAL_CHANGED` | Both exist; local differs from baseline; remote matches baseline | Push candidate |
+| `REMOTE_CHANGED` | Both exist; remote differs from baseline; local matches baseline | Pull candidate |
+| `POTENTIAL_CONFLICT` | Both exist and both diverged from the baseline, or both differ without a base | Manual conflict review |
+| `UNCHANGED` | Canonical local and remote SHAs match, or both still match their reviewed baseline | No-op |
+| `LOCAL_DELETED` | Baseline exists; local is absent; remote still has baseline content | Push deletion candidate |
+| `REMOTE_DELETED` | Baseline exists; remote is absent; local still has baseline content | Pull deletion candidate |
+| `DELETE_CONFLICT` | One side deleted and the other side changed | Explicit Keep File/Delete File decision |
+| `DELETED` | Baseline exists; both sides are absent | Remove obsolete baseline entry |
+
+`OVERSIZED` and `UNSAFE` are counters/guards attached to a report. They are not members of `SyncCategory`.
+
+Without a baseline entry, a missing file is deliberately treated as `LOCAL_ONLY` or `REMOTE_ONLY`; absence alone never proves deletion.
+
+## Baseline and SHA semantics
+
+`state.json` stores `lastSyncedCommitSha`, timestamps, and one `FileSyncStateEntry` per path containing `localSha`, `remoteSha`, and `syncedAt`. These are the comparison anchors for the classifier.
+
+`hashUtils.ts` computes a Git blob SHA-1 over `blob <byte-length>\0<payload>`. Text paths are canonicalized to LF before the canonical SHA is computed; binary paths use the original bytes. Remote blob bytes are independently rehashed before a Pull writes them.
+
+## Safe Pull
+
+`PullEngine` fetches the remote branch/tree, filters unsafe or excluded paths, classifies changes, downloads verified blobs, and applies only eligible changes. Text is written in canonical LF form; binary content is byte-exact. Existing local content is checked before overwrite. Pull writes are journaled under `pull-recovery/`; remote deletions are snapshotted under `delete-recovery/` and routed through `app.fileManager.trashFile()`.
+
+For an exact-SHA remote move, the destination is materialized and verified before the source is removed. If destination materialization fails, the source remains.
+
+## Safe Push and optimistic concurrency
+
+`PushEngine` uploads changed bytes as blobs, builds one tree from the remote base tree, creates one commit, rereads local files before the ref update, and calls `PATCH /git/refs/heads/{branch}` with `force: false`. It then verifies the authoritative branch ref and resulting tree/blob SHAs before updating the local baseline.
+
+This is optimistic concurrency: the branch's expected parent is used as the concurrency boundary. A remote HEAD change causes the ref update to fail rather than overwrite unrelated history. A lost PATCH response is resolved by an authoritative ref read before status is reported.
+
+One Safe Push batch has one Git commit/ref update boundary. Blob and tree objects created before a failed ref update may remain unreachable Git objects; the branch and local baseline are not advanced as if the push succeeded.
+
+## Deletion and move model
+
+Remote deletion is represented by omitting a path in a Git tree, or by `sha: null` in the tree input when files remain. The final-file case uses `CANONICAL_EMPTY_TREE_SHA` (`4b825dc642cb6eb9a060e54bf8d69288fbee4904`) directly. No HTTP `DELETE` endpoint is used.
+
+Local deletion during Pull uses Obsidian trash semantics after recovery evidence is written and the destination/source ordering for moves is satisfied. User-triggered confirmation flows are the boundary for destructive sync actions.
+
+## Storage and migration
+
+The canonical internal directory is computed as:
+
+`${app.vault.configDir}/github-vault-relay/`
+
+It contains `state.json`, `conflicts_meta.json`, conflict payloads, `pull-recovery/`, and `delete-recovery/` as needed. `${app.vault.configDir}` is dynamic; `.obsidian` is only the usual example.
+
+`StorageManager.migrateLegacyStorage()` handles legacy root `_vault-relay/` state, intermediate `${configDir}/vault-relay/`, and the intermediate plugin directory. Root `_vault-relay/` user files are preserved as normal content. State writes use `.tmp` and `.bak` recovery paths.
+
+Current limitation: `pathFilter.ts` exposes `getDefaultExclusions(configDir)`, but `DEFAULT_EXCLUSIONS` is initialized from its `.obsidian` fallback and settings use that constant. The storage path itself is dynamic; default exclusion behavior for a custom `configDir` needs a production follow-up and is not claimed as fully solved here.
+
+## Secret and network model
+
+`src/security/secretStore.ts` uses Obsidian `SecretStorage` as the only active PAT backend with key `github-vault-relay-pat`. localStorage is only consulted for verified one-time legacy migration when SecretStorage is available; it is not a runtime fallback. `redact.ts` provides token-pattern and configured-token redaction for sanitized errors.
+
+The client uses `requestUrl()` and GitHub endpoints for repository/branch discovery, ref/tree/blob reads, and Git Data API writes. Automatic retries are bounded and mutation requests fail closed on connection loss. The implementation has no telemetry or intermediary relay service.
+
+## Verification evidence
+
+The canonical executable gate is:
+
+```text
+npm run verify
+```
+
+It runs ESLint with zero warnings, TypeScript typechecking, Vitest, and the production build. Current automated test evidence is 42 files and 467 passing tests. Historical checkpoint totals in `docs/development-history/` and older Changelog entries are snapshots, not current totals.
+
+The current manual acceptance matrix is a protocol. Its device rows must remain `NOT RUN` until a real Windows/iOS run is recorded; automated tests do not prove real-device acceptance.
+
+## Ownership and AI-assisted engineering
+
+The maintainer/product owner owns problem definition, requirements, scope, product decisions, direction given to agents, manual testing, acceptance/rejection, and release decisions.
+
+Engineering work was AI-assisted: architecture exploration, implementation/refactoring, test generation, audits, and documentation drafting were performed with human review and direction. Technical decisions are attributed to the maintainer only when supported by an explicit decision, test, commit/history record, or current implementation—not merely by authorship of a file.
+
+## Current open technical follow-ups
+
+These are intentionally not changed by this documentation task:
+
+1. Make default path exclusions consume the live `app.vault.configDir` for custom Obsidian configuration directories.
+2. Audit remaining diagnostic logging that passes caught error objects directly so the PAT-never-in-logs invariant is blanket, not only enforced on sanitized user-facing paths.
+
+Until those are resolved, portfolio wording must not claim complete custom-config-dir exclusion coverage or blanket redaction of every console diagnostic.

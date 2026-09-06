@@ -1,297 +1,189 @@
 # GitHub Vault Relay: System Architecture
 
-This document describes the technical architecture, data flows, and concurrency invariants of GitHub Vault Relay.
+This document describes the architecture that exists in the current `1.0.3` source tree. File references are the evidence; diagrams are summaries, not a redesign proposal.
 
----
+## System context
 
-## 1. System Context
+```mermaid
+flowchart LR
+    User[User] --> Vault[Obsidian Vault]
+    Vault <--> Plugin[Vault Relay plugin]
+    Plugin <--> Secret[Obsidian SecretStorage]
+    Plugin -->|requestUrl HTTPS| API[api.github.com]
+    API <--> Repo[GitHub repository branch]
+    External[Native Git / GitHub web] <--> Repo
+```
+
+The plugin is an HTTPS bridge. It does not run Git or a Git emulator in the mobile runtime, and it does not assume exclusive ownership of the repository.
+
+## Components
 
 ```mermaid
 flowchart TD
-    subgraph ObsidianApp["Obsidian Application Environment"]
-        User["User / Mobile Notes"] <--> Vault["Obsidian Vault (Filesystem)"]
-        Vault <--> Relay["GitHub Vault Relay Plugin"]
-        Relay <--> SecretStorage["Obsidian SecretStorage (Device Keychain)"]
-    end
-
-    subgraph GitHubRemote["GitHub Remote Cloud (api.github.com)"]
-        GitDataAPI["GitHub Git Data API\n(Blobs, Trees, Commits, Refs)"]
-        GitRepo["Git Repository (main branch)"]
-        GitDataAPI <--> GitRepo
-    end
-
-    subgraph ExternalWriters["External Git Environment (Desktop/Web)"]
-        NativeGit["Native Git CLI / GUI / Web Editor"] <--> GitRepo
-    end
-
-    Relay -->|"HTTPS REST & Git Data API<br>(Obsidian requestUrl)"| GitDataAPI
+    UI[src/ui + src/main.ts] --> Lease[MutationCoordinator]
+    Lease --> Unified[UnifiedSyncEngine]
+    Unified --> Classifier[syncClassifier]
+    Unified --> Pull[PullEngine]
+    Unified --> Push[PushEngine]
+    Pull --> Client[GitHubClient]
+    Push --> Client
+    Pull --> Store[StorageManager]
+    Push --> Store
+    Conf[ConflictManager] --> Client
+    Conf --> Store
+    Settings[settings.ts] --> Secrets[secretStore.ts]
+    Client --> Secrets
 ```
 
----
+- `SyncEngine` scans local files, fetches the remote tree, and produces a preview report.
+- `syncClassifier.ts` implements the ten `SyncCategory` states.
+- `PullEngine` applies verified remote content and remote deletion/move operations.
+- `PushEngine` creates Git objects and advances the branch safely.
+- `UnifiedSyncEngine` sequences Pull, a fresh scan, Push, and final reporting.
+- `ConflictManager` implements reviewed content/delete conflict actions.
+- `StorageManager` owns internal state, payloads, recovery journals, migration, and atomic JSON replacement.
+- `GitHubClient` owns HTTP, endpoint construction, retries, redaction, and Git Data API primitives.
 
-## 2. Component Architecture
-
-```mermaid
-flowchart TD
-    subgraph UI["Presentation Layer (src/ui/)"]
-        Dashboard["SyncDashboardModal"]
-        Preview["SyncPreviewModal"]
-        ConflictModal["ConflictResolutionModal"]
-        TokenModal["ClearTokenConfirmModal"]
-        SettingsTab["VaultRelaySettingTab"]
-    end
-
-    subgraph Coordination["Coordination & Security (src/sync/, src/security/)"]
-        Coordinator["MutationCoordinator\n(WeakMap Lease Lock)"]
-        SecretStore["SecretStore\n(github-vault-relay-pat)"]
-        Classifier["SyncClassifier\n(10-State Inventory)"]
-    end
-
-    subgraph Engines["Core Synchronization Engines (src/sync/)"]
-        UnifiedEngine["UnifiedSyncEngine"]
-        PullEngine["PullEngine"]
-        PushEngine["PushEngine"]
-        ConflictMgr["ConflictManager"]
-    end
-
-    subgraph Storage["Persistence & Client (src/sync/, src/github/)"]
-        StorageMgr["StorageManager\n(.obsidian/github-vault-relay/)"]
-        Client["GitHubClient\n(Obsidian requestUrl)"]
-    end
-
-    UI --> Coordinator
-    SettingsTab --> SecretStore
-    Coordinator --> UnifiedEngine
-    Coordinator --> ConflictMgr
-    UnifiedEngine --> Classifier
-    UnifiedEngine --> PullEngine
-    UnifiedEngine --> PushEngine
-    PullEngine --> Client
-    PushEngine --> Client
-    ConflictMgr --> Client
-    PullEngine --> StorageMgr
-    PushEngine --> StorageMgr
-    ConflictMgr --> StorageMgr
-    Client --> SecretStore
-```
-
----
-
-## 3. Unified Sync Sequence
+## Unified Sync sequence
 
 ```mermaid
 sequenceDiagram
-    autonumber
     actor User
-    participant UI as SyncDashboardModal
+    participant UI
     participant Lease as MutationCoordinator
     participant Sync as UnifiedSyncEngine
-    participant Class as SyncClassifier
+    participant Class as Classifier
     participant Pull as PullEngine
     participant Push as PushEngine
-    participant GitHub as GitHub API
+    participant GH as GitHubClient
     participant Store as StorageManager
 
-    User->>UI: Click [ Sync ]
-    UI->>Lease: acquireMutationLease(app, "Unified Sync")
-    Lease-->>UI: Lease granted
-    UI->>Sync: executeSync(onProgress)
-
-    Note over Sync,GitHub: Phase 1: Initial Scan
-    Sync->>Class: classifySyncState(localFiles, remoteBlobs, state)
-    Class-->>Sync: Diff report (pullItems, pushItems, conflicts)
-
-    opt Remote Changes Exist (REMOTE_ONLY / REMOTE_CHANGED)
-        Note over Sync,GitHub: Phase 2: Safe Pull
-        Sync->>Pull: executeSafePull(pullItems)
-        Pull->>GitHub: GET /git/blobs/{sha}
-        Pull->>Store: Record pre-write recovery journal
-        Pull->>Store: Write & verify local files
-        Pull->>Store: Save state.json & delete journal
-        Pull-->>Sync: PullReport (SUCCESS)
+    User->>UI: Start Sync
+    UI->>Lease: acquire(app, label)
+    Lease-->>UI: lease or rejection
+    UI->>Sync: executeSync()
+    Sync->>GH: read branch/tree
+    Sync->>Class: compare local, remote, baseline
+    opt safe remote changes
+        Sync->>Pull: executeSafePull()
+        Pull->>GH: GET blobs
+        Pull->>Store: journal, write, verify, save baseline
     end
-
-    Note over Sync,GitHub: Phase 3: Re-scan (Pull output incorporated)
-    Sync->>Class: classifySyncState(freshLocal, freshRemote, state)
-    Class-->>Sync: Updated pushItems
-
-    opt Local Changes Exist (LOCAL_ONLY / LOCAL_CHANGED)
-        Note over Sync,GitHub: Phase 4: Safe Push
-        Sync->>Push: executeSafePush(freshPushItems)
-        Push->>GitHub: Upload blobs, tree, commit
-        Push->>Push: Re-verify local bytes on disk
-        Push->>GitHub: PATCH /git/refs/heads/:branch (force: false)
-        Push->>GitHub: Authoritative GET ref check
-        Push->>Store: Advance state.json baseline
-        Push-->>Sync: PushReport (SUCCESS)
+    Sync->>Class: fresh rescan
+    opt safe local changes
+        Sync->>Push: executeSafePush()
+        Push->>GH: blobs -> tree -> commit -> PATCH ref
+        Push->>GH: authoritative ref/tree verification
+        Push->>Store: save baseline
     end
-
-    Note over Sync,GitHub: Phase 5: Final Convergence Scan
-    Sync->>Class: classifySyncState()
-    Sync-->>UI: UnifiedSyncResult (PASS)
-    UI->>Lease: releaseMutationLease()
-    UI-->>User: Display Sync Complete
+    Sync-->>UI: truthful result
+    UI->>Lease: release()
 ```
 
-> [!IMPORTANT]
-> **Non-Transaction Invariant**: Unified Sync is intentionally **not** an all-or-nothing rollback transaction. If Safe Pull succeeds and Safe Push subsequently fails (e.g. remote branch moved concurrently), the successfully pulled remote files are **not** rolled back. The partial success is reported truthfully to the user.
+Unified Sync is deliberately not an all-or-nothing distributed transaction. A successful Pull remains applied if a later Push fails.
 
----
+## Git object construction
 
-## 4. Safe Push Git Object Construction
+Git stores content as blobs, directory listings as trees, history nodes as commits, and branch names as refs. The implemented Safe Push uses that model directly:
 
-```mermaid
-flowchart TD
-    Start(["Start Safe Push"]) --> Preflight["Preflight Checks: Exclusions, 25 MiB ceiling, Valid paths"]
-    Preflight --> Blobs["1. POST /git/blobs for each modified file"]
-    Blobs --> Tree["2. POST /git/trees using base commit tree SHA"]
-    Tree --> Commit["3. POST /git/commits referencing parent commit SHA"]
-    Commit --> InFlightCheck{"4. Re-read local disk files:<br>Did any bytes change in flight?"}
-    InFlightCheck -->|"Yes"| AbortInFlight["ABORT: Local file modified during upload.<br>Branch ref untouched."]
-    InFlightCheck -->|"No"| PatchRef["5. PATCH /git/refs/heads/:branch with force: false"]
-    PatchRef --> RefCheck{"Remote accepted ref update?"}
-    RefCheck -->|"Rejection / 422"| AbortMoved["ABORT: Remote HEAD moved concurrently.<br>History preserved."]
-    RefCheck -->|"Network Drop"| RecoverLost["Query GET /git/refs/heads/:branch to verify authoritative SHA"]
-    RecoverLost --> VerifyRef
-    RefCheck -->|"200 OK"| VerifyRef["6. Authoritative GET ref verification retry budget"]
-    VerifyRef --> AdvanceState["7. Durably advance state.json baseline commit SHA"]
-    AdvanceState --> Done(["Push Complete"])
+```text
+local bytes
+  -> POST /git/blobs
+  -> POST /git/trees (base_tree = verified remote tree)
+  -> POST /git/commits (parent = verified remote commit)
+  -> PATCH /git/refs/heads/{branch} (force: false)
+  -> GET ref + GET tree verification
+  -> state.json baseline update
 ```
 
----
+All eligible changes in one Safe Push are included in one commit/ref update boundary. A failed ref update does not advance local baseline state.
 
-## 5. Conflict Resolution Sequence
+## Baseline, SHA, and classifier
 
-```mermaid
-flowchart TD
-    PotentialConflict["Potential Conflict Detected:<br>Both local and remote notes modified independently"] --> UserReview["User Reviews Note in ConflictResolutionModal"]
+`state.json` stores the last accepted commit and, per path, local/remote blob SHAs. `hashUtils.ts` computes the Git blob SHA-1 framing (`blob <length>\0<payload>`). `.md`, `.txt`, and `.canvas` content is canonicalized to LF before canonical hashing; other files are byte-exact.
 
-    UserReview --> Choice{"User Resolution Choice"}
+The classifier compares local and remote entries against that baseline:
 
-    Choice -->|"Keep Local"| KL1["1. Revalidate remote HEAD & local disk bytes"]
-    KL1 --> KL2["2. Execute scoped authorized Safe Push to GitHub"]
-    KL2 --> KL3["3. Clear conflict record & advance state baseline"]
+| State | Meaning |
+| :--- | :--- |
+| `LOCAL_ONLY` / `REMOTE_ONLY` | New content exists on one side without baseline proof |
+| `LOCAL_CHANGED` / `REMOTE_CHANGED` | One side diverged while the other still matches baseline |
+| `POTENTIAL_CONFLICT` | Both sides diverged, or differing content has no base |
+| `UNCHANGED` | Canonical content matches, or both sides remain at the reviewed base |
+| `LOCAL_DELETED` / `REMOTE_DELETED` | A baseline file disappeared from one side while the other still has baseline content |
+| `DELETE_CONFLICT` | One side deleted and the other modified |
+| `DELETED` | Both sides deleted a baseline path |
 
-    Choice -->|"Use Remote"| UR1["1. Revalidate local file matches reviewed hash"]
-    UR1 --> UR2["2. Save pre-write local backup to journal"]
-    UR2 --> UR3["3. Overwrite local file with verified remote blob"]
-    UR3 --> UR4["4. Verify local disk bytes & update baseline"]
+`OVERSIZED` and `UNSAFE` are guard counters, not classifier states.
 
-    Choice -->|"Keep Both"| KB1["1. Generate timestamped conflict filename"]
-    KB1 --> KB2["2. Write remote version alongside local note"]
-    KB2 --> KB3["3. Verify disk copy & advance baselines independently"]
+## Safe Pull boundaries
 
-    KL3 --> Resolved(["Conflict Resolved"])
-    UR4 --> Resolved
-    KB3 --> Resolved
+Pull fetches and validates remote blobs before writes. Before changing a local file it:
+
+1. checks the path and size policy;
+2. verifies the remote blob's raw SHA;
+3. canonicalizes text or preserves binary bytes;
+4. writes a recovery journal and optional original backup;
+5. writes and rereads the local file;
+6. updates `state.json` only when verification permits it;
+7. removes recovery evidence after durable state handling.
+
+For remote deletion, `StorageManager.beginDeleteRecovery()` snapshots and verifies the original bytes before `app.fileManager.trashFile()` runs. For an exact-SHA move, the destination is written and verified before the source is removed.
+
+## Safe Push and optimistic concurrency
+
+`PushEngine` uses the remote commit/tree observed during planning as the expected parent. It also rereads local files before the ref update to catch edits made while network calls were in flight. `GitHubClient.updateBranchRef()` rejects a caller request for `force: true` and always sends `force: false`.
+
+After PATCH, Push performs an authoritative ref read and verifies the resulting tree/blob SHAs. If the PATCH response is lost, it checks the ref instead of guessing. Only after those checks does it update the local baseline.
+
+The in-memory `MutationCoordinator` prevents reentrant Pull, Push, Unified Sync, and conflict operations in one Obsidian app instance. It is not a cross-device or cross-process lock.
+
+## Conflict resolution
+
+Content conflicts are preserved and reviewed in `ConflictResolutionModal`:
+
+- Keep Local revalidates the remote branch/tree and performs a scoped `force: false` push.
+- Use Remote revalidates local content, writes the reviewed remote version, verifies it, and updates the baseline.
+- Keep Both keeps the local file and stores a verified remote conflict copy with independent metadata.
+
+Delete conflicts use the same revalidation principle and expose Keep File, Delete File, or Cancel. No conflict is silently resolved by the classifier.
+
+## Empty-tree and deletion flow
+
+For a resulting remote file count of zero, `PushEngine` uses `CANONICAL_EMPTY_TREE_SHA` (`4b825dc642cb6eb9a060e54bf8d69288fbee4904`) directly instead of creating an empty tree through the GitHub endpoint. Creating the first file from that state uses the canonical SHA as `base_tree`. This supports an existing repository converging to zero files without `.gitkeep`; an unborn repository still requires an initial commit/branch.
+
+Remote deletion is represented in a tree update, not an HTTP DELETE. A local remote-delete pull is sent through Obsidian trash after the recovery snapshot. Deletion requires baseline proof and a user-triggered sync/confirmation boundary.
+
+## Internal storage and recovery
+
+The canonical path is computed at runtime:
+
+`${app.vault.configDir}/github-vault-relay/`
+
+The usual `.obsidian/github-vault-relay/` spelling is only an example. The directory contains:
+
+```text
+state.json
+conflicts_meta.json
+conflicts/
+pull-recovery/
+delete-recovery/
 ```
 
----
+State and metadata use `.tmp` staging and `.bak` fallback recovery. Startup runs legacy migration, atomic-file recovery, interrupted Pull recovery, interrupted Delete recovery, and orphan conflict cleanup.
 
-## 6. Crash Recovery & Storage Lifecycle
+Known limitation: `StorageManager` computes the internal path dynamically, but `pathFilter.ts` currently initializes the default exclusion constant from a `.obsidian` fallback. Full custom `configDir` default exclusion is a follow-up, not a current guarantee.
 
-```mermaid
-flowchart TD
-    Startup(["Obsidian Startup / Plugin Load"]) --> CheckDir["Ensure .obsidian/github-vault-relay/ exists"]
-    CheckDir --> MigCheck{"Legacy storage detected?"}
-    MigCheck -->|"Yes"| MigAction["Migrate C2/C3 root or C4 intermediate data with byte-exact verification"]
-    MigAction --> AtomicRec
-    MigCheck -->|"No"| AtomicRec["Inspect state.json: .tmp or .bak present?"]
-    AtomicRec -->|".tmp without .bak"| DiscardTmp["Discard stale .tmp"]
-    AtomicRec -->|".bak present"| RestoreBak["Restore last valid .bak backup to state.json"]
-    DiscardTmp --> PullJournalCheck
-    RestoreBak --> PullJournalCheck
-    AtomicRec -->|"Clean"| PullJournalCheck["Inspect pull-recovery/ directory"]
-    PullJournalCheck -->|"Journal found"| RollbackPull["Roll back interrupted pull writes to pre-write state"]
-    PullJournalCheck -->|"No journals"| DelJournalCheck["Inspect delete-recovery/ directory"]
-    RollbackPull --> DelJournalCheck
-    DelJournalCheck -->|"Journal found"| RecoverDelete["Restore interrupted local deletions from snapshot"]
-    DelJournalCheck -->|"No journals"| OrphanGC["Garbage Collect unreferenced conflict payloads"]
-    RecoverDelete --> OrphanGC
-    OrphanGC --> Ready(["Plugin Ready for User Interaction"])
-```
+## Network and security boundaries
 
----
+- HTTP goes through Obsidian `requestUrl()` to `https://api.github.com`.
+- Reads include repository/branch/ref/tree/blob operations; writes use only Git Data API blobs, trees, commits, and refs.
+- Mutations do not use GitHub `DELETE` endpoints or `PUT /contents`.
+- PAT storage is `SecretStorage` only at runtime, key `github-vault-relay-pat`.
+- The 25 MiB per-file ceiling is a Vault Relay safety policy, not GitHub's platform limit.
+- Path safety checks reject traversal, absolute/control paths, excluded paths, and unsafe collisions.
+- Sanitized error paths use `redact.ts`; some diagnostic warning calls still pass caught error objects directly and must not be described as blanket-redacted.
 
-## 7. Safe Deletion & Move Lifecycle
+## Community compatibility in the current source
 
-### Three-Way Deletion Classification Matrix
-
-| Baseline (`state.json`) | Local Vault | Remote GitHub | Classification | Engine Handling |
-| :--- | :--- | :--- | :--- | :--- |
-| Present (`SHA1`) | Absent | Present (`SHA1`) | `LOCAL_DELETED` | Safe Push builds tree with `sha: null`. Ref updated `force: false`. Baseline pruned after verified omission. |
-| Present (`SHA1`) | Present (`SHA1`) | Absent | `REMOTE_DELETED` | Safe Pull creates pre-delete recovery snapshot, deletes local file safely via `app.fileManager.trashFile()`, prunes baseline. |
-| Present (`SHA1`) | Absent | Absent | `DELETED` | Baseline entry pruned cleanly without remote or local mutation. |
-| Present (`SHA1`) | Absent | Present (`SHA2`) | `DELETE_CONFLICT` | Local deleted vs remote modified. Halts safely; presents `[ Keep File ]` or `[ Delete File ]`. |
-| Present (`SHA1`) | Present (`SHA2`) | Absent | `DELETE_CONFLICT` | Remote deleted vs local modified. Halts safely; presents `[ Keep File ]` or `[ Delete File ]`. |
-| Absent | Present | Absent | `LOCAL_ONLY` | Conservative: never inferred as remote deletion without baseline proof. |
-| Absent | Absent | Present | `REMOTE_ONLY` | Conservative: never inferred as local deletion without baseline proof. |
-
-### Move & Rename Semantics
-
-1. **Push Move**: A local file move (e.g. `Projects/A.md` -> `Archive/A.md`) is decomposed into `delete Projects/A.md` + `add Archive/A.md` within a **single atomic Git commit**.
-2. **Pull Move**: Safe Pull enforces strict sequencing:
-   - Step 1: Write and verify destination (`Archive/A.md`) byte-exact.
-   - Step 2: Delete source (`Projects/A.md`) only after destination write is verified.
-   - Step 3: Update baseline state and clean up recovery snapshots.
-   If Step 1 fails, the source file remains untouched.
-3. **Exact-SHA Detection**: When the SHA of an added local file exactly matches the baseline SHA of a deleted local file, the UI pairs them as an exact Move (`Projects/A.md → Archive/A.md`).
-4. **Git Data API Safety**: All remote deletions use `{ path, mode: "100644", type: "blob", sha: null }` in `POST /git/trees`. Zero HTTP `DELETE` endpoints, zero `PUT /contents`, `force: false` always.
-
----
-
-## 8. Canonical Empty-Tree & Zero-File Lifecycle
-
-### GitHub Git Data API Edge Case
-In Git, an empty directory tree is deterministically represented by the canonical empty tree SHA:
-```
-4b825dc642cb6eb9a060e54bf8d69288fbee4904
-```
-However, GitHub's Git Data API exhibits two edge-case behaviors:
-1. Calling `POST /git/trees` with `{ tree: [] }` returns `HTTP 422 Invalid tree info`.
-2. Calling `POST /git/trees` with a valid `base_tree` and deleting the final file (`{ path: "...", sha: null }`) returns `HTTP 404 Not Found`.
-3. Calling `GET /git/trees/4b825dc642cb6eb9a060e54bf8d69288fbee4904` returns `HTTP 404 Not Found` because GitHub does not persist or serve a physical Git tree object for the empty root.
-
-### Deterministic Architecture Solution
-Vault Relay resolves this limitation cleanly without synthetic files (`.gitkeep`, `README.md`) or artificial placeholder commits:
-
-```mermaid
-flowchart TD
-    Scan["PushEngine computes resultingRemoteFileCount"] --> ZeroCheck{"resultingRemoteFileCount == 0?"}
-    ZeroCheck -->|"Yes (All files deleted)"| EmptyFlow["DEDICATED EMPTY-TREE FLOW<br>targetTreeSha = CANONICAL_EMPTY_TREE_SHA<br>(Bypass POST /git/trees)"]
-    ZeroCheck -->|"No (Files remain)"| StandardFlow["Standard Flow<br>POST /git/trees with sha: null entries"]
-    
-    EmptyFlow --> Commit["POST /git/commits referencing targetTreeSha"]
-    StandardFlow --> Commit
-    
-    Commit --> PatchRef["PATCH /git/refs/heads/:branch (force: false)"]
-    PatchRef --> Verify["Authoritative Post-Push Verification"]
-    Verify --> ResolveTree["GitHubClient.getTreeRecursive(commitSha)"]
-    
-    ResolveTree --> Tree404{"GET /git/trees returns 404?"}
-    Tree404 -->|"Yes"| CommitCheck["Query GET /git/commits/:sha"]
-    CommitCheck --> IsEmpty{"commit.tree.sha == CANONICAL_EMPTY_TREE_SHA?"}
-    IsEmpty -->|"Yes"| ReturnEmpty["Return { sha: CANONICAL_EMPTY_TREE_SHA, tree: [] }"]
-    IsEmpty -->|"No"| ThrowErr["Rethrow original 404 error"]
-    Tree404 -->|"No (200 OK)"| ReturnTree["Return tree items"]
-```
-
-### Transition Lifecycle: 0 ↔ 1+ Files
-1. **Convergence to 0 Files**: When all synchronized files are removed locally, `PushEngine` commits `CANONICAL_EMPTY_TREE_SHA` directly. Post-verification confirms 0 files in the root tree, and `state.json` baseline is cleanly cleared of all file records.
-2. **Transitioning from 0 to 1+ Files**: When a user creates the first file in an empty repository, `PushEngine` uploads the blob and calls `POST /git/trees` with `base_tree: CANONICAL_EMPTY_TREE_SHA` and the new file entry. GitHub natively accepts this call, builds a single-file tree, and the resulting commit advances the branch ref cleanly.
-3. **Unborn Repository Boundary**: A repository must have at least one initial commit and branch. An unborn Git HEAD (0 commits) cannot be manipulated via Git Data API tree/commit endpoints; this is an inherent Git constraint documented in [README.md](../README.md). 
----
-
-## 9. Obsidian Community Directory Compliance Architecture
-
-To comply with the official Obsidian Community Plugin Guidelines and automated submission review checks (`eslint-plugin-obsidianmd`):
-
-1. **Zero Inline Styles**: All static styling (modals, buttons, cards, status labels) is strictly encapsulated within `styles.css`. TypeScript UI components attach semantic CSS classes (e.g. `vault-relay-modal`, `vault-relay-destructive-card`) without modifying `element.style.*`.
-2. **Accessible Headings**: Settings sections use `Setting.setHeading()` rather than raw HTML `h2`/`h3` elements, ensuring full compatibility with Obsidian themes, font sizing, and accessibility features.
-3. **Dynamic Configuration Path**: The plugin references `app.vault.configDir` rather than hardcoding `.obsidian/`, ensuring full compatibility with custom configuration directories.
-4. **User-Safe File Deletion**: Deletion of user notes during remote pull synchronization utilizes Obsidian's native `app.fileManager.trashFile(file)` rather than unrecoverable `app.vault.delete(file)`. This routes deleted files to the user's configured Obsidian trash destination (system trash or `.trash/`).
-5. **Standard Web APIs**: Uses standard `crypto.subtle` without `globalThis` prefixes, and standard `window.setTimeout` for timer operations.
-6. **Dual Settings Architecture (Declarative + Legacy)**: Implements `getSettingDefinitions()` alongside `getControlValue()` and `setControlValue()` for declarative settings search indexing on Obsidian >=1.13.0 with zero I/O overhead. Simultaneously retains `public override display(): void` backed by a synchronous in-memory token existence cache (`tokenExistenceCache: WeakMap<App, boolean>`) to preserve full compatibility with Obsidian 1.11.4–1.12.x without deprecation runtime crashes.
-7. **Button Styling Backward Compatibility**: Dynamically feature-detects `ButtonComponent.setDestructive()` on Obsidian 1.13+ with graceful fallback to CSS utility class `mod-warning` on older versions, avoiding unsupported API violations against `minAppVersion: 1.11.4`.
-8. **Official Community Review Verification**: Official Community Preview completed with 0 errors, 0 warnings, and 1 intentional backward-compatibility recommendation (`display()` retained for Obsidian 1.11.4–1.12.x). Runtime sync semantics remain 100% unchanged.
-
+`settings.ts` exposes declarative setting definitions for Obsidian `>=1.13.0` and retains synchronous `display()` compatibility for the manifest minimum `1.11.4`. Runtime feature detection is used for newer button styling APIs. The source tests document these compatibility choices; they do not change the sync model.

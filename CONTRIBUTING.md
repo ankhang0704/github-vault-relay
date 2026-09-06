@@ -1,76 +1,48 @@
 # Contributing to GitHub Vault Relay
 
-Thank you for your interest in contributing to GitHub Vault Relay!
+Vault Relay is a conservative, user-triggered GitHub bridge for Obsidian mobile and desktop. When state is ambiguous, preserve it and make the failure explicit.
 
-GitHub Vault Relay is a conservative, mobile-first GitHub bridge for Obsidian Mobile (iOS/Android) and Desktop. Our core priority is **data integrity over convenience**: when state is ambiguous, we halt and preserve both versions rather than guessing or silently overwriting user notes.
+## Prerequisites and gates
 
----
-
-## 🛠️ Development Prerequisites
-
-- **Node.js**: v20.x or v22.x LTS
-- **npm**: v10+
-
-### Setup & Quality Gates
+- Node.js 20.x or 22.x LTS
+- npm 10+
 
 ```bash
-# 1. Clean install exact dependencies
 npm ci
-
-# 2. Run ESLint (0 errors, 0 warnings required)
 npm run lint
-
-# 3. Run TypeScript typecheck
 npm run typecheck
-
-# 4. Run test suite
 npm run test
-
-# 5. Build production bundle
 npm run build
-
-# 6. Run the unified verification pipeline
 npm run verify
 ```
 
-Every Pull Request must pass `npm run verify` with zero warnings and zero errors.
+`npm run verify` is the canonical gate: zero ESLint warnings/errors, a clean TypeScript check, passing Vitest tests, and a successful production build.
 
----
+## Safety invariants
 
-## 🛡️ Core Safety Invariants
+1. Branch updates use `force: false`; never add force-push behavior.
+2. Remote writes use Git Data API blobs, trees, commits, and refs; do not add GitHub `DELETE` or `PUT /contents` calls.
+3. Sync remains explicitly user-triggered; no background daemon or sync-on-save.
+4. Active PAT storage remains Obsidian `SecretStorage` under `github-vault-relay-pat`.
+5. Content and deletion conflicts are preserved until explicit resolution.
+6. Do not introduce Node-only runtime APIs or native Git/isomorphic-git dependencies into the plugin runtime.
+7. Preserve the 25 MiB file policy, path validation, remote ref revalidation, recovery journals, and baseline-after-verification ordering.
+8. Keep internal storage under `${app.vault.configDir}/github-vault-relay/`; root `_vault-relay/` is user-owned content.
 
-All contributions must respect the following core safety guarantees:
-1. **Zero Force Push (`force: false`)**: Branch ref updates must never pass `force: true`.
-2. **Zero DELETE / PUT contents**: Remote writes use exclusively approved Git Data API endpoints (`/git/blobs`, `/git/trees`, `/git/commits`, `/git/refs`).
-3. **No Hidden Mutations**: All mutations must be explicitly initiated by the user (no background sync daemons, no sync-on-save).
-4. **SecretStorage Exclusively**: Personal Access Tokens must reside strictly in Obsidian `SecretStorage` (`github-vault-relay-pat`). Tokens are never written to `data.json` or `localStorage`.
-5. **Conflict Preservation**: Conflicted notes must never be overwritten automatically.
-6. **Mobile Environment Safety**: Zero Node.js-only runtime APIs (`child_process`, `fs`). Communications must use Obsidian's `requestUrl()` API.
+## Feature freeze
 
----
+Do not submit background/scheduled sync, sync-on-save, implicit/unverified deletion, alternative Git hosts, native Git, or isomorphic-git. Contributions should target correctness, recovery, performance, security, accessibility, or documentation.
 
-## 🚫 Feature Freeze (MVP Scope)
+## AI-assisted engineering and ownership
 
-To maintain stability and safety, the project operates under a strict feature freeze. Please do **not** submit PRs implementing:
-- Background or scheduled sync
-- Sync-on-save
-- Automatic file deletions
-- Alternative Git hosts (GitLab, Gitea, WebDAV)
-- Native Git / isomorphic-git dependencies
+The maintainer/product owner owns problem definition, requirements, scope, product decisions, direction given to agents, manual testing, acceptance/rejection, and release decisions.
 
-Allowed contributions focus on: correctness, error recovery, performance, security, accessibility, and documentation.
+Engineering may be AI-assisted for architecture exploration, implementation/refactoring, test generation, audits, and documentation drafting. Every result still requires human review and the same executable gates as any other contribution. Do not infer maintainer ownership of a technical decision merely from file authorship; point to the implementation, tests, explicit decision record, or history when making that claim.
 
----
+## Documentation changes
 
-## 🤖 AI-Assisted Development Policy
+Use current source/tests/manifest as evidence. Keep historical checkpoint numbers labeled as historical. Do not claim real-device PASS from automated tests; update [the manual matrix](docs/MANUAL_TEST_MATRIX.md) only after a physical run.
 
-GitHub Vault Relay welcomes the responsible use of AI tools under a human-in-the-loop engineering model:
-- **Maintainer Ownership**: System architecture, safety invariants, and release authorizations are strictly human-owned and directed.
-- **Verification Requirement**: AI-assisted code is held to the identical standards as human-authored code: it must pass all linting, typechecking, deterministic unit tests, and security reviews.
-- **Transparency**: Contributors using AI coding assistants should note this in PR descriptions and ensure they have personally reviewed and verified all submitted changes.
+## Security reports
 
----
-
-## 🔒 Security Disclosures
-
-Please do **not** open public issues for security vulnerabilities. Review our [SECURITY.md](SECURITY.md) for private disclosure instructions via GitHub Security Advisories.
+Do not open a public issue with vulnerability details. Use the private process in [SECURITY.md](SECURITY.md).

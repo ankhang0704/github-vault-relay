@@ -1,6 +1,6 @@
 # GitHub Vault Relay: Real-Device Manual Acceptance Test Matrix
 
-> **Executable Protocol for Real Runtime Acceptance (C6 Baseline & C7 Empty-Tree Closure)**  
+> **Executable Protocol for Real Runtime Acceptance of the current release**
 > **Target Release:** `1.0.3` Stable Release  
 > **Build Identity:**  
 > - Version: `1.0.3`  
@@ -10,7 +10,8 @@
 > - `manifest.json` SHA-256: `B7810625BECA5971967A20AAE3EA8D9429D22C1AD797D5117529BCB31EC8F54E`  
 > - `styles.css` Length: 4,222 bytes  
 > - `styles.css` SHA-256: `BF3B1FA38D46DA8B21E677C443A07520C5C7152E74F9C76CFAEAF2F169CB9EAB`  
-> **Baseline Status:** C6 Real Windows Acceptance = PASS | C6 Real iPhone Acceptance = PASS | C7 Real Windows Acceptance = PASS | C7 Real iPhone Acceptance = PASS | C1–C7 = VERIFIED | Community Preview = PASS (0 errors, 0 warnings, 1 intentional recommendation)  
+> **Automated baseline:** `npm run verify` PASS on 2026-09-06; 42 test files / 467 passing tests.
+> **Real-device baseline:** `NOT RUN` in this canonical matrix. Do not infer Windows/iOS PASS from automated tests.
 
 ---
 
@@ -46,7 +47,7 @@ Execute this focused UI validation first before resuming runtime acceptance:
 
 | ID | Test Scenario | Precondition | Action | Expected Result | Actual Result | Status | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **RT-01** | Install/update exact 0.6.0 RC | Clean test vault or earlier version | Copy `main.js`, `manifest.json`, `styles.css` to `.obsidian/plugins/github-vault-relay/`; enable plugin | Plugin loads with version 0.6.0; console has zero fatal errors; SHA-256 matches build identity | | **NOT RUN** | |
+| **RT-01** | Install/update exact 1.0.3 release | Clean test vault or earlier version | Copy `main.js`, `manifest.json`, `styles.css` to `<configDir>/plugins/github-vault-relay/`; enable plugin | Plugin loads with version 1.0.3 and minimum Obsidian version 1.11.4; console has zero fatal errors; SHA-256 matches build identity | | **NOT RUN** | |
 | **RT-02** | Connection / PAT persistence | Test GitHub repo with fine-grained PAT | Enter PAT in Settings -> Connection Wizard; click **Save & Connect** | Repositories and branches discovered; repo selected; PAT stored in SecretStorage; restarts without re-prompting | | **NOT RUN** | |
 | **RT-03** | Remote-only Pull | A new note `remote-sample.md` created directly on GitHub | Open Sync Dashboard -> Click **Sync** (or Safe Pull) | Note is downloaded to local vault; content is byte/LF identical; classified as `UNCHANGED` on subsequent scan | | **NOT RUN** | |
 | **RT-04** | Local-only Push | A new note `local-sample.md` created in Obsidian vault | Open Sync Dashboard -> Click **Sync** | Single Git commit created on GitHub; branch ref updated (`force: false`); file appears on GitHub | | **NOT RUN** | |
@@ -64,7 +65,7 @@ Execute this focused UI validation first before resuming runtime acceptance:
 | **RT-16** | > 25 MiB blocked | Add 30 MiB file | Trigger Safe Push | Push halts for oversized file; informative warning displayed; remote repository remains uncorrupted | | **NOT RUN** | |
 | **RT-17** | Nested paths & Unicode | Create note `Folder/Subfolder/Tiếng Việt — 日本語 2026.md` | Trigger Safe Push and subsequent Pull | Directory structure created on GitHub; file pulled cleanly with Unicode characters intact | | **NOT RUN** | |
 | **RT-18** | External Git writer | Push commit from native Git CLI while Obsidian open | Trigger Sync in Obsidian | Remote HEAD advancement detected; Sync pulls new commit; zero history overwrite | | **NOT RUN** | |
-| **RT-19** | Internal storage cleanup | After multiple syncs and conflict resolutions | Inspect `.obsidian/github-vault-relay/` | Contains only `state.json` and active metadata; zero orphaned payloads in `conflicts/` | | **NOT RUN** | |
+| **RT-19** | Internal storage cleanup | After multiple syncs and conflict resolutions | Inspect `<configDir>/github-vault-relay/` | Canonical storage is under the live config directory; no unreferenced conflict payloads or stale recovery artifacts remain after cleanup | | **NOT RUN** | |
 | **RT-20** | SecretStorage / Clear Token | Plugin configured with token | Settings -> Advanced / Security -> Click **Clear Token** -> Confirm | Modal warns of consequence; token cleared from SecretStorage; wizard reverts to disconnected state | | **NOT RUN** | |
 | **RT-21** | Layout & responsiveness | Resize Obsidian window to narrow width | Inspect all modals and settings | No horizontal clipping; word-wrap functions; buttons remain accessible | | **NOT RUN** | |
 | **RT-22** | Final clean convergence | End of baseline acceptance run | Restart Obsidian; open Preview | All notes categorized as `UNCHANGED`; zero warnings; vault fully operational | | **NOT RUN** | |
@@ -85,8 +86,8 @@ Execute this focused UI validation first before resuming runtime acceptance:
 
 | ID | Test Scenario | Precondition | Action | Expected Result | Actual Result | Status | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **RT-01** | Install exact 0.6.0 RC via BRAT | Obsidian on iOS with BRAT installed | BRAT -> Add Beta Plugin -> `https://github.com/ankhang0704/github-vault-relay` | BRAT downloads release 0.6.0 assets; plugin enables cleanly on iPhone | | **NOT RUN** | |
-| **RT-02** | Connection / PAT persistence | Mobile vault | Paste fine-grained PAT; click **Save & Connect** | Discovers repos/branches; token stored in iOS Keychain (SecretStorage); survives iOS app restart | | **NOT RUN** | |
+| **RT-01** | Install exact 1.0.3 release via BRAT | Obsidian on iOS with BRAT installed | BRAT -> Add Beta Plugin -> `https://github.com/ankhang0704/github-vault-relay` | BRAT downloads release 1.0.3 assets; plugin enables cleanly on iPhone | | **NOT RUN** | |
+| **RT-02** | Connection / PAT persistence | Mobile vault | Paste fine-grained PAT; click **Save & Connect** | Discovers repos/branches; token stored by Obsidian SecretStorage; survives iOS app restart | | **NOT RUN** | |
 | **RT-03** | Remote-only Pull | Note created on GitHub | Open Sync Dashboard -> Tap **Sync** | Note downloaded to iPhone; displays properly in Obsidian Mobile | | **NOT RUN** | |
 | **RT-04** | Local-only Push | Note written on iPhone | Open Sync Dashboard -> Tap **Sync** | Single Git commit pushed to GitHub over cellular/Wi-Fi; ref updated safely | | **NOT RUN** | |
 | **RT-05** | Simultaneous safe changes | Remote note updated; local note created | Tap **[ Sync ]** | Pulls remote note, replans, pushes local note in single commit; truthful progress phases visible | | **NOT RUN** | |
@@ -103,8 +104,8 @@ Execute this focused UI validation first before resuming runtime acceptance:
 | **RT-16** | > 25 MiB blocked | Import > 25 MiB video | Tap **[ Sync ]** | Blocked before upload; informative user toast shown; memory protected | | **NOT RUN** | |
 | **RT-17** | Nested paths & Unicode | Create note in nested folders with accents | Tap **[ Sync ]** | Path created correctly; characters display identically across mobile and desktop | | **NOT RUN** | |
 | **RT-18** | External Git writer | Push commit from desktop while iPhone idle | Open iPhone Obsidian -> Tap **Sync** | iPhone safely pulls external commit without ref conflict | | **NOT RUN** | |
-| **RT-19** | Internal storage cleanup | After multiple syncs | Check `.obsidian/github-vault-relay/` | Zero stale snapshots in `conflicts/`; storage bounded | | **NOT RUN** | |
-| **RT-20** | SecretStorage / Clear Token | Plugin configured | Advanced / Security -> Clear Token -> Confirm | Credential wiped from iOS Keychain; UI disconnected cleanly | | **NOT RUN** | |
+| **RT-19** | Internal storage cleanup | After multiple syncs | Check `<configDir>/github-vault-relay/` | No stale snapshots or unreferenced conflict payloads remain after cleanup | | **NOT RUN** | |
+| **RT-20** | SecretStorage / Clear Token | Plugin configured | Advanced / Security -> Clear Token -> Confirm | Credential removed from Obsidian SecretStorage; UI disconnected cleanly | | **NOT RUN** | |
 | **RT-21** | Mobile layout & touch targets | iPhone portrait view | Inspect all modals, buttons, and progress | Buttons meet >=44px touch height; text wraps properly; safe-area bottom inset respected | | **NOT RUN** | |
 | **RT-22** | Final clean convergence | End of iPhone acceptance run | Relaunch Obsidian; open Preview | All notes `UNCHANGED`; zero errors in mobile console; vault fully operational | | **NOT RUN** | |
 | **RT-23** | Local delete push | Delete synchronized note `NoteA.md` on iPhone | Open Sync Dashboard -> Tap **Sync** | Git commit created omitting `NoteA.md` via `sha: null`; ref updated `force: false`; removed from baseline | | **NOT RUN** | |
@@ -126,28 +127,18 @@ Execute this focused UI validation first before resuming runtime acceptance:
 
 | ID | Test Scenario | Precondition | Action | Expected Result | Actual Result | Status | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **C7-EMPTY-01** | Delete final file locally -> empty remote tree | Only 1 note in vault and on GitHub | Delete local note; click **[ Sync ]** | Commit created with Canonical Empty Tree SHA `4b825dc642cb6eb9a060e54bf8d69288fbee4904`; branch ref updated non-force; baseline pruned to 0 files; 0 files on GitHub | Empty tree commit created successfully; ref updated non-force; baseline cleared to 0 | **PASS** | Verified Windows & iPhone |
-| **C7-EMPTY-02** | Zero-file dashboard display | Repository has 0 files (empty tree) | Open Sync Dashboard | Dashboard displays "0 files synchronized"; 0 local, 0 remote, 0 pending; clean zero state | Clean zero-state displayed with 0 items | **PASS** | Clean dashboard |
-| **C7-EMPTY-03** | Create first note from empty state | Repository has 0 files (empty tree) | Create `first-note.md`; click **[ Sync ]** | `createTree` uses `base_tree: CANONICAL_EMPTY_TREE_SHA`; commit created; ref updated; 1 file on GitHub; baseline updated | Commit created with parent pointing to empty commit; 1 file synced | **PASS** | Lineage preserved |
-| **C7-EMPTY-04** | Remote final file delete pull | Only 1 note; deleted directly on GitHub | Open Sync Dashboard -> Click **[ Sync ]** | Classifies as `REMOTE_DELETED`; local file deleted; baseline cleared to 0 files | Local note deleted to trash; baseline pruned to 0 files | **PASS** | Zero resurrection |
-| **C7-EMPTY-05** | Empty-tree alternating stress cycles | Sync configured | Repeat 0 -> 1 -> 0 files create & delete cycles | Each cycle completes with PASS; zero baseline drift; branch lineage preserved | Multi-cycle 0->1->0 transitions pass with 0 baseline drift | **PASS** | 100% stable |
+| **C7-EMPTY-01** | Delete final file locally -> empty remote tree | Only 1 note in vault and on GitHub | Delete local note; click **[ Sync ]** | Commit uses Canonical Empty Tree SHA `4b825dc642cb6eb9a060e54bf8d69288fbee4904`; branch ref is non-force; baseline reaches 0 files | | **NOT RUN** | |
+| **C7-EMPTY-02** | Zero-file dashboard display | Repository has 0 files (empty tree) | Open Sync Dashboard | Dashboard displays a truthful zero-file state with no pending items | | **NOT RUN** | |
+| **C7-EMPTY-03** | Create first note from empty state | Repository has 0 files (empty tree) | Create `first-note.md`; click **[ Sync ]** | `createTree` uses `base_tree: CANONICAL_EMPTY_TREE_SHA`; commit/ref/baseline converge to 1 file | | **NOT RUN** | |
+| **C7-EMPTY-04** | Remote final file delete pull | Only 1 note; deleted directly on GitHub | Open Sync Dashboard -> Click **[ Sync ]** | Classifies as `REMOTE_DELETED`; local file is safely trashed; baseline reaches 0 files | | **NOT RUN** | |
+| **C7-EMPTY-05** | Empty-tree alternating stress cycles | Sync configured | Repeat 0 -> 1 -> 0 files create & delete cycles | Each cycle preserves branch lineage and baseline convergence | | **NOT RUN** | |
 
 ---
 
 ## Acceptance Sign-Off
 
-### C6 Production Acceptance (Completed):
-- **Windows Desktop C6 Acceptance**: PASS (Verified 2026-09-05 across 100 push / 100 pull / 11 conflicts / binaries)
-- **iPhone Mobile C6 Acceptance**: PASS (Verified 2026-09-05 on iOS 18 via BRAT across mixed lifecycle / conflicts / binaries)
+### Acceptance Sign-Off
 
-### C7 Empty-Tree Acceptance (Final Sign-Off):
-- **C7 Real Windows Desktop Acceptance**: `[X] PASS   [ ] FAIL   [ ] NOT RUN`
-  - Tester: Maintainer  Date: 2026-09-06
-- **C7 Real iPhone Mobile Acceptance**: `[X] PASS   [ ] FAIL   [ ] NOT RUN`
-  - Tester: Maintainer  Date: 2026-09-06  Device: iPhone (iOS 18 via BRAT)
+All rows above start as `NOT RUN`. A maintainer may replace a row's status only after recording the device, Obsidian version, build identity, timestamp, actual result, and notes.
 
-### Overall Status:
-- **C1–C7**: VERIFIED
-- **MVP Complete**: YES
-- **1.0.0 Ready**: YES
-- **1.0.3 Ready**: YES (Community compliance preview PASS with 0 errors, 0 warnings, 1 intentional recommendation)
+Automated tests cover the implementation; they do not sign off Windows or iOS behavior. The current canonical status is therefore **real-device acceptance: NOT RUN**.
