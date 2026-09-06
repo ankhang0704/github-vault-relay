@@ -57,10 +57,28 @@ export function isPathExcluded(filePath: string, exclusions: string[] = DEFAULT_
 }
 
 /**
+ * Ensures the live Obsidian config directory is excluded without discarding
+ * persisted user rules. Existing settings may still contain older defaults.
+ */
+export function ensureConfigDirExcluded(exclusions: string[] | undefined, configDir?: string): string[] {
+  const rules = Array.isArray(exclusions) ? exclusions.filter((rule): rule is string => typeof rule === "string") : [];
+  if (rules.length === 0) return getDefaultExclusions(configDir);
+
+  const configRule = getDefaultExclusions(configDir)[0];
+
+  if (!rules.some((rule) => normalizePath(rule) === normalizePath(configRule))) {
+    rules.push(configRule);
+  }
+
+  return rules;
+}
+
+/**
  * Parses a multiline text string of excluded paths into an array of clean rules.
  */
-export function parseExclusionRules(text: string): string[] {
-  if (!text) return [...DEFAULT_EXCLUSIONS];
+export function parseExclusionRules(text: string, configDir?: string): string[] {
+  const defaults = getDefaultExclusions(configDir);
+  if (!text) return [...defaults];
 
   const rules: string[] = [];
   const lines = text.split(/\r?\n/);
@@ -73,7 +91,7 @@ export function parseExclusionRules(text: string): string[] {
   }
 
   // Ensure default critical internal paths are always preserved if not present
-  for (const def of DEFAULT_EXCLUSIONS) {
+  for (const def of defaults) {
     if (!rules.some((r) => normalizePath(r) === normalizePath(def))) {
       rules.push(def);
     }
@@ -88,11 +106,11 @@ export function parseExclusionRules(text: string): string[] {
  * because C4 now treats '_vault-relay/' as normal user content.
  * Preserves all other default and user-defined exclusion rules.
  */
-export function migrateLegacyExclusions(exclusions: string[]): string[] {
-  if (!Array.isArray(exclusions)) return [...DEFAULT_EXCLUSIONS];
-  return exclusions.filter((rule) => {
+export function migrateLegacyExclusions(exclusions: string[], configDir?: string): string[] {
+  if (!Array.isArray(exclusions)) return getDefaultExclusions(configDir);
+  return ensureConfigDirExcluded(exclusions.filter((rule) => {
     if (!rule || typeof rule !== "string") return false;
     const norm = normalizePath(rule);
     return norm !== "_vault-relay";
-  });
+  }), configDir);
 }

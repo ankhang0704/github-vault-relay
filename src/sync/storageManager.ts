@@ -17,8 +17,9 @@ import { App, TFile } from "obsidian";
 import { calculateRawGitBlobSha, calculateCanonicalGitBlobSha } from "./hashUtils";
 import { SyncStateData } from "./syncTypes";
 import { createEmptyState, deserializeState, serializeState } from "./syncState";
-import { normalizePath } from "./pathFilter";
+import { getDefaultExclusions, normalizePath } from "./pathFilter";
 import { validatePathSafety } from "./pathSafety";
+import { sanitizeErrorMessage } from "../security/redact";
 
 export const PLUGIN_ID = "github-vault-relay";
 export const LEGACY_ROOT_DIR = "_vault-relay";
@@ -118,7 +119,7 @@ export class StorageManager {
         try {
           await app.vault.adapter.remove(backupPath);
         } catch (cleanupErr) {
-          console.warn(`[Vault Relay] Deferred cleanup of atomic backup ${backupPath}:`, cleanupErr);
+          console.warn(`[Vault Relay] Deferred cleanup of atomic backup ${backupPath}:`, sanitizeErrorMessage(cleanupErr));
         }
       }
     } catch (err) {
@@ -292,7 +293,7 @@ export class StorageManager {
     for (const journalPath of journalPaths) {
       try {
         const record = JSON.parse(await app.vault.adapter.read(journalPath)) as PullWriteRecoveryRecord;
-        const safePath = validatePathSafety(record.path);
+        const safePath = validatePathSafety(record.path, getDefaultExclusions(app.vault.configDir));
         if (record.version !== 1 || !safePath.valid || typeof record.remoteSha !== "string") {
           throw new Error("Invalid recovery journal.");
         }
@@ -343,7 +344,7 @@ export class StorageManager {
         cleanupImmediately.push(journalPath);
       } catch (err) {
         preserved++;
-        console.warn(`[Vault Relay] Preserving interrupted Pull evidence ${journalPath}:`, err);
+        console.warn(`[Vault Relay] Preserving interrupted Pull evidence ${journalPath}:`, sanitizeErrorMessage(err));
       }
     }
 
@@ -468,7 +469,7 @@ export class StorageManager {
     for (const journalPath of journalPaths) {
       try {
         const record = JSON.parse(await app.vault.adapter.read(journalPath)) as DeleteRecoveryRecord;
-        const safePath = validatePathSafety(record.path);
+        const safePath = validatePathSafety(record.path, getDefaultExclusions(app.vault.configDir));
         if (record.version !== 1 || !safePath.valid || typeof record.originalSha !== "string") {
           throw new Error("Invalid delete recovery journal.");
         }
@@ -537,7 +538,7 @@ export class StorageManager {
         preserved++;
       } catch (err) {
         preserved++;
-        console.warn(`[Vault Relay] Preserving interrupted Delete evidence ${journalPath}:`, err);
+        console.warn(`[Vault Relay] Preserving interrupted Delete evidence ${journalPath}:`, sanitizeErrorMessage(err));
       }
     }
 
@@ -574,7 +575,7 @@ export class StorageManager {
         if (!this.isStateValue(JSON.parse(content))) throw new Error("Canonical state schema is invalid.");
         return deserializeState(content);
       } catch (err) {
-        console.warn(`[Vault Relay] Failed to read canonical state at ${canonicalPath}:`, err);
+        console.warn(`[Vault Relay] Failed to read canonical state at ${canonicalPath}:`, sanitizeErrorMessage(err));
       }
     }
 
@@ -586,7 +587,7 @@ export class StorageManager {
         if (!this.isStateValue(JSON.parse(content))) throw new Error("Intermediate state schema is invalid.");
         return deserializeState(content);
       } catch (err) {
-        console.warn("[Vault Relay] Failed to read intermediate C4 state:", err);
+        console.warn("[Vault Relay] Failed to read intermediate C4 state:", sanitizeErrorMessage(err));
       }
     }
 
@@ -598,7 +599,7 @@ export class StorageManager {
         if (!this.isStateValue(JSON.parse(content))) throw new Error("Plugin-directory state schema is invalid.");
         return deserializeState(content);
       } catch (err) {
-        console.warn("[Vault Relay] Failed to read intermediate plugin-dir state:", err);
+        console.warn("[Vault Relay] Failed to read intermediate plugin-dir state:", sanitizeErrorMessage(err));
       }
     }
 
@@ -609,7 +610,7 @@ export class StorageManager {
         if (!this.isStateValue(JSON.parse(content))) throw new Error("Legacy state schema is invalid.");
         return deserializeState(content);
       } catch (err) {
-        console.warn(`[Vault Relay] Failed to read legacy state at ${LEGACY_STATE_FILE}:`, err);
+        console.warn(`[Vault Relay] Failed to read legacy state at ${LEGACY_STATE_FILE}:`, sanitizeErrorMessage(err));
       }
     }
 
@@ -617,8 +618,8 @@ export class StorageManager {
   }
 
   /**
-   * Persists sync state strictly to canonical internal storage (.obsidian/github-vault-relay/state.json).
-   * Guaranteed never to touch or write to _vault-relay/ or .obsidian/vault-relay/.
+   * Persists sync state strictly to canonical internal storage under the live configDir.
+   * Guaranteed never to touch or write to user-owned _vault-relay/ content or legacy source paths.
    */
   public static async saveState(app: App, state: SyncStateData): Promise<void> {
     const dir = this.getPluginStorageDir(app);
@@ -705,7 +706,7 @@ export class StorageManager {
         await app.vault.adapter.remove(target);
         return true;
       } catch (err) {
-        console.warn(`[Vault Relay] Failed to remove conflict payload ${target}:`, err);
+        console.warn(`[Vault Relay] Failed to remove conflict payload ${target}:`, sanitizeErrorMessage(err));
         return false;
       }
     }
@@ -752,7 +753,7 @@ export class StorageManager {
           }
         }
       } catch (err) {
-        console.warn("[Vault Relay] Failed to read conflicts metadata during GC; aborting to preserve evidence:", err);
+        console.warn("[Vault Relay] Failed to read conflicts metadata during GC; aborting to preserve evidence:", sanitizeErrorMessage(err));
         return { scanned: 0, removed: 0, bytesReclaimed: 0 };
       }
     }
@@ -768,7 +769,7 @@ export class StorageManager {
         filesToScan.push(...res.files);
         queue.push(...res.folders);
       } catch (listErr) {
-        console.warn(`[Vault Relay] Failed to list conflicts directory ${currentDir}:`, listErr);
+        console.warn(`[Vault Relay] Failed to list conflicts directory ${currentDir}:`, sanitizeErrorMessage(listErr));
       }
     }
 
@@ -805,7 +806,7 @@ export class StorageManager {
           removed++;
           bytesReclaimed += size;
         } catch (err) {
-          console.warn(`[Vault Relay:GC] Failed to remove orphan conflict payload ${normalized}:`, err);
+          console.warn(`[Vault Relay:GC] Failed to remove orphan conflict payload ${normalized}:`, sanitizeErrorMessage(err));
         }
       }
     }
@@ -878,7 +879,7 @@ export class StorageManager {
             }
           }
         } catch (err) {
-          console.warn(`[Vault Relay] Error listing ${dir}:`, err);
+          console.warn(`[Vault Relay] Error listing ${dir}:`, sanitizeErrorMessage(err));
         }
         return results;
       };
@@ -1202,7 +1203,7 @@ export class StorageManager {
 
       return { migrated: didMigrateSomething };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = sanitizeErrorMessage(err);
       console.error("[Vault Relay] Storage migration failed:", msg);
       return { migrated: false, error: msg };
     }

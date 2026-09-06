@@ -1,17 +1,33 @@
 # GitHub Vault Relay: Real-Device Manual Acceptance Test Matrix
 
 > **Executable Protocol for Real Runtime Acceptance of the current release**
-> **Target Release:** `1.0.3` Stable Release  
+> **Target Release:** `1.0.4` Stable Release
 > **Build Identity:**  
-> - Version: `1.0.3`  
-> - `main.js` Length: 169,536 bytes  
-> - `main.js` SHA-256: `B6E62674E795A43D69AAE1E64F7CAD078B4113A8A1E8EF6FB292DFEEE362F41D`  
+> - Version: `1.0.4`
+> - `main.js` Length: 169,912 bytes
+> - `main.js` SHA-256: `917683089E5FDB8B049D6D4A13FE66C15362054890B93B82A2B37101391AD86B`
 > - `manifest.json` Length: 350 bytes  
-> - `manifest.json` SHA-256: `B7810625BECA5971967A20AAE3EA8D9429D22C1AD797D5117529BCB31EC8F54E`  
+> - `manifest.json` SHA-256: `397FFB59B787457F70A7A939ADDD5F934C3E34DCAEE835C2B184388826AC8488`
 > - `styles.css` Length: 4,222 bytes  
 > - `styles.css` SHA-256: `BF3B1FA38D46DA8B21E677C443A07520C5C7152E74F9C76CFAEAF2F169CB9EAB`  
-> **Automated baseline:** `npm run verify` PASS on 2026-09-06; 42 test files / 467 passing tests.
+> **Automated baseline:** `npm run verify` PASS on 2026-09-06; 43 test files / 473 passing tests.
 > **Real-device baseline:** `NOT RUN` in this canonical matrix. Do not infer Windows/iOS PASS from automated tests.
+
+---
+
+## Final Product Closure Checklist (maintainer execution required)
+
+Run these five scenarios on a real iPhone with Obsidian Mobile and record the evidence below. These rows intentionally remain `NOT RUN` until the maintainer provides device results.
+
+| ID | Scenario | Expected evidence | Status |
+| :--- | :--- | :--- | :--- |
+| **CLOSE-01** | Plugin load/setup | Plugin enables, settings open, repository/branch/PAT setup completes without fatal error. | **NOT RUN** |
+| **CLOSE-02** | Pull | A remote-only note is pulled and is `UNCHANGED` on the next preview. | **NOT RUN** |
+| **CLOSE-03** | Local edit → Push | A local note edit produces one safe commit/ref update and appears on GitHub. | **NOT RUN** |
+| **CLOSE-04** | Remote edit → Pull | A remote note edit is pulled without overwriting unrelated local changes. | **NOT RUN** |
+| **CLOSE-05** | Conflict / safe abort | Simultaneous edits preserve the conflict or abort safely; no silent overwrite occurs. | **NOT RUN** |
+
+Maintainer evidence to record: iPhone model/iOS, Obsidian version, plugin build hash, UTC timestamp, actual result, and notes. Do not infer PASS from Vitest or desktop execution.
 
 ---
 
@@ -47,7 +63,7 @@ Execute this focused UI validation first before resuming runtime acceptance:
 
 | ID | Test Scenario | Precondition | Action | Expected Result | Actual Result | Status | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **RT-01** | Install/update exact 1.0.3 release | Clean test vault or earlier version | Copy `main.js`, `manifest.json`, `styles.css` to `<configDir>/plugins/github-vault-relay/`; enable plugin | Plugin loads with version 1.0.3 and minimum Obsidian version 1.11.4; console has zero fatal errors; SHA-256 matches build identity | | **NOT RUN** | |
+| **RT-01** | Install/update exact 1.0.4 release | Clean test vault or earlier version | Copy `main.js`, `manifest.json`, `styles.css` to `<configDir>/plugins/github-vault-relay/`; enable plugin | Plugin loads with version 1.0.4 and minimum Obsidian version 1.11.4; console has zero fatal errors; SHA-256 matches build identity | | **NOT RUN** | |
 | **RT-02** | Connection / PAT persistence | Test GitHub repo with fine-grained PAT | Enter PAT in Settings -> Connection Wizard; click **Save & Connect** | Repositories and branches discovered; repo selected; PAT stored in SecretStorage; restarts without re-prompting | | **NOT RUN** | |
 | **RT-03** | Remote-only Pull | A new note `remote-sample.md` created directly on GitHub | Open Sync Dashboard -> Click **Sync** (or Safe Pull) | Note is downloaded to local vault; content is byte/LF identical; classified as `UNCHANGED` on subsequent scan | | **NOT RUN** | |
 | **RT-04** | Local-only Push | A new note `local-sample.md` created in Obsidian vault | Open Sync Dashboard -> Click **Sync** | Single Git commit created on GitHub; branch ref updated (`force: false`); file appears on GitHub | | **NOT RUN** | |
@@ -86,7 +102,7 @@ Execute this focused UI validation first before resuming runtime acceptance:
 
 | ID | Test Scenario | Precondition | Action | Expected Result | Actual Result | Status | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **RT-01** | Install exact 1.0.3 release via BRAT | Obsidian on iOS with BRAT installed | BRAT -> Add Beta Plugin -> `https://github.com/ankhang0704/github-vault-relay` | BRAT downloads release 1.0.3 assets; plugin enables cleanly on iPhone | | **NOT RUN** | |
+| **RT-01** | Install exact 1.0.4 release via BRAT | Obsidian on iOS with BRAT installed | BRAT -> Add Beta Plugin -> `https://github.com/ankhang0704/github-vault-relay` | BRAT downloads release 1.0.4 assets; plugin enables cleanly on iPhone | | **NOT RUN** | |
 | **RT-02** | Connection / PAT persistence | Mobile vault | Paste fine-grained PAT; click **Save & Connect** | Discovers repos/branches; token stored by Obsidian SecretStorage; survives iOS app restart | | **NOT RUN** | |
 | **RT-03** | Remote-only Pull | Note created on GitHub | Open Sync Dashboard -> Tap **Sync** | Note downloaded to iPhone; displays properly in Obsidian Mobile | | **NOT RUN** | |
 | **RT-04** | Local-only Push | Note written on iPhone | Open Sync Dashboard -> Tap **Sync** | Single Git commit pushed to GitHub over cellular/Wi-Fi; ref updated safely | | **NOT RUN** | |

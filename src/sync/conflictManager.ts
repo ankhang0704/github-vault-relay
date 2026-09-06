@@ -17,6 +17,7 @@ import { SyncPreviewReport } from "./syncTypes";
 import { sanitizeErrorMessage } from "../security/redact";
 import { prepareContentBytesForPath } from "./canonicalContent";
 import { validatePathSafety } from "./pathSafety";
+import { ensureConfigDirExcluded } from "./pathFilter";
 import {
   acquireMutationLease,
   getActiveMutationLabel,
@@ -56,7 +57,7 @@ export class ConflictManager {
 
   constructor(app: App, settings: VaultRelaySettings, githubClient: GitHubClient) {
     this.app = app;
-    this.settings = settings;
+    this.settings = { ...settings, excludedPaths: ensureConfigDirExcluded(settings.excludedPaths, app.vault.configDir) };
     this.githubClient = githubClient;
   }
 
@@ -136,7 +137,7 @@ export class ConflictManager {
         }
         return parsed;
       } catch (err) {
-        console.warn("[Vault Relay] Failed to read conflicts metadata:", err);
+        console.warn("[Vault Relay] Failed to read conflicts metadata:", sanitizeErrorMessage(err));
         throw new Error("Conflict metadata is unreadable. Existing conflict evidence was preserved.");
       }
     }
@@ -485,7 +486,7 @@ export class ConflictManager {
       try {
         await StorageManager.completePullWriteRecovery(this.app, recoveryJournal);
       } catch (cleanupErr) {
-        console.warn("[Vault Relay] Deferred conflict recovery cleanup:", cleanupErr);
+        console.warn("[Vault Relay] Deferred conflict recovery cleanup:", sanitizeErrorMessage(cleanupErr));
       }
       return { success: true, message: `Local file updated to remote version for ${record.path}.` };
     } finally {
@@ -852,7 +853,7 @@ export class ConflictManager {
         await this.saveConflictRecords(records);
       }
     } catch (err) {
-      console.warn("[Vault Relay] Failed to advance conflict commit SHA:", err);
+      console.warn("[Vault Relay] Failed to advance conflict commit SHA:", sanitizeErrorMessage(err));
     }
   }
 }

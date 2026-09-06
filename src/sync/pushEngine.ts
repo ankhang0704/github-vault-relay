@@ -8,7 +8,7 @@
  * - Zero pushes for REMOTE_ONLY, REMOTE_CHANGED, POTENTIAL_CONFLICT, UNCHANGED.
  * - Deletion deferred (local deletions never delete remote files).
  * - 25 MiB mobile safety ceiling check.
- * - Reserved path (.obsidian, .git, _fit) and path traversal guards.
+ * - Reserved path (live configDir, .git, _fit) and path traversal guards.
  * - Case collision detection and safety blocks.
  * - In-memory LF canonicalization for text (.md, .txt, .canvas), byte-exact for binary.
  * - Atomic Git commit creation (all files in ONE commit and ONE ref update).
@@ -24,7 +24,7 @@ import { VaultRelaySettings } from "../settings";
 import { isCanonicalTextPath, canonicalizeTextBytes } from "./canonicalContent";
 import { isOversized } from "./fileSizePolicy";
 import { calculateCanonicalGitBlobSha, calculateRawGitBlobSha, CANONICAL_EMPTY_TREE_SHA } from "./hashUtils";
-import { isPathExcluded } from "./pathFilter";
+import { ensureConfigDirExcluded, isPathExcluded } from "./pathFilter";
 import { detectCaseCollisions, validatePathSafety } from "./pathSafety";
 import { classifySyncState } from "./syncClassifier";
 import { StorageManager } from "./storageManager";
@@ -74,7 +74,7 @@ export class PushEngine {
 
   constructor(app: App, settings: VaultRelaySettings, githubClient: GitHubClient) {
     this.app = app;
-    this.settings = settings;
+    this.settings = { ...settings, excludedPaths: ensureConfigDirExcluded(settings.excludedPaths, app.vault.configDir) };
     this.githubClient = githubClient;
   }
 
@@ -101,7 +101,7 @@ export class PushEngine {
           mtime: file.stat.mtime,
         });
       } catch (err) {
-        console.warn(`[Vault Relay] Failed to read ${file.path}:`, err);
+        console.warn(`[Vault Relay] Failed to read ${file.path}:`, sanitizeErrorMessage(err));
       }
     }
 

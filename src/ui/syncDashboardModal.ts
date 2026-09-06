@@ -45,7 +45,7 @@ export class SyncDashboardModal extends Modal {
     this.modalEl.addClass("vault-relay-modal");
     this.modalEl.addClass("vault-relay-dashboard-modal");
     void this.runScanAndRender().catch((err) => {
-      new Notice(err instanceof Error ? err.message : String(err));
+      new Notice(sanitizeErrorMessage(err));
     });
   }
 
@@ -119,7 +119,7 @@ export class SyncDashboardModal extends Modal {
     refreshBtn.disabled = this.isLoading || this.isSyncing;
     refreshBtn.onclick = () => {
       void this.runScanAndRender().catch((err) => {
-        new Notice(err instanceof Error ? err.message : String(err));
+        new Notice(sanitizeErrorMessage(err));
       });
     };
 
@@ -288,7 +288,7 @@ export class SyncDashboardModal extends Modal {
           this.plugin,
           () => {
             void this.runScanAndRender().catch((err) => {
-              new Notice(err instanceof Error ? err.message : String(err));
+              new Notice(sanitizeErrorMessage(err));
             });
           },
           this.report
@@ -469,7 +469,7 @@ export class SyncDashboardModal extends Modal {
     pullBtn.onclick = () => {
       new PullConfirmModal(this.app, this.plugin, () => {
         void this.runScanAndRender().catch((err) => {
-          new Notice(err instanceof Error ? err.message : String(err));
+          new Notice(sanitizeErrorMessage(err));
         });
       }).open();
     };
@@ -478,7 +478,7 @@ export class SyncDashboardModal extends Modal {
     pushBtn.onclick = () => {
       new PushConfirmModal(this.app, this.plugin, () => {
         void this.runScanAndRender().catch((err) => {
-          new Notice(err instanceof Error ? err.message : String(err));
+          new Notice(sanitizeErrorMessage(err));
         });
       }).open();
     };

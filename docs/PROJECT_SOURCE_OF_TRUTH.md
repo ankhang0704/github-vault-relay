@@ -7,12 +7,12 @@ This is the current factual reference for Vault Relay. When this document confli
 | Fact | Canonical value | Evidence |
 | :--- | :--- | :--- |
 | Plugin/package | `github-vault-relay` | `manifest.json`, `package.json` |
-| Release | `1.0.3` | `manifest.json`, `package.json`, Git tag `1.0.3` |
+| Release | `1.0.4` | `manifest.json`, `package.json`, Git tag `1.0.4` after release |
 | Minimum Obsidian version | `1.11.4` | `manifest.json`, `tests/manifest.test.ts` |
 | Mobile | Supported; `isDesktopOnly: false` | `manifest.json`, `tests/manifest.test.ts` |
 | Remote service | GitHub REST/Git Data API over HTTPS | `src/github/githubClient.ts` |
-| Test files | `42` | `tests/*.test.ts`, current `vitest run` output |
-| Passing tests | `467` | current `vitest run` output |
+| Test files | `43` | `tests/*.test.ts`, current `vitest run` output |
+| Passing tests | `473` | current `vitest run` output |
 | Quality gate | `PASS` (`npm run verify`, 2026-09-06) | `package.json`, local gate run |
 
 `main.js` is a generated, ignored build artifact. The current production build identity is recorded by the verification run and should be regenerated rather than hand-edited. The manual matrix records the matching release asset hashes for reproducible device testing.
@@ -93,7 +93,7 @@ It contains `state.json`, `conflicts_meta.json`, conflict payloads, `pull-recove
 
 `StorageManager.migrateLegacyStorage()` handles legacy root `_vault-relay/` state, intermediate `${configDir}/vault-relay/`, and the intermediate plugin directory. Root `_vault-relay/` user files are preserved as normal content. State writes use `.tmp` and `.bak` recovery paths.
 
-Current limitation: `pathFilter.ts` exposes `getDefaultExclusions(configDir)`, but `DEFAULT_EXCLUSIONS` is initialized from its `.obsidian` fallback and settings use that constant. The storage path itself is dynamic; default exclusion behavior for a custom `configDir` needs a production follow-up and is not claimed as fully solved here.
+Custom configuration directories are covered end-to-end: settings loading and migration, parsed/user rules, local scans, remote tree filtering, path validation through active exclusions, and all sync engine constructors ensure `${app.vault.configDir}/` is excluded. The module-level `.obsidian` value remains only the fallback for pure utility callers that do not have an Obsidian `App`.
 
 ## Secret and network model
 
@@ -109,7 +109,7 @@ The canonical executable gate is:
 npm run verify
 ```
 
-It runs ESLint with zero warnings, TypeScript typechecking, Vitest, and the production build. Current automated test evidence is 42 files and 467 passing tests. Historical checkpoint totals in `docs/development-history/` and older Changelog entries are snapshots, not current totals.
+It runs ESLint with zero warnings, TypeScript typechecking, Vitest, and the production build. Current automated test evidence is 43 files and 473 passing tests. Historical checkpoint totals in `docs/development-history/` and older Changelog entries are snapshots, not current totals.
 
 The current manual acceptance matrix is a protocol. Its device rows must remain `NOT RUN` until a real Windows/iOS run is recorded; automated tests do not prove real-device acceptance.
 
@@ -119,11 +119,6 @@ The maintainer/product owner owns problem definition, requirements, scope, produ
 
 Engineering work was AI-assisted: architecture exploration, implementation/refactoring, test generation, audits, and documentation drafting were performed with human review and direction. Technical decisions are attributed to the maintainer only when supported by an explicit decision, test, commit/history record, or current implementation—not merely by authorship of a file.
 
-## Current open technical follow-ups
+## Closure status
 
-These are intentionally not changed by this documentation task:
-
-1. Make default path exclusions consume the live `app.vault.configDir` for custom Obsidian configuration directories.
-2. Audit remaining diagnostic logging that passes caught error objects directly so the PAT-never-in-logs invariant is blanket, not only enforced on sanitized user-facing paths.
-
-Until those are resolved, portfolio wording must not claim complete custom-config-dir exclusion coverage or blanket redaction of every console diagnostic.
+The two code-level closure findings are resolved and covered by focused tests: the live config directory is excluded throughout the sync path, and caught errors/error-like diagnostic objects are sanitized before production logging or user-facing diagnostics. Real-device acceptance remains `NOT RUN` until the maintainer executes the short iPhone/Obsidian checklist in `MANUAL_TEST_MATRIX.md`.

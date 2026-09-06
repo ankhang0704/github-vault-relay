@@ -6,16 +6,17 @@
  *
  * C4 Hardened:
  * - Uses authoritative, cache-safe Git ref reading (bypassing 60s edge/browser caches)
- * - Uses StorageManager for hidden plugin storage (.obsidian/github-vault-relay/)
+ * - Uses StorageManager for hidden plugin storage under the live vault configDir.
  * - Incorporates high-performance LocalHashCache (mtime+size) for fast local scanning
  * - Collects truthful operation timings
  */
 
 import { App } from "obsidian";
 import { GitHubClient } from "../github/githubClient";
+import { sanitizeErrorMessage } from "../security/redact";
 import { VaultRelaySettings } from "../settings";
 import { calculateCanonicalGitBlobSha } from "./hashUtils";
-import { isPathExcluded } from "./pathFilter";
+import { ensureConfigDirExcluded, isPathExcluded } from "./pathFilter";
 import { classifySyncState } from "./syncClassifier";
 import { StorageManager } from "./storageManager";
 import { detectCaseCollisions } from "./pathSafety";
@@ -43,7 +44,7 @@ export class SyncEngine {
 
   constructor(app: App, settings: VaultRelaySettings, githubClient?: GitHubClient) {
     this.app = app;
-    this.settings = settings;
+    this.settings = { ...settings, excludedPaths: ensureConfigDirExcluded(settings.excludedPaths, app.vault.configDir) };
     this.githubClient =
       githubClient ||
       new GitHubClient({
@@ -104,7 +105,7 @@ export class SyncEngine {
           mtime,
         });
       } catch (err) {
-        console.warn(`[Vault Relay] Failed to calculate hash for ${file.path}:`, err);
+        console.warn(`[Vault Relay] Failed to calculate hash for ${file.path}:`, sanitizeErrorMessage(err));
       }
     }
 

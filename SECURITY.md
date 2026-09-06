@@ -1,6 +1,6 @@
 # Security Policy
 
-Vault Relay is a conservative GitHub bridge. The current supported release is `1.0.3`; older releases are not the active security baseline.
+Vault Relay is a conservative GitHub bridge. The current supported release is `1.0.4`; older releases are not the active security baseline.
 
 ## Credential storage
 
@@ -38,7 +38,7 @@ The implementation does not call GitHub `DELETE` endpoints or `PUT /contents`. A
 
 `src/security/redact.ts` redacts configured tokens, GitHub PAT patterns, bearer credentials, authorization headers, and token-like URL parameters from sanitized error messages. User-facing GitHub/UI error paths use the sanitizer.
 
-The current source still has diagnostic warning sites that pass caught error objects directly to `console.warn`/`console.error`. This documentation therefore does not claim blanket redaction of every console diagnostic. That is an open hardening item; no production behavior is changed by this documentation task.
+Production diagnostic warnings and user-facing caught-error notices pass through `sanitizeErrorMessage()` before output. Focused closure tests cover token-bearing errors/objects and scan production diagnostics for direct caught-error logging.
 
 ## Threat model and non-guarantees
 

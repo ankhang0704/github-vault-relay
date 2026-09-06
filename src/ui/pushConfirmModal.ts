@@ -34,7 +34,7 @@ export class PushConfirmModal extends Modal {
     this.modalEl.addClass("vault-relay-modal");
     this.modalEl.addClass("vault-relay-confirm-modal");
     void this.runPreflight().catch((err) => {
-      this.renderError(err instanceof Error ? err.message : String(err));
+      this.renderError(sanitizeErrorMessage(err));
     });
   }
 
@@ -257,7 +257,7 @@ export class PushConfirmModal extends Modal {
             try {
               await this.onComplete(report);
             } catch (callbackErr) {
-              console.warn("[GitHub Vault Relay] onComplete refresh error after push:", callbackErr);
+              console.warn("[GitHub Vault Relay] onComplete refresh error after push:", sanitizeErrorMessage(callbackErr));
             }
           }
         } catch (err) {

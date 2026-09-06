@@ -1,6 +1,6 @@
 # GitHub Vault Relay: System Architecture
 
-This document describes the architecture that exists in the current `1.0.3` source tree. File references are the evidence; diagrams are summaries, not a redesign proposal.
+This document describes the architecture that exists in the current `1.0.4` source tree. File references are the evidence; diagrams are summaries, not a redesign proposal.
 
 ## System context
 
@@ -172,7 +172,7 @@ delete-recovery/
 
 State and metadata use `.tmp` staging and `.bak` fallback recovery. Startup runs legacy migration, atomic-file recovery, interrupted Pull recovery, interrupted Delete recovery, and orphan conflict cleanup.
 
-Known limitation: `StorageManager` computes the internal path dynamically, but `pathFilter.ts` currently initializes the default exclusion constant from a `.obsidian` fallback. Full custom `configDir` default exclusion is a follow-up, not a current guarantee.
+`StorageManager` and all scan/filter flows use the live `app.vault.configDir`. The `.obsidian` value in `pathFilter.ts` is only a fallback for utility calls without an `App`; runtime settings and engine constructors always add the active config directory.
 
 ## Network and security boundaries
 
@@ -182,7 +182,7 @@ Known limitation: `StorageManager` computes the internal path dynamically, but `
 - PAT storage is `SecretStorage` only at runtime, key `github-vault-relay-pat`.
 - The 25 MiB per-file ceiling is a Vault Relay safety policy, not GitHub's platform limit.
 - Path safety checks reject traversal, absolute/control paths, excluded paths, and unsafe collisions.
-- Sanitized error paths use `redact.ts`; some diagnostic warning calls still pass caught error objects directly and must not be described as blanket-redacted.
+- Sanitized error paths use `redact.ts`; production diagnostic warnings and user-facing caught-error notices pass through the same sanitizer.
 
 ## Community compatibility in the current source
 

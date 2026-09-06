@@ -190,16 +190,16 @@ External writers may advance the branch. Vault Relay reads the new ref/tree, cla
 
 ### 45. What is the difference between automated and manual evidence?
 
-The current automated baseline is 42 test files and 467 passing tests, checked by `npm run verify`. Real Windows/iOS behavior is a separate manual protocol in `MANUAL_TEST_MATRIX.md`; a passing Vitest run must not be described as a real-device PASS.
+The current automated baseline is 43 test files and 473 passing tests, checked by `npm run verify`. Real Windows/iOS behavior is a separate manual protocol in `MANUAL_TEST_MATRIX.md`; a passing Vitest run must not be described as a real-device PASS.
 
 ### 46. What should a maintainer say when a sync fails after Pull?
 
 Say exactly what the result reports: Pull may have succeeded and remains applied while Push failed or was aborted. Unified Sync is sequential, not a two-phase commit, so recovery is a fresh scan and an explicit next action rather than an invented rollback claim.
 
-### 47. What is the custom configuration-directory caveat?
+### 47. How is a custom configuration directory protected?
 
-StorageManager computes its path from `app.vault.configDir`, but `pathFilter.ts` initializes `DEFAULT_EXCLUSIONS` from a `.obsidian` fallback. Do not claim full default exclusion support for a custom config directory until that production follow-up is implemented and tested.
+`app.vault.configDir` is passed into settings parsing/migration and is added to the active exclusion rules. `SyncEngine`, `PullEngine`, `PushEngine`, and `ConflictManager` also normalize their effective rules from the live app before scanning or filtering. This prevents `${configDir}/github-vault-relay/` state, recovery journals, and conflict payloads from entering local or remote sync flows. The `.obsidian` fallback remains only for utility calls without an `App`.
 
-### 48. What is the current security wording caveat?
+### 48. How are diagnostic errors kept safe?
 
-Claim SecretStorage-only active PAT storage and sanitized user-facing errors. Do not claim that every console diagnostic is redacted: the source still has warning sites that pass error objects directly. That hardening item was intentionally not changed in this documentation task.
+Caught errors and error-like objects are converted with `sanitizeErrorMessage()` before console warnings, storage diagnostics, or user-facing notices. The sanitizer covers configured PATs, GitHub PAT patterns, bearer values, authorization headers, and token-like URL parameters. `tests/finalClosure.test.ts` also audits production diagnostic call sites for direct caught-error logging.

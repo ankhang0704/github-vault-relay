@@ -5,10 +5,20 @@ All notable changes to GitHub Vault Relay will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current repository evidence is 42 test files and 467 passing tests; `npm run verify` passed locally on 2026-09-06. Test totals in older release entries are historical snapshots from those releases, not current totals.
+Current repository evidence is 43 test files and 473 passing tests; `npm run verify` passed locally on 2026-09-06. Test totals in older release entries are historical snapshots from those releases, not current totals.
 Paths and implementation details in older entries are historical release snapshots; the current internal path is `${app.vault.configDir}/github-vault-relay/`.
 
 ---
+
+## [1.0.4] - 2026-09-06
+
+### Fixed
+- **Custom Configuration Directory Safety**: Applied the live `app.vault.configDir` to settings defaults, parsed/user exclusions, migration, local scans, remote filtering, and sync engine effective rules so plugin-private state cannot be synchronized under a custom Obsidian configuration directory.
+- **Diagnostic Redaction**: Routed caught errors and error-like diagnostic objects through `sanitizeErrorMessage()` before production console warnings or user-facing notices.
+- **Closure Regression Coverage**: Added focused tests for custom-config exclusion, remote/local filtering, token-bearing diagnostic objects, and direct caught-error logging.
+
+### Verification
+- `npm run verify`: PASS — 43 test files, 473 tests passing.
 
 ## [1.0.3] - 2026-09-06
 
@@ -29,7 +39,7 @@ Paths and implementation details in older entries are historical release snapsho
 - **Community Directory Full Compliance Cleanup**:
   - **Zero Inline Styles**: Converted all static inline style assignments in settings and modal dialogs to semantic CSS utility classes in `styles.css`.
   - **Accessible Settings Headings**: Migrated settings tab headings from direct HTML elements (`createEl("h2")` / `createEl("h3")`) to Obsidian's standard `Setting.setHeading()` API for consistent theme typography.
-  - **Dynamic Configuration Directory**: Added dynamic `app.vault.configDir` handling for canonical storage and the exclusion helper; the current default exclusion constant still uses its `.obsidian` fallback until a later production follow-up.
+  - **Dynamic Configuration Directory**: Added dynamic `app.vault.configDir` handling for canonical storage and the exclusion helper; at the time of the 1.0.2 release, the default exclusion constant still used its `.obsidian` fallback. The 1.0.4 closure release completes the runtime exclusion flow.
   - **User-Safe File Deletion**: Replaced raw `app.vault.delete(file)` with `app.fileManager.trashFile(file)` for synchronized file deletions, ensuring deleted files are safely preserved in the user's configured Obsidian trash (system or local `.trash/`).
   - **Duplicate CSS Elimination**: Eliminated duplicate `max-height` declaration in `styles.css`, retaining canonical viewport constraint `min(90vh, 900px)` across desktop and mobile without `!important`.
   - **Web Crypto & Window Timers**: Standardized Web Crypto usage on standard `crypto` API and explicit window timers (`window.setTimeout`).

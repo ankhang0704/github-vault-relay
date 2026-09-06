@@ -150,7 +150,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
                   .setPlaceholder(`${this.app.vault.configDir}/\n.git/\n_fit/`)
                   .setValue(this.plugin.settings.excludedPaths.join("\n"))
                   .onChange((value) => {
-                    this.plugin.settings.excludedPaths = parseExclusionRules(value);
+                    this.plugin.settings.excludedPaths = parseExclusionRules(value, this.app.vault.configDir);
                     void this.plugin.saveSettings().catch((err) => {
                       console.warn("[GitHub Vault Relay] Failed to save settings:", sanitizeErrorMessage(err));
                     });
@@ -488,7 +488,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
             .setValue(this.plugin.settings.excludedPaths.join("\n"))
             .onChange((value) => {
               void (async () => {
-                this.plugin.settings.excludedPaths = parseExclusionRules(value);
+                this.plugin.settings.excludedPaths = parseExclusionRules(value, this.app.vault.configDir);
                 await this.plugin.saveSettings();
               })();
             });
@@ -692,4 +692,3 @@ export class VaultRelaySettingTab extends PluginSettingTab {
     }
   }
 }
-

@@ -11,7 +11,7 @@
  * - Remote blob raw SHA cryptographic integrity verification.
  * - Canonical LF normalization for text (.md, .txt, .canvas), 100% byte-exact for binary.
  * - Pre-write local modification check (local editor edits win; never silently overwritten).
- * - Conflict preservation under internal storage (.obsidian/vault-relay/conflicts/) without modifying local files.
+ * - Conflict preservation under ${app.vault.configDir}/github-vault-relay/conflicts/ without modifying local files.
  * - Post-write verification before advancing baseline state.
  */
 
@@ -21,7 +21,7 @@ import { VaultRelaySettings } from "../settings";
 import { isCanonicalTextPath, canonicalizeTextBytes, prepareContentBytesForPath } from "./canonicalContent";
 import { isOversized } from "./fileSizePolicy";
 import { calculateCanonicalGitBlobSha, calculateRawGitBlobSha } from "./hashUtils";
-import { isPathExcluded, normalizePath } from "./pathFilter";
+import { ensureConfigDirExcluded, isPathExcluded, normalizePath } from "./pathFilter";
 import { detectCaseCollisions, validatePathSafety } from "./pathSafety";
 import { classifySyncState } from "./syncClassifier";
 import { StorageManager } from "./storageManager";
@@ -50,7 +50,7 @@ export class PullEngine {
 
   constructor(app: App, settings: VaultRelaySettings, githubClient: GitHubClient) {
     this.app = app;
-    this.settings = settings;
+    this.settings = { ...settings, excludedPaths: ensureConfigDirExcluded(settings.excludedPaths, app.vault.configDir) };
     this.githubClient = githubClient;
   }
 
@@ -102,7 +102,7 @@ export class PullEngine {
           mtime: file.stat.mtime,
         });
       } catch (err) {
-        console.warn(`[Vault Relay] Failed to read ${file.path}:`, err);
+        console.warn(`[Vault Relay] Failed to read ${file.path}:`, sanitizeErrorMessage(err));
       }
     }
 
@@ -903,7 +903,7 @@ export class PullEngine {
   }
 
   /**
-   * Preserves conflicting remote content under internal storage (.obsidian/vault-relay/conflicts/).
+   * Preserves conflicting remote content under the live configDir storage.
    * Guaranteed never to write or recreate root _vault-relay.
    * Registers the conflict in ConflictManager so it is reviewable in UI.
    */
@@ -938,7 +938,7 @@ export class PullEngine {
         conflictPath
       );
     } catch (recordErr) {
-      console.warn(`[Vault Relay] Failed to record conflict metadata for ${originalPath}:`, recordErr);
+      console.warn(`[Vault Relay] Failed to record conflict metadata for ${originalPath}:`, sanitizeErrorMessage(recordErr));
     }
 
     return conflictPath;

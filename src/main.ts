@@ -18,7 +18,7 @@ import { GitHubClient } from "./github/githubClient";
 import { sanitizeErrorMessage } from "./security/redact";
 import { CANONICAL_SECRET_KEY, getStoredPat } from "./security/secretStore";
 import { StorageManager } from "./sync/storageManager";
-import { migrateLegacyExclusions } from "./sync/pathFilter";
+import { ensureConfigDirExcluded, getDefaultExclusions, migrateLegacyExclusions } from "./sync/pathFilter";
 
 export default class VaultRelayPlugin extends Plugin {
   public settings: VaultRelaySettings = DEFAULT_SETTINGS;
@@ -30,21 +30,21 @@ export default class VaultRelayPlugin extends Plugin {
     try {
       await StorageManager.migrateLegacyStorage(this.app);
     } catch (migErr) {
-      console.warn("[Vault Relay] Automatic storage migration warning:", migErr);
+      console.warn("[Vault Relay] Automatic storage migration warning:", sanitizeErrorMessage(migErr));
     }
 
     // Recover or roll back any local Pull write interrupted before its baseline was durable.
     try {
       await StorageManager.recoverInterruptedPullWrites(this.app);
     } catch (recoveryErr) {
-      console.warn("[Vault Relay] Interrupted Pull recovery warning:", recoveryErr);
+      console.warn("[Vault Relay] Interrupted Pull recovery warning:", sanitizeErrorMessage(recoveryErr));
     }
 
     // Recover or finalize any local delete interrupted before its baseline was durable.
     try {
       await StorageManager.recoverInterruptedDeletes(this.app);
     } catch (deleteRecoveryErr) {
-      console.warn("[Vault Relay] Interrupted Delete recovery warning:", deleteRecoveryErr);
+      console.warn("[Vault Relay] Interrupted Delete recovery warning:", sanitizeErrorMessage(deleteRecoveryErr));
     }
 
     // C4 Automatic Conflict Orphan Garbage Collection:
@@ -52,7 +52,7 @@ export default class VaultRelayPlugin extends Plugin {
     try {
       await StorageManager.cleanOrphanConflictPayloads(this.app);
     } catch (gcErr) {
-      console.warn("[Vault Relay] Automatic conflict payload GC warning:", gcErr);
+      console.warn("[Vault Relay] Automatic conflict payload GC warning:", sanitizeErrorMessage(gcErr));
     }
 
     // Register Plugin Settings Tab
@@ -158,9 +158,14 @@ export default class VaultRelayPlugin extends Plugin {
     const loaded = rawData || {};
     const previousVersion = typeof loaded.settingsVersion === "number" ? loaded.settingsVersion : 1;
 
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+    const savedExclusions = Array.isArray(loaded.excludedPaths)
+      ? loaded.excludedPaths
+      : getDefaultExclusions(this.app.vault.configDir);
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded, {
+      excludedPaths: ensureConfigDirExcluded(savedExclusions, this.app.vault.configDir),
+    });
 
-    let needsSave = false;
+    let needsSave = !Array.isArray(loaded.excludedPaths);
 
     if (this.settings.secretKey && this.settings.secretKey !== CANONICAL_SECRET_KEY) {
       this.settings.secretKey = CANONICAL_SECRET_KEY;
@@ -171,7 +176,7 @@ export default class VaultRelayPlugin extends Plugin {
     // In C4, _vault-relay/ is user-owned, so remove old persisted default once.
     // If user later explicitly re-adds it, settingsVersion is already 2 so it is preserved.
     if (previousVersion < CURRENT_SETTINGS_VERSION) {
-      this.settings.excludedPaths = migrateLegacyExclusions(this.settings.excludedPaths);
+      this.settings.excludedPaths = migrateLegacyExclusions(this.settings.excludedPaths, this.app.vault.configDir);
       this.settings.settingsVersion = CURRENT_SETTINGS_VERSION;
       needsSave = true;
     }

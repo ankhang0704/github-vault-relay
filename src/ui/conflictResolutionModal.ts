@@ -23,6 +23,7 @@ import { GitHubClient } from "../github/githubClient";
 import { ConflictManager, ConflictRecord } from "../sync/conflictManager";
 import { getStoredPat } from "../security/secretStore";
 import { SyncPreviewReport } from "../sync/syncTypes";
+import { sanitizeErrorMessage } from "../security/redact";
 
 export class ConflictResolutionModal extends Modal {
   private plugin: VaultRelayPlugin;
@@ -227,8 +228,9 @@ export class ConflictResolutionModal extends Modal {
             cancelBtn.disabled = false;
           }
         } catch (err) {
-          new Notice(`Unexpected resolution error: ${String(err)}`, 8000);
-          statusDiv.setText(`❌ ${String(err)}`);
+          const safeMessage = sanitizeErrorMessage(err);
+          new Notice(`Unexpected resolution error: ${safeMessage}`, 8000);
+          statusDiv.setText(`❌ ${safeMessage}`);
           statusDiv.removeClass("vault-relay-status-visible");
           statusDiv.addClass("vault-relay-status-error");
           keepFileBtn.disabled = false;
@@ -351,8 +353,9 @@ export class ConflictResolutionModal extends Modal {
             }
           }
         } catch (err) {
-          new Notice(`Unexpected resolution error: ${String(err)}`, 8000);
-          statusDiv.setText(`❌ ${String(err)}`);
+          const safeMessage = sanitizeErrorMessage(err);
+          new Notice(`Unexpected resolution error: ${safeMessage}`, 8000);
+          statusDiv.setText(`❌ ${safeMessage}`);
           statusDiv.removeClass("vault-relay-status-visible");
           statusDiv.addClass("vault-relay-status-error");
           keepLocalBtn.disabled = false;

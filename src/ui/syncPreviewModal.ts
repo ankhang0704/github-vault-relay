@@ -33,7 +33,7 @@ export class SyncPreviewModal extends Modal {
     this.isModalOpen = true;
     this.modalEl.addClass("vault-relay-preview-modal");
     void this.runScanAndRender().catch((err) => {
-      this.renderError(err instanceof Error ? err.message : String(err));
+      this.renderError(sanitizeErrorMessage(err));
     });
   }
 
@@ -129,7 +129,7 @@ export class SyncPreviewModal extends Modal {
     const retryBtn = actions.createEl("button", { text: "Retry Scan" });
     retryBtn.onclick = () => {
       void this.runScanAndRender().catch((err) => {
-        this.renderError(err instanceof Error ? err.message : String(err));
+        this.renderError(sanitizeErrorMessage(err));
       });
     };
 
@@ -195,7 +195,7 @@ export class SyncPreviewModal extends Modal {
     });
     refreshBtn.onclick = () => {
       void this.runScanAndRender().catch((err) => {
-        this.renderError(err instanceof Error ? err.message : String(err));
+        this.renderError(sanitizeErrorMessage(err));
       });
     };
 

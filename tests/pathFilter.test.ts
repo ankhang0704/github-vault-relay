@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { isPathExcluded, normalizePath, parseExclusionRules, DEFAULT_EXCLUSIONS } from "../src/sync/pathFilter";
+import {
+  ensureConfigDirExcluded,
+  isPathExcluded,
+  normalizePath,
+  parseExclusionRules,
+  DEFAULT_EXCLUSIONS,
+} from "../src/sync/pathFilter";
 
 describe("pathFilter", () => {
   describe("normalizePath", () => {
@@ -62,6 +68,24 @@ describe("pathFilter", () => {
       expect(rules).toContain(".obsidian/");
       expect(rules).toContain(".git/");
       expect(rules).not.toContain("_vault-relay/");
+    });
+
+    it("uses the live configDir for defaults and parsed user rules", () => {
+      const configDir = "mobile-obsidian";
+      const rules = parseExclusionRules("notes/", configDir);
+
+      expect(rules).toContain(`${configDir}/`);
+      expect(rules).toContain("notes/");
+      expect(rules).not.toContain(".obsidian/");
+      expect(isPathExcluded(`${configDir}/github-vault-relay/state.json`, rules)).toBe(true);
+      expect(isPathExcluded(".obsidian/user-note.md", rules)).toBe(false);
+    });
+
+    it("adds a custom configDir to persisted rules without dropping user rules", () => {
+      const rules = ensureConfigDirExcluded([".git/", "Private/"], "mobile-obsidian");
+
+      expect(rules).toEqual([".git/", "Private/", "mobile-obsidian/"]);
+      expect(isPathExcluded("mobile-obsidian/github-vault-relay/conflicts/record.json", rules)).toBe(true);
     });
   });
 });
