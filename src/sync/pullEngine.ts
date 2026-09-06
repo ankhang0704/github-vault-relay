@@ -915,7 +915,7 @@ export class PullEngine {
     remoteSha?: string,
     remoteCommitSha?: string
   ): Promise<string> {
-    const conflictPath = await StorageManager.saveConflictPayload(this.app, originalPath, rawBytes.buffer as ArrayBuffer);
+    const conflictPath = await StorageManager.saveConflictPayload(this.app, originalPath, rawBytes.buffer);
 
     // Register conflict record in ConflictManager
     try {

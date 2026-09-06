@@ -32,7 +32,9 @@ export class SyncPreviewModal extends Modal {
     this.modalEl.addClass("vault-relay-modal");
     this.isModalOpen = true;
     this.modalEl.addClass("vault-relay-preview-modal");
-    this.runScanAndRender();
+    void this.runScanAndRender().catch((err) => {
+      this.renderError(err instanceof Error ? err.message : String(err));
+    });
   }
 
   public onClose(): void {
@@ -125,7 +127,11 @@ export class SyncPreviewModal extends Modal {
     });
 
     const retryBtn = actions.createEl("button", { text: "Retry Scan" });
-    retryBtn.onclick = () => this.runScanAndRender();
+    retryBtn.onclick = () => {
+      void this.runScanAndRender().catch((err) => {
+        this.renderError(err instanceof Error ? err.message : String(err));
+      });
+    };
 
     const closeBtn = actions.createEl("button", { text: "Close" });
     closeBtn.onclick = () => this.close();
@@ -187,7 +193,11 @@ export class SyncPreviewModal extends Modal {
       text: "Refresh",
       attr: { style: "min-height: 44px; min-width: 44px; padding: 10px 16px;" },
     });
-    refreshBtn.onclick = () => this.runScanAndRender();
+    refreshBtn.onclick = () => {
+      void this.runScanAndRender().catch((err) => {
+        this.renderError(err instanceof Error ? err.message : String(err));
+      });
+    };
 
     // Truncated tree warning banner (TRUNCATED_TREE_POLICY)
     if (this.report.truncatedRemoteTree) {

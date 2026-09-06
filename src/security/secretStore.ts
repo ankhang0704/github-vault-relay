@@ -154,6 +154,23 @@ export function purgeLegacyLocalStorageKeys(owner?: string, repo?: string): void
   }
 }
 
+const tokenExistenceCache = new WeakMap<App, boolean>();
+
+/**
+ * Synchronously checks if a PAT is known to be configured for this app instance.
+ * Returns true/false if known, or undefined if not yet determined.
+ */
+export function hasStoredPatSync(app: App): boolean | undefined {
+  return tokenExistenceCache.get(app);
+}
+
+/**
+ * Manually update the token existence cache (e.g. for testing or external mutations).
+ */
+export function setTokenExistenceCache(app: App, exists: boolean): void {
+  tokenExistenceCache.set(app, exists);
+}
+
 /**
  * Retrieves the stored PAT from device secure storage.
  * Reads ONLY from Obsidian SecretStorage.
@@ -165,6 +182,7 @@ export async function getStoredPat(app: App, owner?: string, repo?: string): Pro
   const secretStorage = getSecretStorage(app);
   if (!secretStorage) {
     // FAIL CLOSED: No SecretStorage available, never read from plaintext fallback
+    tokenExistenceCache.set(app, false);
     return null;
   }
 
@@ -174,6 +192,7 @@ export async function getStoredPat(app: App, owner?: string, repo?: string): Pro
     if (typeof secret === "string" && secret.trim().length > 0) {
       // Purge any stale legacy localStorage entries as safety hygiene
       purgeLegacyLocalStorageKeys(owner, repo);
+      tokenExistenceCache.set(app, true);
       return secret.trim();
     }
   } catch (err) {
@@ -193,6 +212,7 @@ export async function getStoredPat(app: App, owner?: string, repo?: string): Pro
           if (verified === trimmed) {
             await deleteFromSecretStorage(secretStorage, legKey);
             purgeLegacyLocalStorageKeys(owner, repo);
+            tokenExistenceCache.set(app, true);
             return trimmed;
           }
         }
@@ -238,9 +258,11 @@ export async function getStoredPat(app: App, owner?: string, repo?: string): Pro
           if (verified === cleanLegacy) {
             // Immediately purge legacy value and all related keys from localStorage
             purgeLegacyLocalStorageKeys(owner, repo);
+            tokenExistenceCache.set(app, true);
             return cleanLegacy;
           } else {
             console.error("[GitHub Vault Relay] Failed to verify SecretStorage write during legacy migration.");
+            tokenExistenceCache.set(app, false);
             return null;
           }
         }
@@ -250,6 +272,7 @@ export async function getStoredPat(app: App, owner?: string, repo?: string): Pro
     }
   }
 
+  tokenExistenceCache.set(app, false);
   return null;
 }
 
@@ -292,6 +315,7 @@ export async function setStoredPat(
 
     // Safety hygiene: ensure no legacy plaintext leftovers remain in localStorage
     purgeLegacyLocalStorageKeys(owner, repo);
+    tokenExistenceCache.set(app, true);
   } catch (err) {
     throw new Error(`Failed to save PAT in Obsidian SecretStorage: ${sanitizeErrorMessage(err, cleanToken)}`);
   }
@@ -311,6 +335,7 @@ export async function clearStoredPat(app: App, owner?: string, repo?: string): P
 
   // 2. Always purge any legacy entries from localStorage as safety hygiene
   purgeLegacyLocalStorageKeys(owner, repo);
+  tokenExistenceCache.set(app, false);
 }
 
 /**
@@ -318,5 +343,7 @@ export async function clearStoredPat(app: App, owner?: string, repo?: string): P
  */
 export async function hasStoredPat(app: App, owner?: string, repo?: string): Promise<boolean> {
   const token = await getStoredPat(app, owner, repo);
-  return !!token;
+  const exists = !!token;
+  tokenExistenceCache.set(app, exists);
+  return exists;
 }

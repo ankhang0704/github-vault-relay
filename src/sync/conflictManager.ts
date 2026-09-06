@@ -35,6 +35,18 @@ export interface ConflictRecord {
   conflictType?: "CONTENT" | "DELETE_LOCAL_REMOTE_MODIFIED" | "DELETE_REMOTE_LOCAL_MODIFIED";
 }
 
+export function isConflictRecord(val: unknown): val is ConflictRecord {
+  if (typeof val !== "object" || val === null) return false;
+  const rec = val as Record<string, unknown>;
+  return (
+    typeof rec.id === "string" &&
+    typeof rec.path === "string" &&
+    typeof rec.localSha === "string" &&
+    typeof rec.remoteSha === "string" &&
+    typeof rec.detectedAt === "number"
+  );
+}
+
 export class ConflictManager {
   private app: App;
   private settings: VaultRelaySettings;
@@ -56,7 +68,7 @@ export class ConflictManager {
     if (!id) return;
     this.resolvedRecordIds.add(id);
     while (this.resolvedRecordIds.size > 256) {
-      const oldest = this.resolvedRecordIds.values().next().value as string | undefined;
+      const oldest = this.resolvedRecordIds.values().next().value;
       if (!oldest) break;
       this.resolvedRecordIds.delete(oldest);
     }
@@ -118,8 +130,10 @@ export class ConflictManager {
     if (await this.app.vault.adapter.exists(metaPath)) {
       try {
         const raw = await this.app.vault.adapter.read(metaPath);
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) throw new Error("Conflict metadata is not an array.");
+        const parsed: unknown = JSON.parse(raw);
+        if (!Array.isArray(parsed) || !parsed.every(isConflictRecord)) {
+          throw new Error("Conflict metadata is not an array of valid records.");
+        }
         return parsed;
       } catch (err) {
         console.warn("[Vault Relay] Failed to read conflicts metadata:", err);
@@ -409,7 +423,7 @@ export class ConflictManager {
       );
 
       try {
-        await this.app.vault.modifyBinary(file, bytes.buffer as ArrayBuffer);
+        await this.app.vault.modifyBinary(file, bytes.buffer);
         const verifiedFile = this.app.vault.getAbstractFileByPath(record.path);
         if (!(verifiedFile instanceof TFile)) throw new Error("Local file is missing after write.");
         const verifiedSha = await calculateCanonicalGitBlobSha(
@@ -566,7 +580,7 @@ export class ConflictManager {
       }
 
       if (!copyAlreadyExists) {
-        await this.app.vault.createBinary(copyPath, bytes.buffer as ArrayBuffer);
+        await this.app.vault.createBinary(copyPath, bytes.buffer);
       }
       const verifiedCopy = this.app.vault.getAbstractFileByPath(copyPath);
       if (!(verifiedCopy instanceof TFile)) throw new Error("Remote conflict copy is missing after write.");
@@ -645,9 +659,9 @@ export class ConflictManager {
 
         const existingFile = this.app.vault.getAbstractFileByPath(record.path);
         if (existingFile instanceof TFile) {
-          await this.app.vault.modifyBinary(existingFile, bytes.buffer as ArrayBuffer);
+          await this.app.vault.modifyBinary(existingFile, bytes.buffer);
         } else {
-          await this.app.vault.createBinary(record.path, bytes.buffer as ArrayBuffer);
+          await this.app.vault.createBinary(record.path, bytes.buffer);
         }
 
         const verifiedFile = this.app.vault.getAbstractFileByPath(record.path);

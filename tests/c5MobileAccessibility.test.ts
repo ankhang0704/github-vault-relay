@@ -74,7 +74,7 @@ describe("C5-MOBILE: mobile-first static and accessibility audit", () => {
     const confirmation = read("src/ui/clearTokenConfirmModal.ts");
 
     expect(settings.indexOf("Advanced / Security")).toBeLessThan(settings.indexOf('setButtonText("Clear Token")'));
-    expect(settings).toContain(".setWarning()");
+    expect(settings.includes("setDestructive") || settings.includes("mod-warning") || settings.includes(".setWarning()")).toBe(true);
     expect(settings).toContain("new ClearTokenConfirmModal");
     expect(confirmation).toContain('setButtonText("Cancel")');
     expect(confirmation).toContain('setButtonText("Clear Token")');

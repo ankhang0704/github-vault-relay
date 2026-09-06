@@ -46,7 +46,7 @@ interface DeleteRecoveryRecord {
 let recoverySequence = 0;
 
 export class StorageManager {
-  private static isStateValue(value: unknown): boolean {
+  private static isStateValue(this: void, value: unknown): boolean {
     if (!value || typeof value !== "object") return false;
     const state = value as { version?: unknown; files?: unknown };
     return typeof state.version === "number" && !!state.files && typeof state.files === "object";
@@ -738,11 +738,16 @@ export class StorageManager {
     if (await app.vault.adapter.exists(metaPath)) {
       try {
         const raw = await app.vault.adapter.read(metaPath);
-        const parsed = JSON.parse(raw);
+        const parsed: unknown = JSON.parse(raw);
         if (Array.isArray(parsed)) {
           for (const item of parsed) {
-            if (item && typeof item.snapshotPath === "string") {
-              activePayloadPaths.add(normalizePath(item.snapshotPath));
+            if (
+              typeof item === "object" &&
+              item !== null &&
+              "snapshotPath" in item &&
+              typeof (item as Record<string, unknown>).snapshotPath === "string"
+            ) {
+              activePayloadPaths.add(normalizePath((item as Record<string, unknown>).snapshotPath as string));
             }
           }
         }
@@ -799,7 +804,6 @@ export class StorageManager {
           await app.vault.adapter.remove(normalized);
           removed++;
           bytesReclaimed += size;
-          console.info(`[Vault Relay:GC] Reclaimed orphan conflict payload: ${normalized} (${size} bytes)`);
         } catch (err) {
           console.warn(`[Vault Relay:GC] Failed to remove orphan conflict payload ${normalized}:`, err);
         }
@@ -873,8 +877,8 @@ export class StorageManager {
               results.push(...sub);
             }
           }
-        } catch (_e) {
-          console.warn(`[Vault Relay] Error listing ${dir}:`, _e);
+        } catch (err) {
+          console.warn(`[Vault Relay] Error listing ${dir}:`, err);
         }
         return results;
       };
@@ -886,7 +890,7 @@ export class StorageManager {
             const res = await app.vault.adapter.list(dir);
             if (res && res.files) {
               for (const file of res.files) {
-                try { await app.vault.adapter.remove(file); } catch (_e) { /* ignore */ }
+                try { await app.vault.adapter.remove(file); } catch { /* ignore */ }
               }
             }
             if (res && res.folders) {
@@ -894,12 +898,12 @@ export class StorageManager {
                 await deleteDirectoryRecursively(folder);
               }
             }
-          } catch (_e) {
+          } catch {
             /* ignore */
           }
         }
         if (app.vault.adapter.rmdir) {
-          try { await app.vault.adapter.rmdir(dir, true); } catch (_e) { /* ignore */ }
+          try { await app.vault.adapter.rmdir(dir, true); } catch { /* ignore */ }
         }
         try {
           const abstract = app.vault.getAbstractFileByPath(dir);
@@ -907,7 +911,7 @@ export class StorageManager {
           if (abstract && typeof vaultWithDelete.delete === "function") {
             await vaultWithDelete.delete(abstract, true);
           }
-        } catch (_e) {
+        } catch {
           /* ignore */
         }
       };
@@ -936,7 +940,7 @@ export class StorageManager {
           suffix++;
         }
 
-        await app.vault.adapter.writeBinary(destination, sourceBytes.buffer as ArrayBuffer);
+        await app.vault.adapter.writeBinary(destination, sourceBytes.buffer);
         const verified = new Uint8Array(await app.vault.adapter.readBinary(destination));
         if (
           verified.byteLength !== sourceBytes.byteLength ||
@@ -948,7 +952,7 @@ export class StorageManager {
       };
 
       // Load existing metadata in canonical destination
-      let metaRecords: Array<{
+      const metaRecords: Array<{
         id: string;
         path: string;
         localSha: string;
@@ -957,11 +961,36 @@ export class StorageManager {
         snapshotPath?: string;
       }> = [];
       if (await app.vault.adapter.exists(canonicalMetaPath)) {
-        const parsedMetadata = JSON.parse(await app.vault.adapter.read(canonicalMetaPath));
+        const parsedMetadata: unknown = JSON.parse(await app.vault.adapter.read(canonicalMetaPath));
         if (!Array.isArray(parsedMetadata)) {
           throw new Error("Canonical conflicts metadata is invalid; migration was stopped to preserve evidence.");
         }
-        metaRecords = parsedMetadata;
+        for (const item of parsedMetadata) {
+          if (
+            typeof item === "object" &&
+            item !== null &&
+            "id" in item &&
+            typeof (item as Record<string, unknown>).id === "string" &&
+            "path" in item &&
+            typeof (item as Record<string, unknown>).path === "string" &&
+            "localSha" in item &&
+            typeof (item as Record<string, unknown>).localSha === "string" &&
+            "remoteSha" in item &&
+            typeof (item as Record<string, unknown>).remoteSha === "string" &&
+            "detectedAt" in item &&
+            typeof (item as Record<string, unknown>).detectedAt === "number"
+          ) {
+            const rec = item as Record<string, unknown>;
+            metaRecords.push({
+              id: rec.id as string,
+              path: rec.path as string,
+              localSha: rec.localSha as string,
+              remoteSha: rec.remoteSha as string,
+              detectedAt: rec.detectedAt as number,
+              snapshotPath: typeof rec.snapshotPath === "string" ? rec.snapshotPath : undefined,
+            });
+          }
+        }
       }
 
       // ==========================================
@@ -1006,17 +1035,42 @@ export class StorageManager {
 
         // 1.3 Migrate conflicts_meta.json
         if (await app.vault.adapter.exists(interMetaPath)) {
-          const interMeta = JSON.parse(await app.vault.adapter.read(interMetaPath));
+          const interMeta: unknown = JSON.parse(await app.vault.adapter.read(interMetaPath));
           if (!Array.isArray(interMeta)) {
             throw new Error("Intermediate conflicts metadata is not an array; source storage was preserved.");
           }
-          for (const rec of interMeta) {
-            if (!metaRecords.some((r) => r.id === rec.id)) {
-              if (rec.snapshotPath) {
-                const mappedPath = migratedConflictPaths.get(normalizePath(rec.snapshotPath));
-                rec.snapshotPath = mappedPath || rec.snapshotPath.replace(`${app.vault.configDir}/vault-relay/`, `${canonicalDir}/`);
+          for (const item of interMeta) {
+            if (
+              typeof item === "object" &&
+              item !== null &&
+              "id" in item &&
+              typeof (item as Record<string, unknown>).id === "string" &&
+              "path" in item &&
+              typeof (item as Record<string, unknown>).path === "string" &&
+              "localSha" in item &&
+              typeof (item as Record<string, unknown>).localSha === "string" &&
+              "remoteSha" in item &&
+              typeof (item as Record<string, unknown>).remoteSha === "string" &&
+              "detectedAt" in item &&
+              typeof (item as Record<string, unknown>).detectedAt === "number"
+            ) {
+              const rec = item as Record<string, unknown>;
+              const recId = rec.id as string;
+              if (!metaRecords.some((r) => r.id === recId)) {
+                let snapshotPath = typeof rec.snapshotPath === "string" ? rec.snapshotPath : undefined;
+                if (snapshotPath) {
+                  const mappedPath = migratedConflictPaths.get(normalizePath(snapshotPath));
+                  snapshotPath = mappedPath || snapshotPath.replace(`${app.vault.configDir}/vault-relay/`, `${canonicalDir}/`);
+                }
+                metaRecords.push({
+                  id: recId,
+                  path: rec.path as string,
+                  localSha: rec.localSha as string,
+                  remoteSha: rec.remoteSha as string,
+                  detectedAt: rec.detectedAt as number,
+                  snapshotPath,
+                });
               }
-              metaRecords.push(rec);
             }
           }
           didMigrateSomething = true;
@@ -1051,7 +1105,7 @@ export class StorageManager {
         if (await app.vault.adapter.exists(LEGACY_STATE_FILE)) {
           const legacyContent = await app.vault.adapter.read(LEGACY_STATE_FILE);
           // Strict JSON validation: throws on syntax corruption, ensuring legacy file is kept
-          const parsedJson = JSON.parse(legacyContent);
+          const parsedJson: unknown = JSON.parse(legacyContent);
           if (this.isStateValue(parsedJson)) {
             if (!canonicalStateExists) {
               const parsedState = deserializeState(legacyContent);
@@ -1138,9 +1192,7 @@ export class StorageManager {
       if (inspectLegacyRootAfterMigration && (await app.vault.adapter.exists(LEGACY_ROOT_DIR))) {
         const rootList = await app.vault.adapter.list(LEGACY_ROOT_DIR);
         const hasRemainingContent = rootList.files.length > 0 || rootList.folders.length > 0;
-        if (hasRemainingContent) {
-          console.info("[Vault Relay] Preserving _vault-relay/ as user-owned content");
-        } else {
+        if (!hasRemainingContent) {
           await deleteDirectoryRecursively(LEGACY_ROOT_DIR);
         }
       }

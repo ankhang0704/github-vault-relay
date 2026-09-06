@@ -33,7 +33,9 @@ export class PushConfirmModal extends Modal {
   public onOpen(): void {
     this.modalEl.addClass("vault-relay-modal");
     this.modalEl.addClass("vault-relay-confirm-modal");
-    this.runPreflight();
+    void this.runPreflight().catch((err) => {
+      this.renderError(err instanceof Error ? err.message : String(err));
+    });
   }
 
   public onClose(): void {
@@ -223,46 +225,46 @@ export class PushConfirmModal extends Modal {
 
     const cancelBtn = actions.createEl("button", {
       text: "Cancel",
-      attr: { style: "min-height: 44px; min-width: 44px; padding: 10px 16px;" },
     });
     cancelBtn.onclick = () => this.close();
 
     const confirmBtn = actions.createEl("button", {
       text: "Confirm Safe Push",
-      cls: "mod-cta",
-      attr: { style: "min-height: 44px; min-width: 44px; padding: 10px 16px;" },
+      cls: "mod-cta vault-relay-btn-lg",
     });
-    confirmBtn.onclick = async () => {
-      confirmBtn.disabled = true;
-      confirmBtn.textContent = "Pushing...";
-      cancelBtn.disabled = true;
+    confirmBtn.onclick = () => {
+      void (async () => {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = "Pushing...";
+        cancelBtn.disabled = true;
 
-      try {
-        const token = await getStoredPat(this.app, this.plugin.settings.owner, this.plugin.settings.repo);
-        const client = new GitHubClient({
-          token: token || "",
-          owner: this.plugin.settings.owner,
-          repo: this.plugin.settings.repo,
-          branch: this.plugin.settings.branch,
-        });
+        try {
+          const token = await getStoredPat(this.app, this.plugin.settings.owner, this.plugin.settings.repo);
+          const client = new GitHubClient({
+            token: token || "",
+            owner: this.plugin.settings.owner,
+            repo: this.plugin.settings.repo,
+            branch: this.plugin.settings.branch,
+          });
 
-        const pushEngine = new PushEngine(this.app, this.plugin.settings, client);
-        const report = await pushEngine.executeSafePush();
+          const pushEngine = new PushEngine(this.app, this.plugin.settings, client);
+          const report = await pushEngine.executeSafePush();
 
-        this.close();
-        new PushResultModal(this.app, report).open();
+          this.close();
+          new PushResultModal(this.app, report).open();
 
-        if (this.onComplete) {
-          try {
-            await this.onComplete(report);
-          } catch (callbackErr) {
-            console.warn("[GitHub Vault Relay] onComplete refresh error after push:", callbackErr);
+          if (this.onComplete) {
+            try {
+              await this.onComplete(report);
+            } catch (callbackErr) {
+              console.warn("[GitHub Vault Relay] onComplete refresh error after push:", callbackErr);
+            }
           }
+        } catch (err) {
+          new Notice(`Safe Push failed: ${sanitizeErrorMessage(err)}`);
+          this.close();
         }
-      } catch (err) {
-        new Notice(`Safe Push failed: ${sanitizeErrorMessage(err)}`);
-        this.close();
-      }
+      })();
     };
   }
 }

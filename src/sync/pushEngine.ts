@@ -693,10 +693,8 @@ export class PushEngine {
 
     onProgress?.({ phase: "UPDATING_REF", completed: 0, total: 1, message: "Updating remote branch..." });
     // 10. Optimistic Concurrency Ref Update (force: false)
-    let patchRefResp;
     try {
-      patchRefResp = await this.githubClient.updateBranchRef(this.settings.branch, newCommitSha, false);
-      console.info(`[Vault Relay:SafePush:T4] PATCH ref successful: ${patchRefResp.object?.sha}`);
+      await this.githubClient.updateBranchRef(this.settings.branch, newCommitSha, false);
     } catch (refErr) {
       const safeMsg = sanitizeErrorMessage(refErr);
       let recoveredLostResponse = false;
@@ -730,7 +728,6 @@ export class PushEngine {
         try {
           const refResp = await this.githubClient.getBranchRef(this.settings.branch);
           lastObservedSha = refResp.object?.sha;
-          console.info(`[Vault Relay:SafePush:T6] Verification attempt #${attempt + 1}: returned SHA ${lastObservedSha}`);
           if (refResp.object?.sha?.toLowerCase() === newCommitSha.toLowerCase()) {
             verifiedHeadSha = refResp.object.sha;
             break;
@@ -740,7 +737,6 @@ export class PushEngine {
           try {
             const freshBranch = await this.githubClient.getBranch(this.settings.branch, true);
             lastObservedSha = freshBranch.commit?.sha;
-            console.info(`[Vault Relay:SafePush:T6-fallback] Verification attempt #${attempt + 1}: returned SHA ${lastObservedSha}`);
             if (freshBranch.commit?.sha?.toLowerCase() === newCommitSha.toLowerCase()) {
               verifiedHeadSha = freshBranch.commit.sha;
               break;
@@ -1142,7 +1138,6 @@ export class PushEngine {
     onProgress?.({ phase: "UPDATING_REF", completed: 0, total: 1, message: "Updating remote branch..." });
     try {
       await this.githubClient.updateBranchRef(this.settings.branch, newCommitSha, false);
-      console.info(`[Vault Relay:AuthorizedPush] PATCH ref successful: ${newCommitSha}`);
     } catch (refErr) {
       const safeMsg = sanitizeErrorMessage(refErr);
       report.status = "ABORTED";

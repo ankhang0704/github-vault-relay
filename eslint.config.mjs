@@ -46,7 +46,7 @@ export default tseslint.config(
           caughtErrorsIgnorePattern: "^_",
         },
       ],
-      "no-console": ["warn", { allow: ["warn", "error", "info"] }],
+      "no-console": ["warn", { allow: ["warn", "error"] }],
     },
   },
   {
@@ -55,6 +55,15 @@ export default tseslint.config(
       obsidianmd,
     },
     rules: {
+      "@typescript-eslint/no-unsafe-assignment": "warn",
+      "@typescript-eslint/no-unsafe-member-access": "warn",
+      "@typescript-eslint/no-unsafe-return": "warn",
+      "@typescript-eslint/no-unsafe-argument": "warn",
+      "@typescript-eslint/no-unsafe-call": "warn",
+      "@typescript-eslint/no-floating-promises": "warn",
+      "@typescript-eslint/no-misused-promises": "warn",
+      "@typescript-eslint/unbound-method": "warn",
+      "@typescript-eslint/no-unnecessary-type-assertion": "warn",
       "obsidianmd/no-static-styles-assignment": "error",
       "obsidianmd/prefer-create-el": "warn",
       "obsidianmd/hardcoded-config-path": "warn",
@@ -101,6 +110,12 @@ export default tseslint.config(
     rules: {
       "obsidianmd/validate-manifest": "warn",
       "obsidianmd/validate-license": "warn",
+    },
+  },
+  {
+    files: ["tests/**/*.{ts,js}"],
+    rules: {
+      "no-console": "off",
     },
   }
 );

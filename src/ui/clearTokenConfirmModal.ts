@@ -42,20 +42,25 @@ export class ClearTokenConfirmModal extends Modal {
     });
 
     buttonRow.addButton((confirmBtn) => {
-      confirmBtn
-        .setButtonText("Clear Token")
-        .setWarning()
-        .onClick(async () => {
-          confirmBtn.setDisabled(true);
-          confirmBtn.setButtonText("Clearing...");
-          try {
-            await this.onConfirm();
-            this.close();
-          } catch {
-            confirmBtn.setDisabled(false);
-            confirmBtn.setButtonText("Clear Token");
-          }
-        });
+      confirmBtn.setButtonText("Clear Token");
+      const btn = confirmBtn as unknown as Record<string, (() => void) | undefined>;
+      if (typeof btn["setDestructive"] === "function") {
+        btn["setDestructive"]();
+      } else {
+        confirmBtn.buttonEl.addClass("mod-warning");
+      }
+      confirmBtn.setCta();
+      confirmBtn.onClick(async () => {
+        confirmBtn.setDisabled(true);
+        confirmBtn.setButtonText("Clearing...");
+        try {
+          await this.onConfirm();
+          this.close();
+        } catch {
+          confirmBtn.setDisabled(false);
+          confirmBtn.setButtonText("Clear Token");
+        }
+      });
       confirmBtn.buttonEl.addClass("vault-relay-btn-lg");
     });
   }

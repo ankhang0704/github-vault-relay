@@ -44,7 +44,9 @@ export class SyncDashboardModal extends Modal {
     this.isModalOpen = true;
     this.modalEl.addClass("vault-relay-modal");
     this.modalEl.addClass("vault-relay-dashboard-modal");
-    this.runScanAndRender();
+    void this.runScanAndRender().catch((err) => {
+      new Notice(err instanceof Error ? err.message : String(err));
+    });
   }
 
   public onClose(): void {
@@ -115,7 +117,11 @@ export class SyncDashboardModal extends Modal {
 
     const refreshBtn = header.createEl("button", { text: "↻ Refresh" });
     refreshBtn.disabled = this.isLoading || this.isSyncing;
-    refreshBtn.onclick = () => this.runScanAndRender();
+    refreshBtn.onclick = () => {
+      void this.runScanAndRender().catch((err) => {
+        new Notice(err instanceof Error ? err.message : String(err));
+      });
+    };
 
     if (this.isLoading) {
       const loadingBox = contentEl.createDiv({
@@ -277,7 +283,16 @@ export class SyncDashboardModal extends Modal {
         attr: { style: "min-height: 44px; min-width: 44px;" },
       });
       reviewBtn.onclick = () => {
-        new ConflictResolutionModal(this.app, this.plugin, () => this.runScanAndRender(), this.report).open();
+        new ConflictResolutionModal(
+          this.app,
+          this.plugin,
+          () => {
+            void this.runScanAndRender().catch((err) => {
+              new Notice(err instanceof Error ? err.message : String(err));
+            });
+          },
+          this.report
+        ).open();
       };
     }
 
@@ -452,12 +467,20 @@ export class SyncDashboardModal extends Modal {
     const opBtns = adv.createDiv({ attr: { style: "display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;" } });
     const pullBtn = opBtns.createEl("button", { text: "Safe Pull Only", attr: { style: "min-height: 44px; min-width: 44px;" } });
     pullBtn.onclick = () => {
-      new PullConfirmModal(this.app, this.plugin, () => this.runScanAndRender()).open();
+      new PullConfirmModal(this.app, this.plugin, () => {
+        void this.runScanAndRender().catch((err) => {
+          new Notice(err instanceof Error ? err.message : String(err));
+        });
+      }).open();
     };
 
     const pushBtn = opBtns.createEl("button", { text: "Safe Push Only", attr: { style: "min-height: 44px; min-width: 44px;" } });
     pushBtn.onclick = () => {
-      new PushConfirmModal(this.app, this.plugin, () => this.runScanAndRender()).open();
+      new PushConfirmModal(this.app, this.plugin, () => {
+        void this.runScanAndRender().catch((err) => {
+          new Notice(err instanceof Error ? err.message : String(err));
+        });
+      }).open();
     };
 
     // Item List

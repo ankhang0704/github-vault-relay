@@ -340,9 +340,12 @@ export class GitHubClient {
         // Fail-fast on other status codes (401, 403, 404, 422, etc.)
         let errorMsg = `GitHub API request failed: HTTP ${response.status}`;
         try {
-          const jsonBody = response.json;
-          if (jsonBody && jsonBody.message) {
-            errorMsg += ` - ${jsonBody.message}`;
+          const jsonBody: unknown = response.json;
+          if (typeof jsonBody === "object" && jsonBody !== null && "message" in jsonBody) {
+            const apiMessage = (jsonBody as Record<string, unknown>).message;
+            if (typeof apiMessage === "string" && apiMessage.length > 0) {
+              errorMsg += ` - ${apiMessage}`;
+            }
           }
         } catch {
           if (response.text) {

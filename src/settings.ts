@@ -7,7 +7,14 @@
  * - Collapsible Advanced/Manual setup fallback
  */
 
-import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import {
+  App,
+  ButtonComponent,
+  Notice,
+  PluginSettingTab,
+  Setting,
+  SettingDefinitionItem,
+} from "obsidian";
 import type VaultRelayPlugin from "./main";
 import { GitHubClient, normalizeRepoConfig } from "./github/githubClient";
 import { GitHubRepoSummary, GitHubBranchSummary } from "./github/githubTypes";
@@ -19,6 +26,7 @@ import {
   getSecretKeyForRepo,
   getStoredPat,
   hasStoredPat,
+  hasStoredPatSync,
   setStoredPat,
 } from "./security/secretStore";
 import { SyncDashboardModal } from "./ui/syncDashboardModal";
@@ -50,13 +58,198 @@ export class VaultRelaySettingTab extends PluginSettingTab {
   private discoveredBranches: GitHubBranchSummary[] = [];
   private isDiscovering = false;
   private showManualSetup = false;
+  private tokenExists = false;
+  private isCheckingToken = false;
 
   constructor(app: App, plugin: VaultRelayPlugin) {
     super(app, plugin);
     this.plugin = plugin;
+    this.tokenExists = hasStoredPatSync(app) ?? !!this.plugin.settings.secretKey;
+    void this.refreshTokenStatus();
   }
 
-  public async display(): Promise<void> {
+  /**
+   * Declarative settings definition for Obsidian >= 1.13.0.
+   * Performs ZERO I/O in definitions and enables global settings search indexing.
+   */
+  public override getSettingDefinitions(): SettingDefinitionItem[] {
+    const keyName = getSecretKeyForRepo(
+      this.plugin.settings.owner,
+      this.plugin.settings.repo
+    );
+
+    return [
+      {
+        type: "group",
+        heading: "Connection Wizard",
+        items: [
+          {
+            name: "GitHub Fine-Grained PAT",
+            desc: this.tokenExists
+              ? `Status: Stored securely (${keyName}). Enter a new token to replace.`
+              : "Personal Access Token with Read/Write access to Contents on your vault repository.",
+            render: (setting: Setting) => {
+              setting.addText((text) => {
+                text.setPlaceholder(this.tokenExists ? "••••••••••••••••••••" : "github_pat_...");
+                text.onChange((value) => {
+                  this.tokenInputVal = value.trim();
+                });
+                text.inputEl.type = "password";
+                text.inputEl.addClass("vault-relay-token-input");
+              });
+              setting.addButton((button) => {
+                button
+                  .setButtonText("Save & Connect")
+                  .setCta()
+                  .onClick(() => {
+                    void this.handleSaveAndConnect(button);
+                  });
+                button.buttonEl.addClass("vault-relay-btn-lg");
+              });
+            },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Advanced / Security",
+        items: [
+          {
+            name: "Repository Owner",
+            desc: "GitHub username or organization that owns the repository (e.g. 'octocat').",
+            control: {
+              type: "text",
+              key: "owner",
+              placeholder: "octocat",
+            },
+          },
+          {
+            name: "Repository Name",
+            desc: "Name of the GitHub repository (e.g. 'my-notes').",
+            control: {
+              type: "text",
+              key: "repo",
+              placeholder: "my-notes",
+            },
+          },
+          {
+            name: "Branch",
+            desc: "Target Git branch (default: 'main').",
+            control: {
+              type: "text",
+              key: "branch",
+              placeholder: "main",
+            },
+          },
+          {
+            name: "Excluded Paths",
+            desc: "Directories or file paths excluded from scanning and syncing (one per line).",
+            render: (setting: Setting) => {
+              setting.addTextArea((textArea) => {
+                textArea
+                  .setPlaceholder(`${this.app.vault.configDir}/\n.git/\n_fit/`)
+                  .setValue(this.plugin.settings.excludedPaths.join("\n"))
+                  .onChange((value) => {
+                    this.plugin.settings.excludedPaths = parseExclusionRules(value);
+                    void this.plugin.saveSettings().catch((err) => {
+                      console.warn("[GitHub Vault Relay] Failed to save settings:", sanitizeErrorMessage(err));
+                    });
+                  });
+                textArea.inputEl.rows = 4;
+                textArea.inputEl.addClass("vault-relay-textarea");
+              });
+            },
+          },
+          {
+            name: "Stored Credential",
+            desc: this.tokenExists
+              ? `Active in Obsidian SecretStorage (${keyName}).`
+              : "No token currently stored in SecretStorage.",
+            render: (setting: Setting) => {
+              if (this.tokenExists) {
+                setting.addButton((button) => {
+                  button.setButtonText("Clear Token");
+                  const btn = button as unknown as Record<string, (() => ButtonComponent) | undefined>;
+                  if (typeof btn["setDestructive"] === "function") {
+                    btn["setDestructive"]();
+                  } else {
+                    button.buttonEl.addClass("mod-warning");
+                  }
+                  button.onClick(() => {
+                    this.handleClearToken();
+                  });
+                  button.buttonEl.addClass("vault-relay-btn-lg");
+                });
+              }
+            },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Diagnostics & Sync",
+        items: [
+          {
+            name: "Sync Operations",
+            desc: "Open the primary sync dashboard or run individual safe pull/push operations.",
+            render: (setting: Setting) => {
+              setting.addButton((button) => {
+                button
+                  .setButtonText("Open Sync Dashboard")
+                  .setCta()
+                  .onClick(() => {
+                    new SyncDashboardModal(this.app, this.plugin).open();
+                  });
+                button.buttonEl.addClass("vault-relay-btn-lg");
+              });
+              setting.addButton((button) => {
+                button
+                  .setButtonText("Test Connection")
+                  .onClick(() => {
+                    void this.handleTestConnection(button);
+                  });
+                button.buttonEl.addClass("vault-relay-btn-lg");
+              });
+            },
+          },
+        ],
+      },
+    ];
+  }
+
+  public override async setControlValue(key: string, value: unknown): Promise<void> {
+    if (key === "owner" && typeof value === "string") {
+      const norm = normalizeRepoConfig(value, this.plugin.settings.repo);
+      this.plugin.settings.owner = norm.owner;
+      this.plugin.settings.repo = norm.repo;
+      await this.plugin.saveSettings();
+      return;
+    }
+    if (key === "repo" && typeof value === "string") {
+      const norm = normalizeRepoConfig(this.plugin.settings.owner, value);
+      this.plugin.settings.owner = norm.owner;
+      this.plugin.settings.repo = norm.repo;
+      await this.plugin.saveSettings();
+      return;
+    }
+    if (key === "branch" && typeof value === "string") {
+      this.plugin.settings.branch = value.trim() || "main";
+      await this.plugin.saveSettings();
+      return;
+    }
+    (this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
+    await this.plugin.saveSettings();
+  }
+
+  public override getControlValue(key: string): unknown {
+    return (this.plugin.settings as unknown as Record<string, unknown>)[key];
+  }
+
+  /**
+   * Imperative display() method for Obsidian < 1.13.0 and backward compatibility.
+   * Pure synchronous method conforming strictly to PluginSettingTab.display(): void.
+   */
+  public override display(): void {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass("vault-relay-settings");
@@ -90,12 +283,13 @@ export class VaultRelaySettingTab extends PluginSettingTab {
       text: "Tokens are only ever transmitted directly to https://api.github.com and are automatically redacted from error messages.",
     });
 
-    // Determine current token status
-    const tokenExists = await hasStoredPat(
-      this.app,
-      this.plugin.settings.owner,
-      this.plugin.settings.repo
-    );
+    const syncToken = hasStoredPatSync(this.app);
+    if (syncToken !== undefined) {
+      this.tokenExists = syncToken;
+    } else if (this.plugin.settings.secretKey) {
+      this.tokenExists = true;
+    }
+    const tokenExists = this.tokenExists;
     const keyName = getSecretKeyForRepo(
       this.plugin.settings.owner,
       this.plugin.settings.repo
@@ -122,35 +316,12 @@ export class VaultRelaySettingTab extends PluginSettingTab {
     });
 
     tokenSetting.addButton((button) => {
-      button.setButtonText("Save & Connect").setCta().onClick(async () => {
-        if (!this.tokenInputVal && !tokenExists) {
-          new Notice("Please enter a token to connect.");
-          return;
-        }
-        button.setDisabled(true);
-        button.setButtonText("Connecting...");
-        try {
-          if (this.tokenInputVal) {
-            await setStoredPat(
-              this.app,
-              this.plugin.settings.owner,
-              this.plugin.settings.repo,
-              this.tokenInputVal
-            );
-            this.plugin.settings.secretKey = keyName;
-            await this.plugin.saveSettings();
-          }
-          new Notice("Token saved. Discovering accessible repositories...");
-          await this.discoverRepositories();
-          this.tokenInputVal = "";
-          this.display();
-        } catch (err) {
-          new Notice(`Connection failed: ${sanitizeErrorMessage(err)}`);
-        } finally {
-          button.setDisabled(false);
-          button.setButtonText("Save & Connect");
-        }
-      });
+      button
+        .setButtonText("Save & Connect")
+        .setCta()
+        .onClick(() => {
+          void this.handleSaveAndConnect(button);
+        });
       button.buttonEl.addClass("vault-relay-btn-lg");
     });
 
@@ -161,9 +332,10 @@ export class VaultRelaySettingTab extends PluginSettingTab {
         .setDesc("Choose which repository to sync with this vault.");
 
       repoSetting.addDropdown((dropdown) => {
-        const currentFullName = this.plugin.settings.owner && this.plugin.settings.repo
-          ? `${this.plugin.settings.owner}/${this.plugin.settings.repo}`
-          : "";
+        const currentFullName =
+          this.plugin.settings.owner && this.plugin.settings.repo
+            ? `${this.plugin.settings.owner}/${this.plugin.settings.repo}`
+            : "";
 
         for (const r of this.discoveredRepos) {
           dropdown.addOption(r.fullName, `${r.fullName} ${r.isPrivate ? "🔒" : "🌐"}`);
@@ -173,16 +345,18 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           dropdown.setValue(currentFullName);
         }
 
-        dropdown.onChange(async (val) => {
-          const selected = this.discoveredRepos.find((r) => r.fullName === val);
-          if (selected) {
-            this.plugin.settings.owner = selected.owner;
-            this.plugin.settings.repo = selected.name;
-            this.plugin.settings.branch = selected.defaultBranch || "main";
-            await this.plugin.saveSettings();
-            await this.discoverBranches(selected.owner, selected.name);
-            this.display();
-          }
+        dropdown.onChange((val) => {
+          void (async () => {
+            const selected = this.discoveredRepos.find((r) => r.fullName === val);
+            if (selected) {
+              this.plugin.settings.owner = selected.owner;
+              this.plugin.settings.repo = selected.name;
+              this.plugin.settings.branch = selected.defaultBranch || "main";
+              await this.plugin.saveSettings();
+              await this.discoverBranches(selected.owner, selected.name);
+              this.refreshTab();
+            }
+          })();
         });
       });
     }
@@ -198,9 +372,11 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           dropdown.addOption(b.name, b.name);
         }
         dropdown.setValue(this.plugin.settings.branch || "main");
-        dropdown.onChange(async (val) => {
-          this.plugin.settings.branch = val;
-          await this.plugin.saveSettings();
+        dropdown.onChange((val) => {
+          void (async () => {
+            this.plugin.settings.branch = val;
+            await this.plugin.saveSettings();
+          })();
         });
       });
     }
@@ -219,20 +395,16 @@ export class VaultRelaySettingTab extends PluginSettingTab {
 
     if (tokenExists) {
       credSetting.addButton((button) => {
-        button
-          .setButtonText("Clear Token")
-          .setWarning()
-          .onClick(() => {
-            new ClearTokenConfirmModal(this.app, async () => {
-              await clearStoredPat(this.app, this.plugin.settings.owner, this.plugin.settings.repo);
-              this.plugin.settings.secretKey = undefined;
-              await this.plugin.saveSettings();
-              this.discoveredRepos = [];
-              this.discoveredBranches = [];
-              new Notice("Stored GitHub PAT cleared from SecretStorage.");
-              this.display();
-            }).open();
-          });
+        button.setButtonText("Clear Token");
+        const btn = button as unknown as Record<string, (() => ButtonComponent) | undefined>;
+        if (typeof btn["setDestructive"] === "function") {
+          btn["setDestructive"]();
+        } else {
+          button.buttonEl.addClass("mod-warning");
+        }
+        button.onClick(() => {
+          this.handleClearToken();
+        });
         button.buttonEl.addClass("vault-relay-btn-lg");
       });
     }
@@ -247,7 +419,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
       btn.buttonEl.addClass("vault-relay-btn-lg");
       btn.onClick(() => {
         this.showManualSetup = !this.showManualSetup;
-        this.display();
+        this.refreshTab();
       });
     });
 
@@ -260,11 +432,13 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           text
             .setPlaceholder("octocat")
             .setValue(this.plugin.settings.owner)
-            .onChange(async (value) => {
-              const norm = normalizeRepoConfig(value, this.plugin.settings.repo);
-              this.plugin.settings.owner = norm.owner;
-              this.plugin.settings.repo = norm.repo;
-              await this.plugin.saveSettings();
+            .onChange((value) => {
+              void (async () => {
+                const norm = normalizeRepoConfig(value, this.plugin.settings.repo);
+                this.plugin.settings.owner = norm.owner;
+                this.plugin.settings.repo = norm.repo;
+                await this.plugin.saveSettings();
+              })();
             })
         );
 
@@ -276,11 +450,13 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           text
             .setPlaceholder("my-notes")
             .setValue(this.plugin.settings.repo)
-            .onChange(async (value) => {
-              const norm = normalizeRepoConfig(this.plugin.settings.owner, value);
-              this.plugin.settings.owner = norm.owner;
-              this.plugin.settings.repo = norm.repo;
-              await this.plugin.saveSettings();
+            .onChange((value) => {
+              void (async () => {
+                const norm = normalizeRepoConfig(this.plugin.settings.owner, value);
+                this.plugin.settings.owner = norm.owner;
+                this.plugin.settings.repo = norm.repo;
+                await this.plugin.saveSettings();
+              })();
             })
         );
 
@@ -292,9 +468,11 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           text
             .setPlaceholder("main")
             .setValue(this.plugin.settings.branch || "main")
-            .onChange(async (value) => {
-              this.plugin.settings.branch = value.trim() || "main";
-              await this.plugin.saveSettings();
+            .onChange((value) => {
+              void (async () => {
+                this.plugin.settings.branch = value.trim() || "main";
+                await this.plugin.saveSettings();
+              })();
             })
         );
 
@@ -308,9 +486,11 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           textArea
             .setPlaceholder(`${this.app.vault.configDir}/\n.git/\n_fit/`)
             .setValue(this.plugin.settings.excludedPaths.join("\n"))
-            .onChange(async (value) => {
-              this.plugin.settings.excludedPaths = parseExclusionRules(value);
-              await this.plugin.saveSettings();
+            .onChange((value) => {
+              void (async () => {
+                this.plugin.settings.excludedPaths = parseExclusionRules(value);
+                await this.plugin.saveSettings();
+              })();
             });
           textArea.inputEl.rows = 4;
           textArea.inputEl.addClass("vault-relay-textarea");
@@ -325,53 +505,150 @@ export class VaultRelaySettingTab extends PluginSettingTab {
       .setDesc("Open the primary sync dashboard or run individual safe pull/push operations.");
 
     actionsSetting.addButton((button) => {
-      button.setButtonText("Open Sync Dashboard").setCta().onClick(() => {
-        new SyncDashboardModal(this.app, this.plugin).open();
-      });
+      button
+        .setButtonText("Open Sync Dashboard")
+        .setCta()
+        .onClick(() => {
+          new SyncDashboardModal(this.app, this.plugin).open();
+        });
       button.buttonEl.addClass("vault-relay-btn-lg");
     });
 
     actionsSetting.addButton((button) => {
-      button.setButtonText("Test Connection").onClick(async () => {
-        button.setButtonText("Testing...");
-        button.setDisabled(true);
-
-        try {
-          const token = await getStoredPat(
-            this.app,
-            this.plugin.settings.owner,
-            this.plugin.settings.repo
-          );
-          if (!token) {
-            new Notice("No Personal Access Token stored for this repository.");
-            return;
-          }
-
-          const client = new GitHubClient({
-            token,
-            owner: this.plugin.settings.owner,
-            repo: this.plugin.settings.repo,
-            branch: this.plugin.settings.branch,
-          });
-
-          const res = await client.testConnection();
-          if (res.success) {
-            new Notice(
-              `Connection successful! Connected to ${res.repoFullName} (${res.targetBranch}). Permissions: ${res.canPush ? "Read & Write" : "Read-only"}`
-            );
-          } else {
-            new Notice(`Connection failed: ${res.errorMessage || "Unknown error"}`);
-          }
-        } catch (err) {
-          const safeMsg = sanitizeErrorMessage(err);
-          new Notice(`Connection test error: ${safeMsg}`);
-        } finally {
-          button.setButtonText("Test Connection");
-          button.setDisabled(false);
-        }
-      });
+      button
+        .setButtonText("Test Connection")
+        .onClick(() => {
+          void this.handleTestConnection(button);
+        });
       button.buttonEl.addClass("vault-relay-btn-lg");
     });
+
+    // Refresh token status asynchronously if not already up to date
+    void this.refreshTokenStatus();
+  }
+
+  private refreshTab(): void {
+    const tabWithUpdate = this as unknown as Record<string, (() => void) | undefined>;
+    if (typeof tabWithUpdate["update"] === "function") {
+      tabWithUpdate["update"]();
+    } else {
+      this.display();
+    }
+  }
+
+  private async refreshTokenStatus(): Promise<void> {
+    if (this.isCheckingToken) return;
+    this.isCheckingToken = true;
+    try {
+      const exists = await hasStoredPat(
+        this.app,
+        this.plugin.settings.owner,
+        this.plugin.settings.repo
+      );
+      if (this.tokenExists !== exists) {
+        this.tokenExists = exists;
+        this.refreshTab();
+      }
+    } catch (err) {
+      console.warn("[GitHub Vault Relay] Failed to check token status:", sanitizeErrorMessage(err));
+    } finally {
+      this.isCheckingToken = false;
+    }
+  }
+
+  private handleClearToken(): void {
+    new ClearTokenConfirmModal(this.app, async () => {
+      await clearStoredPat(this.app, this.plugin.settings.owner, this.plugin.settings.repo);
+      this.plugin.settings.secretKey = undefined;
+      await this.plugin.saveSettings();
+      this.tokenExists = false;
+      this.discoveredRepos = [];
+      this.discoveredBranches = [];
+      new Notice("Stored GitHub PAT cleared from SecretStorage.");
+      this.refreshTab();
+    }).open();
+  }
+
+  private async handleSaveAndConnect(button?: ButtonComponent): Promise<void> {
+    if (!this.tokenInputVal && !this.tokenExists) {
+      new Notice("Please enter a token to connect.");
+      return;
+    }
+    if (button) {
+      button.setDisabled(true);
+      button.setButtonText("Connecting...");
+    }
+    try {
+      const keyName = getSecretKeyForRepo(
+        this.plugin.settings.owner,
+        this.plugin.settings.repo
+      );
+      if (this.tokenInputVal) {
+        await setStoredPat(
+          this.app,
+          this.plugin.settings.owner,
+          this.plugin.settings.repo,
+          this.tokenInputVal
+        );
+        this.plugin.settings.secretKey = keyName;
+        await this.plugin.saveSettings();
+        this.tokenExists = true;
+      }
+      new Notice("Token saved. Discovering accessible repositories...");
+      await this.discoverRepositories();
+      this.tokenInputVal = "";
+      this.refreshTab();
+    } catch (err) {
+      new Notice(`Connection failed: ${sanitizeErrorMessage(err)}`);
+    } finally {
+      if (button) {
+        button.setDisabled(false);
+        button.setButtonText("Save & Connect");
+      }
+    }
+  }
+
+  private async handleTestConnection(button?: ButtonComponent): Promise<void> {
+    if (button) {
+      button.setButtonText("Testing...");
+      button.setDisabled(true);
+    }
+
+    try {
+      const token = await getStoredPat(
+        this.app,
+        this.plugin.settings.owner,
+        this.plugin.settings.repo
+      );
+      if (!token) {
+        new Notice("No Personal Access Token stored for this repository.");
+        return;
+      }
+
+      const client = new GitHubClient({
+        token,
+        owner: this.plugin.settings.owner,
+        repo: this.plugin.settings.repo,
+        branch: this.plugin.settings.branch,
+      });
+
+      const res = await client.testConnection();
+      if (res.success) {
+        new Notice(
+          `Connection successful! Connected to ${res.repoFullName} (${res.targetBranch}). Permissions: ${res.canPush ? "Read & Write" : "Read-only"}`
+        );
+      } else {
+        new Notice(`Connection failed: ${res.errorMessage || "Unknown error"}`);
+      }
+    } catch (err) {
+      const safeMsg = sanitizeErrorMessage(err);
+      new Notice(`Connection test error: ${safeMsg}`);
+    } finally {
+      if (button) {
+        button.setButtonText("Test Connection");
+        button.setDisabled(false);
+      }
+    }
   }
 
   private async discoverRepositories(): Promise<void> {
@@ -415,3 +692,4 @@ export class VaultRelaySettingTab extends PluginSettingTab {
     }
   }
 }
+
