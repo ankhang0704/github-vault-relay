@@ -220,7 +220,7 @@ flowchart TD
 | Baseline (`state.json`) | Local Vault | Remote GitHub | Classification | Engine Handling |
 | :--- | :--- | :--- | :--- | :--- |
 | Present (`SHA1`) | Absent | Present (`SHA1`) | `LOCAL_DELETED` | Safe Push builds tree with `sha: null`. Ref updated `force: false`. Baseline pruned after verified omission. |
-| Present (`SHA1`) | Present (`SHA1`) | Absent | `REMOTE_DELETED` | Safe Pull creates pre-delete recovery snapshot, deletes local file via `vault.delete()`, prunes baseline. |
+| Present (`SHA1`) | Present (`SHA1`) | Absent | `REMOTE_DELETED` | Safe Pull creates pre-delete recovery snapshot, deletes local file safely via `app.fileManager.trashFile()`, prunes baseline. |
 | Present (`SHA1`) | Absent | Absent | `DELETED` | Baseline entry pruned cleanly without remote or local mutation. |
 | Present (`SHA1`) | Absent | Present (`SHA2`) | `DELETE_CONFLICT` | Local deleted vs remote modified. Halts safely; presents `[ Keep File ]` or `[ Delete File ]`. |
 | Present (`SHA1`) | Present (`SHA2`) | Absent | `DELETE_CONFLICT` | Remote deleted vs local modified. Halts safely; presents `[ Keep File ]` or `[ Delete File ]`. |
@@ -279,5 +279,16 @@ flowchart TD
 ### Transition Lifecycle: 0 ↔ 1+ Files
 1. **Convergence to 0 Files**: When all synchronized files are removed locally, `PushEngine` commits `CANONICAL_EMPTY_TREE_SHA` directly. Post-verification confirms 0 files in the root tree, and `state.json` baseline is cleanly cleared of all file records.
 2. **Transitioning from 0 to 1+ Files**: When a user creates the first file in an empty repository, `PushEngine` uploads the blob and calls `POST /git/trees` with `base_tree: CANONICAL_EMPTY_TREE_SHA` and the new file entry. GitHub natively accepts this call, builds a single-file tree, and the resulting commit advances the branch ref cleanly.
-3. **Unborn Repository Boundary**: A repository must have at least one initial commit and branch. An unborn Git HEAD (0 commits) cannot be manipulated via Git Data API tree/commit endpoints; this is an inherent Git constraint documented in [README.md](../README.md).
+3. **Unborn Repository Boundary**: A repository must have at least one initial commit and branch. An unborn Git HEAD (0 commits) cannot be manipulated via Git Data API tree/commit endpoints; this is an inherent Git constraint documented in [README.md](../README.md). 
+---
+
+## 9. Obsidian Community Directory Compliance Architecture
+
+To comply with the official Obsidian Community Plugin Guidelines and automated submission review checks (`eslint-plugin-obsidianmd`):
+
+1. **Zero Inline Styles**: All static styling (modals, buttons, cards, status labels) is strictly encapsulated within `styles.css`. TypeScript UI components attach semantic CSS classes (e.g. `vault-relay-modal`, `vault-relay-destructive-card`) without modifying `element.style.*`.
+2. **Accessible Headings**: Settings sections use `Setting.setHeading()` rather than raw HTML `h2`/`h3` elements, ensuring full compatibility with Obsidian themes, font sizing, and accessibility features.
+3. **Dynamic Configuration Path**: The plugin references `app.vault.configDir` rather than hardcoding `.obsidian/`, ensuring full compatibility with custom configuration directories.
+4. **User-Safe File Deletion**: Deletion of user notes during remote pull synchronization utilizes Obsidian's native `app.fileManager.trashFile(file)` rather than unrecoverable `app.vault.delete(file)`. This routes deleted files to the user's configured Obsidian trash destination (system trash or `.trash/`).
+5. **Standard Web APIs**: Uses standard `crypto.subtle` without `globalThis` prefixes, and standard `window.setTimeout` for timer operations.
 

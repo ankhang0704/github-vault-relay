@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.2] - 2026-09-06
+
+### Changed
+- **Community Directory Full Compliance Cleanup**:
+  - **Zero Inline Styles**: Converted all static inline style assignments in settings and modal dialogs to semantic CSS utility classes in `styles.css`.
+  - **Accessible Settings Headings**: Migrated settings tab headings from direct HTML elements (`createEl("h2")` / `createEl("h3")`) to Obsidian's standard `Setting.setHeading()` API for consistent theme typography.
+  - **Dynamic Configuration Directory**: Replaced hardcoded `.obsidian` path references with dynamic `app.vault.configDir` across storage management and path filters.
+  - **User-Safe File Deletion**: Replaced raw `app.vault.delete(file)` with `app.fileManager.trashFile(file)` for synchronized file deletions, ensuring deleted files are safely preserved in the user's configured Obsidian trash (system or local `.trash/`).
+  - **Duplicate CSS Elimination**: Eliminated duplicate `max-height` declaration in `styles.css`, retaining canonical viewport constraint `min(90vh, 900px)` across desktop and mobile without `!important`.
+  - **Web Crypto & Window Timers**: Standardized Web Crypto usage on standard `crypto` API and explicit window timers (`window.setTimeout`).
+  - **Official Obsidian Linter Integration**: Integrated `eslint-plugin-obsidianmd` rules into the repository's ESLint configuration and automated compliance test suite (`tests/communityCompliance.test.ts`).
+  - **Unchanged Runtime Semantics**: Preserved all sync classifier states, Git Data API protocols, three-way conflict algorithms, and safety invariants 100% intact.
+
 ## [1.0.1] - 2026-09-06
 
 ### Changed

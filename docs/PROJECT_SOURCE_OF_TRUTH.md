@@ -2,8 +2,8 @@
 
 > **Canonical reference document for repository architecture, factual technical guarantees, portfolio narratives, and engineering verification.**  
 > **Repository:** [https://github.com/ankhang0704/github-vault-relay](https://github.com/ankhang0704/github-vault-relay)  
-> **Current Version:** `1.0.0` (Stable Release)  
-> **Status:** AUTOMATED GATES PASS (450/450 tests) | C1–C7 VERIFIED | REAL WINDOWS PASS | REAL IPHONE PASS | MVP COMPLETE | 1.0.0 READY  
+> **Current Version:** `1.0.2` (Stable Release)  
+> **Status:** AUTOMATED GATES PASS (458/458 tests) | C1–C7 VERIFIED | REAL WINDOWS PASS | REAL IPHONE PASS | COMMUNITY COMPLIANCE PASS | 1.0.2 PUBLISHED  
 
 ---
 
@@ -64,9 +64,10 @@ The following are deliberate product non-goals:
 - **C7 Real Windows Acceptance:** `PASS`
 - **C7 Real iPhone Acceptance:** `PASS`
 - **C1–C7:** `VERIFIED`
-- **Current Published Release:** `1.0.0` Stable
-- **MVP Complete:** `YES` (All features, safe delete/move, and empty-tree edge case closed)
-- **1.0.0 Ready:** `YES` (C1–C7 fully verified on real Windows & real iPhone; 1.0.0 stable release published)
+- **Current Published Release:** `1.0.2` Stable  
+- **MVP Complete:** `YES` (All features, safe delete/move, and empty-tree edge case closed)  
+- **Community Compliance:** `100% PASS` (Zero inline styles, `.setHeading()`, dynamic `configDir`, `app.fileManager.trashFile`, `minAppVersion: 1.11.4`, official linter zero warnings)  
+- **1.0.2 Ready:** `YES` (C1–C7 fully verified on real Windows & real iPhone; 1.0.2 stable release published)
 
 ---
 

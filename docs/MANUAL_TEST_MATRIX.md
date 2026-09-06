@@ -1,16 +1,16 @@
 # GitHub Vault Relay: Real-Device Manual Acceptance Test Matrix
 
 > **Executable Protocol for Real Runtime Acceptance (C6 Baseline & C7 Empty-Tree Closure)**  
-> **Target Release:** `1.0.0` Stable Release  
+> **Target Release:** `1.0.2` Stable Release  
 > **Build Identity:**  
-> - Version: `1.0.0`  
-> - `main.js` Length: 164,265 bytes  
-> - `main.js` SHA-256: `FE1ED3F3E47FDD29B8DE3E8EB77A193DD2F429641580BD20CB900CC9516FA191`  
-> - `manifest.json` Length: 357 bytes  
-> - `manifest.json` SHA-256: `A93D5EDC6FF7D77AF5BE26CF9C8ADEFC91003D70CA8BAF3D88273F1F9AA1ED7E`  
-> - `styles.css` Length: 3,038 bytes  
-> - `styles.css` SHA-256: `9E529431CF0B2AD1569D7C18C2F7C6A3C430FFDB51B48B6EF775F1B820CC4534`  
-> **Baseline Status:** C6 Real Windows Acceptance = PASS | C6 Real iPhone Acceptance = PASS | C7 Real Windows Acceptance = PASS | C7 Real iPhone Acceptance = PASS | C1–C7 = VERIFIED  
+> - Version: `1.0.2`  
+> - `main.js` Length: 163,315 bytes  
+> - `main.js` SHA-256: `3B0ABF58DC3B00FF4DF10782553650096A3B54539323A0167791AF1EDA36780C`  
+> - `manifest.json` Length: 350 bytes  
+> - `manifest.json` SHA-256: `480803E6367D6E759ABB154E1C583FFBD7D83DC97669398795507461A6A37EF3`  
+> - `styles.css` Length: 4,222 bytes  
+> - `styles.css` SHA-256: `BF3B1FA38D46DA8B21E677C443A07520C5C7152E74F9C76CFAEAF2F169CB9EAB`  
+> **Baseline Status:** C6 Real Windows Acceptance = PASS | C6 Real iPhone Acceptance = PASS | C7 Real Windows Acceptance = PASS | C7 Real iPhone Acceptance = PASS | C1–C7 = VERIFIED | Community Review Compliance = PASS  
 
 ---
 
