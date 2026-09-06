@@ -1,16 +1,16 @@
 # GitHub Vault Relay: Real-Device Manual Acceptance Test Matrix
 
 > **Executable Protocol for Real Runtime Acceptance (C6 Baseline & C7 Empty-Tree Closure)**  
-> **Target Release:** `1.0.2` Stable Release  
+> **Target Release:** `1.0.3` Stable Release  
 > **Build Identity:**  
-> - Version: `1.0.2`  
-> - `main.js` Length: 163,315 bytes  
-> - `main.js` SHA-256: `3B0ABF58DC3B00FF4DF10782553650096A3B54539323A0167791AF1EDA36780C`  
+> - Version: `1.0.3`  
+> - `main.js` Length: 169,536 bytes  
+> - `main.js` SHA-256: `B6E62674E795A43D69AAE1E64F7CAD078B4113A8A1E8EF6FB292DFEEE362F41D`  
 > - `manifest.json` Length: 350 bytes  
-> - `manifest.json` SHA-256: `480803E6367D6E759ABB154E1C583FFBD7D83DC97669398795507461A6A37EF3`  
+> - `manifest.json` SHA-256: `B7810625BECA5971967A20AAE3EA8D9429D22C1AD797D5117529BCB31EC8F54E`  
 > - `styles.css` Length: 4,222 bytes  
 > - `styles.css` SHA-256: `BF3B1FA38D46DA8B21E677C443A07520C5C7152E74F9C76CFAEAF2F169CB9EAB`  
-> **Baseline Status:** C6 Real Windows Acceptance = PASS | C6 Real iPhone Acceptance = PASS | C7 Real Windows Acceptance = PASS | C7 Real iPhone Acceptance = PASS | C1–C7 = VERIFIED | Community Review Compliance = PASS  
+> **Baseline Status:** C6 Real Windows Acceptance = PASS | C6 Real iPhone Acceptance = PASS | C7 Real Windows Acceptance = PASS | C7 Real iPhone Acceptance = PASS | C1–C7 = VERIFIED | Community Preview = PASS (0 errors, 0 warnings, 1 intentional recommendation)  
 
 ---
 
@@ -150,3 +150,4 @@ Execute this focused UI validation first before resuming runtime acceptance:
 - **C1–C7**: VERIFIED
 - **MVP Complete**: YES
 - **1.0.0 Ready**: YES
+- **1.0.3 Ready**: YES (Community compliance preview PASS with 0 errors, 0 warnings, 1 intentional recommendation)

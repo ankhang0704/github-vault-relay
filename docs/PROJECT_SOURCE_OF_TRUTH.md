@@ -2,8 +2,8 @@
 
 > **Canonical reference document for repository architecture, factual technical guarantees, portfolio narratives, and engineering verification.**  
 > **Repository:** [https://github.com/ankhang0704/github-vault-relay](https://github.com/ankhang0704/github-vault-relay)  
-> **Current Version:** `1.0.2` (Stable Release)  
-> **Status:** AUTOMATED GATES PASS (458/458 tests) | C1–C7 VERIFIED | REAL WINDOWS PASS | REAL IPHONE PASS | COMMUNITY COMPLIANCE PASS | 1.0.2 PUBLISHED  
+> **Current Version:** `1.0.3` (Stable Release)  
+> **Status:** AUTOMATED GATES PASS (467/467 tests) | C1–C7 VERIFIED | REAL WINDOWS PASS | REAL IPHONE PASS | COMMUNITY PREVIEW PASS (0 errors, 0 warnings, 1 intentional recommendation) | 1.0.3 PUBLISHED  
 
 ---
 
@@ -64,10 +64,10 @@ The following are deliberate product non-goals:
 - **C7 Real Windows Acceptance:** `PASS`
 - **C7 Real iPhone Acceptance:** `PASS`
 - **C1–C7:** `VERIFIED`
-- **Current Published Release:** `1.0.2` Stable  
+- **Current Published Release:** `1.0.3` Stable  
 - **MVP Complete:** `YES` (All features, safe delete/move, and empty-tree edge case closed)  
-- **Community Compliance:** `100% PASS` (Zero inline styles, `.setHeading()`, dynamic `configDir`, `app.fileManager.trashFile`, `minAppVersion: 1.11.4`, official linter zero warnings)  
-- **1.0.2 Ready:** `YES` (C1–C7 fully verified on real Windows & real iPhone; 1.0.2 stable release published)
+- **Community Compliance:** Official Community Preview completed with 0 errors, 0 warnings, and 1 intentional backward-compatibility recommendation (`display()` retained for Obsidian 1.11.4–1.12.x alongside declarative `getSettingDefinitions()` for Obsidian >=1.13.0; `minAppVersion: 1.11.4`; zero runtime sync changes).  
+- **1.0.3 Ready:** `YES` (All quality gates PASS, community preview clean, ready for directory review)
 
 ---
 
@@ -259,6 +259,9 @@ Tested across 12 upgrade paths (`tests/c5UpgradeMigration.test.ts`):
 - **2026-09-05:** C6 Safe Deletion, Exact Moves & Mobile-Safe UI Transparency (Git tree sha:null remote delete, Obsidian trash local delete, delete-recovery journal, exact-SHA move pairing, semantic summary layer suppressing move double-counting, explicit delete/move confirm/result modals, 426 tests across 40 suites, 0.6.0 RC).
 - **2026-09-06:** C7 Release Readiness & Empty-Tree Closure (Canonical empty root tree `4b825dc642cb6eb9a060e54bf8d69288fbee4904` commit handling, zero-drift empty convergence, first file creation from empty state, 450 tests across 41 suites, documentation freeze, 0.7.0 RC prerelease).
 - **2026-09-06:** 1.0.0 Stable Release published (C1–C7 real-device acceptance complete on Windows and iPhone; full MVP lifecycle verified).
+- **2026-09-06:** 1.0.1 (Directory compliance: minAppVersion 1.11.4 for SecretStorage, command ID polish, privacy disclosures).
+- **2026-09-06:** 1.0.2 (Community compliance: zero inline styles, Setting.setHeading(), dynamic configDir, app.fileManager.trashFile, duplicate CSS elimination).
+- **2026-09-06:** 1.0.3 (Community compliance closure: official preview completed with 0 errors, 0 warnings, 1 intentional recommendation; declarative getSettingDefinitions() + legacy display() dual support; promise hygiene; strict type-narrowing).
 
 ---
 

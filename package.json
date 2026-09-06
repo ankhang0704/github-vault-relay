@@ -1,6 +1,6 @@
 {
   "name": "github-vault-relay",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A conservative GitHub bridge for mobile and desktop vault sync without requiring Git on the phone.",
   "main": "main.js",
   "scripts": {

@@ -3,7 +3,7 @@
 > **A conservative, mobile-first GitHub sync bridge for Obsidian — without running Git on your phone.**
 
 [![CI](https://github.com/ankhang0704/github-vault-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/ankhang0704/github-vault-relay/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)](https://github.com/ankhang0704/github-vault-relay/releases)
+[![Version](https://img.shields.io/badge/version-1.0.3-blue.svg)](https://github.com/ankhang0704/github-vault-relay/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 GitHub Vault Relay connects your **Obsidian Mobile (iPhone / iPad)** and **Desktop** vaults directly to your GitHub repository using GitHub's REST and Git Data APIs over HTTPS. It requires **no native Git installation, no command line tools, no isomorphic-git polyfills, and zero background daemons**.
@@ -55,6 +55,10 @@ To guarantee rock-solid data safety on mobile devices, the following are deliber
 1. Download `main.js`, `manifest.json`, and `styles.css` from the latest release.
 2. Place them in your vault at `.obsidian/plugins/github-vault-relay/`.
 3. Reload Obsidian and enable the plugin in Community Plugins.
+
+### Option C: Obsidian Community Plugins Directory
+
+GitHub Vault Relay is submitted to the official Obsidian Community Plugins Directory. Official Community Preview completed with 0 errors, 0 warnings, and 1 intentional backward-compatibility recommendation (`PluginSettingTab.display()` retained for Obsidian 1.11.4–1.12.x alongside `getSettingDefinitions()` for Obsidian >=1.13.0). Dual settings support preserves full functionality across all supported Obsidian versions (`minAppVersion: 1.11.4`) with unchanged runtime sync semantics.
 
 ---
 

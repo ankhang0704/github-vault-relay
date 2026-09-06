@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.3] - 2026-09-06
+
+### Changed
+- **Community Compliance & Code Quality Closure**:
+  - **Strengthened TypeScript Error & State Decoding**: Added exhaustive, non-throwing type-guards for storage metadata, baseline entries, and GitHub API error responses, eliminating unsafe member accesses and type assertions.
+  - **Promise Hygiene & Async Handling**: Cleaned up asynchronous UI modal callbacks with explicit rejection handlers and eliminated floating promise warnings across all modal dialogues.
+  - **Declarative Settings Architecture (Obsidian >=1.13.0)**: Implemented `getSettingDefinitions()` alongside `getControlValue` and `setControlValue` for declarative search indexing with zero I/O overhead.
+  - **Retained Legacy Settings Compatibility (Obsidian 1.11.4–1.12.x)**: Converted `display()` to synchronous `void` backed by an in-memory credential cache to maintain flicker-free rendering on supported older Obsidian releases without deprecation runtime crashes.
+  - **Button Styling Modernization**: Implemented runtime feature detection for `ButtonComponent.setDestructive()` on Obsidian 1.13+ with graceful fallback to CSS utility classes on earlier versions, resolving deprecation warnings without raising `minAppVersion`.
+  - **Removed Routine Production Logging**: Audited logging across all synchronization engines, restricting `console` calls strictly to actionable warnings and error diagnostics.
+  - **Official Community Review Verification**: Official Community Preview completed with 0 errors, 0 warnings, and 1 intentional backward-compatibility recommendation (`display()` retained for Obsidian 1.11.4–1.12.x).
+  - **Preserved Sync Semantics**: 100% preservation of all sync classifier states, safe delete/move protocols, mutation leasing, crash rollback journals, and 25 MiB safety limits.
+
 ## [1.0.2] - 2026-09-06
 
 ### Changed
