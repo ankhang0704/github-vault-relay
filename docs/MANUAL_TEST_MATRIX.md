@@ -12,6 +12,7 @@
 > - `styles.css` SHA-256: `BF3B1FA38D46DA8B21E677C443A07520C5C7152E74F9C76CFAEAF2F169CB9EAB`
 > **Automated baseline:** `npm run verify` PASS on 2026-09-06; 44 test files / 478 passing tests.
 > **Real-device release-gate baseline:** PASS — Windows settings, hidden paths, normal files, and restart; iPhone settings, hidden paths, normal files, and force-close/restart.
+> **Published asset verification:** PASS — downloaded release assets matched these SHA-256 values; artifact attestations verified for all three assets.
 
 ## 1.0.5 Release-Gate Physical Sign-Off
 
