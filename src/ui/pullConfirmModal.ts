@@ -15,6 +15,7 @@ import { getStoredPat } from "../security/secretStore";
 import { sanitizeErrorMessage } from "../security/redact";
 import { computeSemanticPreview } from "../sync/semanticSummary";
 import { PullResultModal } from "./pullResultModal";
+import { triggerDesktopGitAdvanceInBackground } from "../sync/desktopGitManager";
 
 export type OnPullCompleteCallback = (report: PullExecutionReport) => Promise<void> | void;
 
@@ -242,6 +243,10 @@ export class PullConfirmModal extends Modal {
 
           const pullEngine = new PullEngine(this.app, this.plugin.settings, client);
           const report = await pullEngine.executeSafePull();
+
+          if ((report.status === "PASS" || report.status === "PASS_WITH_WARNINGS") && report.remoteCommitSha) {
+            triggerDesktopGitAdvanceInBackground(this.app, this.plugin.settings, report.remoteCommitSha);
+          }
 
           this.close();
           new PullResultModal(this.app, report).open();

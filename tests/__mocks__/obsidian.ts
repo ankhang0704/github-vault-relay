@@ -74,6 +74,108 @@ export class TFolder {
   name = "";
 }
 
+export class FileSystemAdapter {
+  basePath: string = "/test/vault";
+  getBasePath(): string {
+    return this.basePath;
+  }
+}
+
+export class MockFileSystemAdapter extends FileSystemAdapter {
+  constructor(private filesMap: Map<string, { content: ArrayBuffer; mtime: number }>) {
+    super();
+  }
+  write = async (path: string, data: string): Promise<void> => {
+    const encoded = new TextEncoder().encode(data);
+    const buf = encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength);
+    this.filesMap.set(path, { content: buf, mtime: Date.now() });
+  };
+  writeBinary = async (path: string, data: ArrayBuffer): Promise<void> => {
+    this.filesMap.set(path, { content: data, mtime: Date.now() });
+  };
+  read = async (path: string): Promise<string> => {
+    const entry = this.filesMap.get(path);
+    if (!entry) throw new Error(`File not found: ${path}`);
+    return new TextDecoder().decode(entry.content);
+  };
+  readBinary = async (path: string): Promise<ArrayBuffer> => {
+    const entry = this.filesMap.get(path);
+    if (!entry) throw new Error(`File not found: ${path}`);
+    return entry.content;
+  };
+  exists = async (path: string): Promise<boolean> => {
+    if (this.filesMap.has(path)) return true;
+    const prefix = path.endsWith("/") ? path : path + "/";
+    for (const k of this.filesMap.keys()) {
+      if (k.startsWith(prefix)) return true;
+    }
+    return false;
+  };
+  mkdir = async (_path: string): Promise<void> => {};
+  trashLocal = async (path: string): Promise<void> => {
+    const entry = this.filesMap.get(path);
+    if (!entry) throw new Error(`File not found: ${path}`);
+    this.filesMap.set(`.trash/${path}`, entry);
+    this.filesMap.delete(path);
+  };
+  remove = async (path: string): Promise<void> => {
+    this.filesMap.delete(path);
+  };
+  rename = async (path: string, newPath: string): Promise<void> => {
+    const entry = this.filesMap.get(path);
+    if (!entry) throw new Error(`File not found: ${path}`);
+    if (this.filesMap.has(newPath)) throw new Error(`Destination already exists: ${newPath}`);
+    this.filesMap.set(newPath, entry);
+    this.filesMap.delete(path);
+  };
+  rmdir = async (path: string, _recursive?: boolean): Promise<void> => {
+    this.filesMap.delete(path);
+    for (const k of Array.from(this.filesMap.keys())) {
+      if (k.startsWith(path + "/") || k === path) {
+        this.filesMap.delete(k);
+      }
+    }
+  };
+  list = async (path: string): Promise<{ files: string[]; folders: string[] }> => {
+    const files: string[] = [];
+    const folders = new Set<string>();
+    const prefix = path ? (path.endsWith("/") ? path : path + "/") : "";
+    for (const k of this.filesMap.keys()) {
+      if (k.startsWith(prefix)) {
+        const rel = k.substring(prefix.length);
+        const parts = rel.split("/");
+        if (parts.length === 1) {
+          files.push(k);
+        } else {
+          folders.add(prefix + parts[0]);
+        }
+      }
+    }
+    return { files, folders: Array.from(folders) };
+  };
+  stat = async (path: string): Promise<{ mtime: number; ctime: number; size: number } | null> => {
+    const entry = this.filesMap.get(path);
+    if (entry) {
+      return { mtime: entry.mtime, ctime: entry.mtime, size: entry.content.byteLength };
+    }
+    return null;
+  };
+}
+
+export const Platform = {
+  isDesktop: true,
+  isMobile: false,
+  isDesktopApp: true,
+  isMobileApp: false,
+  isIosApp: false,
+  isAndroidApp: false,
+  isPhone: false,
+  isTablet: false,
+  isMacOS: false,
+  isWin: true,
+  isLinux: false,
+};
+
 export interface MockVault {
   getFiles: () => TFile[];
   read: (file: TFile) => Promise<string>;
@@ -84,20 +186,7 @@ export interface MockVault {
   modify: (file: TFile, data: string) => Promise<void>;
   modifyBinary: (file: TFile, data: ArrayBuffer) => Promise<void>;
   createFolder: (path: string) => Promise<TFolder>;
-  adapter: {
-    write: (path: string, data: string) => Promise<void>;
-    writeBinary: (path: string, data: ArrayBuffer) => Promise<void>;
-    read: (path: string) => Promise<string>;
-    readBinary: (path: string) => Promise<ArrayBuffer>;
-    exists: (path: string) => Promise<boolean>;
-    mkdir: (path: string) => Promise<void>;
-    trashLocal: (path: string) => Promise<void>;
-    remove: (path: string) => Promise<void>;
-    rename: (path: string, newPath: string) => Promise<void>;
-    rmdir: (path: string, recursive?: boolean) => Promise<void>;
-    list: (path: string) => Promise<{ files: string[]; folders: string[] }>;
-    stat?: (path: string) => Promise<{ mtime: number; ctime: number; size: number } | null>;
-  };
+  adapter: MockFileSystemAdapter;
   configDir?: string;
   delete: (file: TFile | TFolder) => Promise<void>;
 }
@@ -277,83 +366,7 @@ export class App {
           }
         }
       },
-      adapter: {
-        write: async (path: string, data: string) => {
-          const encoded = new TextEncoder().encode(data);
-          const buf = encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength);
-          filesMap.set(path, { content: buf, mtime: Date.now() });
-        },
-        writeBinary: async (path: string, data: ArrayBuffer) => {
-          filesMap.set(path, { content: data, mtime: Date.now() });
-        },
-        read: async (path: string) => {
-          const entry = filesMap.get(path);
-          if (!entry) throw new Error(`File not found: ${path}`);
-          return new TextDecoder().decode(entry.content);
-        },
-        readBinary: async (path: string) => {
-          const entry = filesMap.get(path);
-          if (!entry) throw new Error(`File not found: ${path}`);
-          return entry.content;
-        },
-        exists: async (path: string) => {
-          if (filesMap.has(path)) return true;
-          const prefix = path.endsWith("/") ? path : path + "/";
-          for (const k of filesMap.keys()) {
-            if (k.startsWith(prefix)) return true;
-          }
-          return false;
-        },
-        mkdir: async () => {},
-        remove: async (path: string) => {
-          filesMap.delete(path);
-        },
-        trashLocal: async (path: string) => {
-          const entry = filesMap.get(path);
-          if (!entry) throw new Error(`File not found: ${path}`);
-          filesMap.set(`.trash/${path}`, entry);
-          filesMap.delete(path);
-        },
-        rename: async (path: string, newPath: string) => {
-          const entry = filesMap.get(path);
-          if (!entry) throw new Error(`File not found: ${path}`);
-          if (filesMap.has(newPath)) throw new Error(`Destination already exists: ${newPath}`);
-          filesMap.set(newPath, entry);
-          filesMap.delete(path);
-        },
-        rmdir: async (path: string) => {
-          filesMap.delete(path);
-          for (const k of Array.from(filesMap.keys())) {
-            if (k.startsWith(path + "/") || k === path) {
-              filesMap.delete(k);
-            }
-          }
-        },
-        list: async (path: string) => {
-          const files: string[] = [];
-          const folders = new Set<string>();
-          const prefix = path ? (path.endsWith("/") ? path : path + "/") : "";
-          for (const k of filesMap.keys()) {
-            if (k.startsWith(prefix)) {
-              const rel = k.substring(prefix.length);
-              const parts = rel.split("/");
-              if (parts.length === 1) {
-                files.push(k);
-              } else {
-                folders.add(prefix + parts[0]);
-              }
-            }
-          }
-          return { files, folders: Array.from(folders) };
-        },
-        stat: async (path: string) => {
-          const entry = filesMap.get(path);
-          if (entry) {
-            return { mtime: entry.mtime, ctime: entry.mtime, size: entry.content.byteLength };
-          }
-          return null;
-        },
-      },
+      adapter: new MockFileSystemAdapter(filesMap),
     };
   }
 }

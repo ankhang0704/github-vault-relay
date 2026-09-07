@@ -15,6 +15,7 @@ import { getStoredPat } from "../security/secretStore";
 import { sanitizeErrorMessage } from "../security/redact";
 import { computeSemanticPreview } from "../sync/semanticSummary";
 import { PushResultModal } from "./pushResultModal";
+import { triggerDesktopGitAdvanceInBackground } from "../sync/desktopGitManager";
 
 export type OnPushCompleteCallback = (report: PushExecutionReport) => Promise<void> | void;
 
@@ -249,6 +250,10 @@ export class PushConfirmModal extends Modal {
 
           const pushEngine = new PushEngine(this.app, this.plugin.settings, client);
           const report = await pushEngine.executeSafePush();
+
+          if ((report.status === "PASS" || report.status === "PASS_WITH_WARNINGS") && report.newCommitSha) {
+            triggerDesktopGitAdvanceInBackground(this.app, this.plugin.settings, report.newCommitSha);
+          }
 
           this.close();
           new PushResultModal(this.app, report).open();

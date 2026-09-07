@@ -31,6 +31,7 @@ import {
   getActiveMutationLabel,
   releaseMutationLease,
 } from "./mutationCoordinator";
+import { triggerDesktopGitAdvanceInBackground } from "./desktopGitManager";
 
 export interface UnifiedSyncResult {
   status: "PASS" | "PASS_WITH_WARNINGS" | "FAIL" | "ABORTED";
@@ -277,6 +278,11 @@ export class UnifiedSyncEngine {
       if (totalConflicts > 0) summaryParts.push(`${totalConflicts} conflict(s) preserved`);
       if (totalSkipped > 0) summaryParts.push(`${totalSkipped} file(s) skipped`);
       if (summaryParts.length === 0) summaryParts.push("Repository is up to date");
+
+      if (status === "PASS" || status === "PASS_WITH_WARNINGS") {
+        const targetCommitSha = finalReport.remoteCommitSha || initialPreview.remoteCommitSha;
+        triggerDesktopGitAdvanceInBackground(this.app, this.settings, targetCommitSha);
+      }
 
       return {
         status,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { App, PluginManifest, Setting } from "obsidian";
+import { App, Platform, PluginManifest, Setting } from "obsidian";
 import VaultRelayPlugin from "../src/main";
 import { GitHubClient } from "../src/github/githubClient";
 import { VaultRelaySettingTab } from "../src/settings";
@@ -230,5 +230,35 @@ describe("1.0.5 settings and hidden-path regressions", () => {
     });
 
     expect(result.items).toEqual([expect.objectContaining({ path, category: "POTENTIAL_CONFLICT" })]);
+  });
+
+  it("SETTINGS-DESKTOP-GIT: Desktop Git setting is strictly hidden on mobile and only visible when advanced settings are expanded on desktop", async () => {
+    const app = new App();
+    const plugin = makePlugin(app);
+    const tab = new VaultRelaySettingTab(app, plugin);
+    const defs = tab.getSettingDefinitions() as unknown as Array<Record<string, unknown>>;
+    const advanced = defs.find((item) => item.heading === "Advanced / Security") as { items: Array<Record<string, unknown>> };
+    const gitSetting = advanced.items.find((item) => item.name === "Desktop Git integration") as { visible: () => boolean };
+
+    // Initially collapsed on Desktop -> hidden
+    Platform.isDesktopApp = true;
+    expect(gitSetting.visible()).toBe(false);
+
+    // Expanded on Desktop -> visible
+    const toggle = advanced.items.find((item) => item.name === "Advanced Settings") as {
+      render: (setting: Setting, group: unknown) => void;
+    };
+    const toggleSetting = new Setting(tab.containerEl);
+    toggle.render(toggleSetting, {});
+    const toggleButton = toggleSetting.controlEl.children[0] as unknown as { onclick?: () => void | Promise<void> };
+    await toggleButton.onclick?.();
+    expect(gitSetting.visible()).toBe(true);
+
+    // On Mobile (even if advanced is expanded) -> strictly hidden
+    Platform.isDesktopApp = false;
+    expect(gitSetting.visible()).toBe(false);
+
+    // Reset back to Desktop for other tests
+    Platform.isDesktopApp = true;
   });
 });

@@ -5,10 +5,25 @@ All notable changes to GitHub Vault Relay will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current repository evidence is 44 test files and 480 passing tests; `npm run verify` passed locally on 2026-09-07. Test totals in older release entries are historical snapshots from those releases, not current totals.
+Current repository evidence is 45 test files and 495 passing tests; `npm run verify` passed locally on 2026-09-07. Test totals in older release entries are historical snapshots from those releases, not current totals.
 Paths and implementation details in older entries are historical release snapshots; the current internal path is `${app.vault.configDir}/github-vault-relay/`.
 
 ---
+
+## [1.0.7] - 2026-09-07
+
+### Added
+- **Desktop Local Git Auto-Advance (Remote Commit Handoff)**: Introduced an optional, non-blocking background task on Desktop that automatically reconciles native `.git` repository metadata (HEAD and Index) after a successful Vault Relay sync (Unified Sync, Safe Push, or Safe Pull).
+  - Eliminates "stale Git debt" where `git status` reports spurious unstaged changes or branch divergence after an API-driven sync.
+  - Executes `git fetch origin <branch> --quiet` followed by `git reset --mixed <remoteCommitSha>`. The `--mixed` reset brings HEAD and index in sync with the remote commit without touching or redownloading files in the working directory, preserving any uncommitted local edits safely.
+  - Implements strict safety invariants: 40-character hexadecimal commit SHA validation (`/^[0-9a-f]{40}$/i`) and argument-based execution via `execFile` to completely eliminate command injection risks.
+  - Bounded 15-second execution timeout prevents hanging indefinitely on network interruptions or Git credential prompts.
+  - Isolated strictly to Desktop via `Platform.isDesktopApp`: zero native Git or Node.js runtime dependencies on iOS/Android.
+- **macOS / Unix Homebrew PATH Augmentation**: Automatically augments `process.env.PATH` on Unix/macOS to include `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, and `/bin` when executing Git commands in Electron, ensuring Git installations via Homebrew on Apple Silicon and Intel Macs are detected reliably.
+- **Declarative Settings Toggle & Mobile Hiding**: Added the `"Desktop Git integration"` toggle under the Advanced Settings group in the plugin settings tab. Adheres strictly to Obsidian Community Plugin Review Guidelines (sentence case, native Obsidian setting components). Evaluates `Platform.isDesktopApp` so that the setting is strictly hidden on mobile devices (iOS, iPadOS, Android) to eliminate UI clutter.
+
+### Verification
+- `npm run verify`: PASS — 45 test files, 495 tests passing (including 14 new unit tests in `desktopGitManager.test.ts` and mobile-hiding regression tests in `settingsHiddenRegression.test.ts`).
 
 ## [1.0.6] - 2026-09-07
 

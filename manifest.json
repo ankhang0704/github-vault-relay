@@ -1,7 +1,7 @@
 {
   "id": "github-vault-relay",
   "name": "GitHub Vault Relay",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "minAppVersion": "1.11.4",
   "description": "A conservative GitHub bridge for mobile and desktop vault sync without requiring Git on the phone.",
   "author": "Vault Relay Contributors",
