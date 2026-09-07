@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { App } from "obsidian";
+import { App, RequestUrlParam } from "obsidian";
 import { UnifiedSyncEngine } from "../src/sync/unifiedSyncEngine";
 import { GitHubClient } from "../src/github/githubClient";
 import { calculateCanonicalGitBlobSha, calculateRawGitBlobSha } from "../src/sync/hashUtils";
@@ -507,5 +507,160 @@ describe("Unified Safe Sync Engine (SYNC-001..010)", () => {
     // Can run again cleanly
     const nextSync = await unified.executeSync();
     expect(nextSync.status).toBe("PASS");
+  });
+
+  it("SYNC-011: Unified Sync auto-heals baseline for UNCHANGED files when up to date", async () => {
+    const notePath = "20 Projects/FM Dictionary/FM Dictionary Technical Architecture.md";
+    const noteContent = "# FM Dictionary Architecture\nContent details here.";
+    await app.vault.create(notePath, noteContent);
+    const expectedSha = await calculateCanonicalGitBlobSha(noteContent, notePath);
+
+    const fakeRequestFn = vi.fn(async (params: { url: string }) => {
+      if (params.url.includes("/branches/main")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { name: "main", commit: { sha: "commit_heal_base", commit: { tree: { sha: "tree_heal_base" } } } },
+        };
+      }
+      if (params.url.includes("/git/trees/tree_heal_base")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: {
+            sha: "tree_heal_base",
+            truncated: false,
+            tree: [{ path: notePath, mode: "100644", type: "blob", sha: expectedSha, size: noteContent.length }],
+          },
+        };
+      }
+      throw new Error("Unhandled URL: " + params.url);
+    });
+
+    const client = new GitHubClient({ token: "tok", owner: "octocat", repo: "notes", branch: "main", requestFn: fakeRequestFn });
+    const unified = new UnifiedSyncEngine(app, settings, client);
+
+    // Initial state: empty baseline
+    const emptyState = await StorageManager.loadState(app);
+    expect(emptyState.files[notePath]).toBeUndefined();
+
+    const result = await unified.executeSync();
+    expect(result.status).toBe("PASS");
+    expect(result.pulledCount).toBe(0);
+    expect(result.pushedCount).toBe(0);
+
+    // Baseline was auto-healed and saved
+    const healedState = await StorageManager.loadState(app);
+    expect(healedState.files[notePath]).toBeDefined();
+    expect(healedState.files[notePath].localSha).toBe(expectedSha);
+    expect(healedState.files[notePath].remoteSha).toBe(expectedSha);
+  });
+
+  it("SYNC-012: Folder move with pre-existing files pushes move cleanly without pulling old files back", async () => {
+    const oldPath = "20 Projects/FM Dictionary/FM Dictionary Technical Architecture.md";
+    const newPath = "20 Projects/Completed/FM Dictionary/FM Dictionary Technical Architecture.md";
+    const noteContent = "# FM Dictionary Architecture\nContent details here.";
+    const expectedSha = await calculateCanonicalGitBlobSha(noteContent, oldPath);
+
+    // Pre-populate baseline as established by prior sync
+    await StorageManager.saveState(app, {
+      version: 1,
+      lastSyncedCommitSha: "c_base",
+      lastSyncedAt: 1000,
+      files: {
+        [oldPath]: { localSha: expectedSha, remoteSha: expectedSha, syncedAt: 1000 },
+      },
+    });
+
+    // Local move occurred: oldPath removed, newPath created
+    await app.vault.create(newPath, noteContent);
+
+    let treeItemsSent: Array<{ path: string; sha: string | null }> = [];
+    const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
+      if (params.url.includes("/branches/main")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: { name: "main", commit: { sha: "c_base", commit: { tree: { sha: "t_base" } } } },
+        };
+      }
+      if (params.url.includes("/git/trees/c_new")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: {
+            sha: "t_new",
+            truncated: false,
+            tree: [{ path: newPath, mode: "100644", type: "blob", sha: expectedSha, size: noteContent.length }],
+          },
+        };
+      }
+      if (params.url.includes("/git/trees/t_base")) {
+        return {
+          status: 200,
+          headers: {},
+          text: "",
+          arrayBuffer: new ArrayBuffer(0),
+          json: {
+            sha: "t_base",
+            truncated: false,
+            tree: [{ path: oldPath, mode: "100644", type: "blob", sha: expectedSha, size: noteContent.length }],
+          },
+        };
+      }
+      if (params.url.includes("/git/blobs") && params.method === "POST") {
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: expectedSha } };
+      }
+      if (params.url.includes("/git/trees") && params.method === "POST") {
+        const body = JSON.parse(params.body as string);
+        treeItemsSent = body.tree;
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "t_new" } };
+      }
+      if (params.url.includes("/git/commits") && params.method === "POST") {
+        return { status: 201, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { sha: "c_new" } };
+      }
+      if (params.url.includes("/git/refs/heads/main") && params.method === "PATCH") {
+        return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { ref: "refs/heads/main", object: { sha: "c_new" } } };
+      }
+      if (params.url.includes("/git/ref/heads/main")) {
+        return { status: 200, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: { ref: "refs/heads/main", object: { sha: "c_new" } } };
+      }
+      throw new Error("Unhandled URL in SYNC-012: " + params.url);
+    });
+
+    const client = new GitHubClient({ token: "tok", owner: "octocat", repo: "notes", branch: "main", requestFn: fakeRequestFn });
+    const unified = new UnifiedSyncEngine(app, settings, client);
+
+    const result = await unified.executeSync();
+    expect(result.status).toBe("PASS");
+    expect(result.pulledCount).toBe(0); // Zero pulled! Old path was NOT pulled back!
+    expect(result.pushedCount).toBe(2); // 1 delete + 1 create
+
+    // Verify tree mutation: oldPath has sha: null, newPath has expectedSha
+    const deleted = treeItemsSent.find((t) => t.path === oldPath);
+    expect(deleted).toBeDefined();
+    expect(deleted?.sha).toBeNull();
+
+    const added = treeItemsSent.find((t) => t.path === newPath);
+    expect(added).toBeDefined();
+    expect(added?.sha).toBe(expectedSha);
+
+    // Old path is NOT re-created in local vault
+    expect(app.vault.getAbstractFileByPath(oldPath)).toBeNull();
+    // New path exists
+    expect(app.vault.getAbstractFileByPath(newPath)).not.toBeNull();
+
+    // Baseline updated: oldPath removed, newPath tracked
+    const updatedState = await StorageManager.loadState(app);
+    expect(updatedState.files[oldPath]).toBeUndefined();
+    expect(updatedState.files[newPath]).toBeDefined();
   });
 });

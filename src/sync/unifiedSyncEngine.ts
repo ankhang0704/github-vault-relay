@@ -123,6 +123,32 @@ export class UnifiedSyncEngine {
         }
       }
 
+      // Auto-heal / establish baseline for all UNCHANGED items missing from state.files
+      const unchangedItems = initialPreview.items.filter(
+        (it) => it.category === "UNCHANGED" && it.localSha && it.remoteSha && it.localSha === it.remoteSha
+      );
+      if (unchangedItems.length > 0) {
+        const state = await StorageManager.loadState(this.app);
+        let healed = false;
+        for (const item of unchangedItems) {
+          if (!state.files[item.path] || state.files[item.path].remoteSha !== item.remoteSha) {
+            state.files[item.path] = {
+              localSha: item.localSha!,
+              remoteSha: item.remoteSha!,
+              syncedAt: Date.now(),
+            };
+            healed = true;
+          }
+        }
+        if (healed) {
+          if (initialPreview.remoteCommitSha) {
+            state.lastSyncedCommitSha = initialPreview.remoteCommitSha;
+          }
+          state.lastSyncedAt = Date.now();
+          await StorageManager.saveState(this.app, state);
+        }
+      }
+
       // Check if anything is eligible to sync
       if (pullItems.length === 0 && pushItems.length === 0) {
         onProgress?.({ phase: "COMPLETE", completed: 1, total: 1, message: "Repository is up to date." });
@@ -208,6 +234,32 @@ export class UnifiedSyncEngine {
       // 5. Final Fresh Scan to confirm convergence
       onProgress?.({ phase: "SCANNING", completed: 0, total: 1, message: "Finalizing sync report..." });
       const finalReport = await syncEngine.generatePreview(true);
+
+      // Auto-heal baseline for any remaining UNCHANGED items missing from state.files
+      const finalUnchanged = finalReport.items.filter(
+        (it) => it.category === "UNCHANGED" && it.localSha && it.remoteSha && it.localSha === it.remoteSha
+      );
+      if (finalUnchanged.length > 0) {
+        const state = await StorageManager.loadState(this.app);
+        let healed = false;
+        for (const item of finalUnchanged) {
+          if (!state.files[item.path] || state.files[item.path].remoteSha !== item.remoteSha) {
+            state.files[item.path] = {
+              localSha: item.localSha!,
+              remoteSha: item.remoteSha!,
+              syncedAt: Date.now(),
+            };
+            healed = true;
+          }
+        }
+        if (healed) {
+          if (finalReport.remoteCommitSha) {
+            state.lastSyncedCommitSha = finalReport.remoteCommitSha;
+          }
+          state.lastSyncedAt = Date.now();
+          await StorageManager.saveState(this.app, state);
+        }
+      }
 
       onProgress?.({ phase: "COMPLETE", completed: 1, total: 1, message: "Sync complete." });
 

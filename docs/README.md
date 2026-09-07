@@ -1,6 +1,6 @@
 # GitHub Vault Relay Documentation Index
 
-This index points to the current `1.0.5` documentation baseline. Current source, tests, manifest, and `main` take precedence over historical checkpoint notes.
+This index points to the current `1.0.6` documentation baseline. Current source, tests, manifest, and `main` take precedence over historical checkpoint notes.
 
 ---
 
@@ -14,9 +14,9 @@ This index points to the current `1.0.5` documentation baseline. Current source,
 - **[Project Source of Truth](PROJECT_SOURCE_OF_TRUTH.md)**: Current identity, ten classifier states, baseline semantics, evidence, ownership wording, and closure status.
 - **[Engineering Notes](ENGINEERING_NOTES.md)**: Maintainer study guide explaining Git objects, GitHub APIs, concurrency, conflicts, deletion, recovery, storage, and implementation-backed Q&A.
 - **[System Architecture](ARCHITECTURE.md)**: Current components, Unified Sync sequence, Git object construction, conflict resolution, deletion/move ordering, and recovery lifecycle.
-- **[Manual Test Matrix](MANUAL_TEST_MATRIX.md)**: Real Windows/iOS acceptance protocol, including the 1.0.5 release-gate sign-off and remaining row-level status.
+- **[Manual Test Matrix](MANUAL_TEST_MATRIX.md)**: Real Windows/iOS acceptance protocol, including the release-gate sign-off and remaining row-level status.
 - **[Contributing Guidelines](../CONTRIBUTING.md)**: Development prerequisites, quality gate commands (`npm run verify`), safety invariants, and AI-assisted development policy.
-- **[Changelog](../CHANGELOG.md)**: Chronological release history through `1.0.5`; older test totals are historical snapshots.
+- **[Changelog](../CHANGELOG.md)**: Chronological release history through `1.0.6`; older test totals are historical snapshots.
 
 ---
 

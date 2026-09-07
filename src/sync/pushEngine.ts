@@ -831,6 +831,19 @@ export class PushEngine {
       }
     }
 
+    // Auto-heal baseline for any pre-existing UNCHANGED files missing from state.files
+    for (const item of classification.items) {
+      if (item.category === "UNCHANGED" && item.localSha && item.remoteSha && item.localSha === item.remoteSha) {
+        if (!state.files[item.path] || state.files[item.path].remoteSha !== item.remoteSha) {
+          state.files[item.path] = {
+            localSha: item.localSha,
+            remoteSha: item.remoteSha,
+            syncedAt: Date.now(),
+          };
+        }
+      }
+    }
+
     try {
       await this.saveState(state);
     } catch (stateSaveErr) {

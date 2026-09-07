@@ -72,10 +72,14 @@ export function classifySyncState(inputs: ClassificationInputs): ClassificationR
 
   const sortedPaths = Array.from(allPaths).sort((a, b) => a.localeCompare(b));
 
+  const lowerStateMap = state?.files
+    ? new Map(Object.entries(state.files).map(([k, v]) => [k.toLowerCase(), v]))
+    : undefined;
+
   for (const path of sortedPaths) {
     const local = localFiles.get(path);
     const remote = remoteBlobs.get(path);
-    const fileState = state?.files ? state.files[path] : undefined;
+    const fileState = (state?.files ? state.files[path] : undefined) || lowerStateMap?.get(path.toLowerCase());
 
     // Validate path safety
     const pathCheck = validatePathSafety(path, excludedPaths);

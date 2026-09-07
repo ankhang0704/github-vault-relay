@@ -22,7 +22,7 @@ export const DEFAULT_EXCLUSIONS: string[] = getDefaultExclusions();
  */
 export function normalizePath(path: string): string {
   if (!path) return "";
-  let normalized = path.replace(/\\/g, "/").trim();
+  let normalized = path.replace(/\\/g, "/").trim().normalize("NFC");
   // Remove leading './' or '/'
   normalized = normalized.replace(/^(\.\/|\/)+/, "");
   // Remove trailing '/'

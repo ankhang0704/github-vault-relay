@@ -1,18 +1,12 @@
 # GitHub Vault Relay: Real-Device Manual Acceptance Test Matrix
 
 > **Executable Protocol for Real Runtime Acceptance of the current release**
-> **Target Release:** `1.0.5` Stable Release
+> **Target Release:** `1.0.6` Stable Release
 > **Build Identity:**  
-> - Version: `1.0.5`
-> - `main.js` Length: 174,203 bytes
-> - `main.js` SHA-256: `EA394047EBE981DE65C143A361FDAA9CEF32EC82B24411B1F44A2E9E49B6C9CC`
+> - Version: `1.0.6`
 > - `manifest.json` Length: 350 bytes
-> - `manifest.json` SHA-256: `21A918F9EFF960A7121D8E923FB036EDD53BD9B2B3244513E22C70D4D2005B1E`
 > - `styles.css` Length: 4,222 bytes
-> - `styles.css` SHA-256: `BF3B1FA38D46DA8B21E677C443A07520C5C7152E74F9C76CFAEAF2F169CB9EAB`
-> **Automated baseline:** `npm run verify` PASS on 2026-09-06; 44 test files / 478 passing tests.
-> **Real-device release-gate baseline:** PASS — Windows settings, hidden paths, normal files, and restart; iPhone settings, hidden paths, normal files, and force-close/restart.
-> **Published asset verification:** PASS — downloaded release assets matched these SHA-256 values; artifact attestations verified for all three assets.
+> **Automated baseline:** `npm run verify` PASS on 2026-09-07; 44 test files / 480 passing tests.
 
 ## 1.0.5 Release-Gate Physical Sign-Off
 

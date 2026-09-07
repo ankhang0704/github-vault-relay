@@ -5,10 +5,21 @@ All notable changes to GitHub Vault Relay will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current repository evidence is 44 test files and 478 passing tests; `npm run verify` passed locally on 2026-09-06. Test totals in older release entries are historical snapshots from those releases, not current totals.
+Current repository evidence is 44 test files and 480 passing tests; `npm run verify` passed locally on 2026-09-07. Test totals in older release entries are historical snapshots from those releases, not current totals.
 Paths and implementation details in older entries are historical release snapshots; the current internal path is `${app.vault.configDir}/github-vault-relay/`.
 
 ---
+
+## [1.0.6] - 2026-09-07
+
+### Fixed
+- **Directory Move Desynchronization & Duplication**: Fixed an issue where moving folders containing pre-existing synchronized notes (e.g., moving a project directory into a completed archive folder) caused duplicate files at both old and new locations upon sync.
+- **Baseline State Auto-Healing**: Added automatic baseline reconciliation for pre-existing converged files in `UnifiedSyncEngine` and `PushEngine`. When files exist identically both locally and on GitHub, their baseline state (`state.files`) is automatically recorded even when sync exits early with no remote changes. When folders or files are subsequently moved, the previous paths are correctly identified as `LOCAL_DELETED` rather than `REMOTE_ONLY`, preventing Safe Pull from re-downloading deleted source files.
+- **Unicode NFC Normalization**: Integrated `.normalize("NFC")` into canonical path normalization (`normalizePath()`). This ensures Unicode-composed path hashes remain strictly identical across macOS (NFD decomposed filenames), Windows, iOS, and Linux for Vietnamese and other accented file and folder names.
+- **Windows Baseline Case Sensitivity**: Added case-insensitive fallback baseline lookup in `classifySyncState` to avoid spurious desynchronization or misclassification caused by Windows filesystem casing variations.
+
+### Verification
+- `npm run verify`: PASS — 44 test files, 480 tests passing (including new regression test cases `SYNC-011` and `SYNC-012`).
 
 ## [1.0.5] - 2026-09-06
 
