@@ -1,38 +1,38 @@
 /**
- * Desktop Local Git Manager
+ * Desktop Local Git Handoff Manager
  *
- * Automatically reconciles local native .git repository metadata (HEAD & Index)
- * with the authoritative remote commit SHA after a successful Vault Relay sync.
+ * Implements a conservative Remote Commit Handoff signal architecture.
  *
- * Safety Invariants:
- * - Strictly isolated to Desktop via Platform.isDesktopApp. Zero runtime overhead or Node imports on Mobile.
- * - Uses `git reset --mixed <commitSha>` only. Never uses `--hard` or `--keep` to guarantee local uncommitted notes are never deleted.
- * - Argument-based execution via `execFile` prevents shell injection.
- * - Strict commit SHA hex format validation (/^[0-9a-f]{40}$/i).
- * - Bounded 15s execution timeout prevents hanging on network or credential prompts.
- * - Non-blocking: failures log warnings and never roll back or abort Obsidian sync results.
+ * Purity & Security Invariants:
+ * - 100% pure Obsidian Vault API. Zero shell execution, zero child_process, zero native Git calls.
+ * - Conforms strictly to Obsidian Community Plugin Security Policies (no arbitrary process execution).
+ * - Writes a durable, declarative signal file (`git-handoff.json`) under plugin internal storage.
+ * - An external script (e.g. `scripts/git-handoff.ps1` or `scripts/git-handoff.sh`) or local agent
+ *   can consume this signal and reconcile local .git metadata using `git fetch` and `git reset --mixed`.
+ * - Strictly isolated to Desktop via Platform.isDesktopApp.
  */
 
-import { App, FileSystemAdapter, Platform } from "obsidian";
+import { App, Platform } from "obsidian";
+import { StorageManager } from "./storageManager";
 import { sanitizeErrorMessage } from "../security/redact";
 import type { VaultRelaySettings } from "../settings";
 
-export interface DesktopGitAdvanceResult {
-  status: "SUCCESS" | "FAILED" | "SKIPPED";
-  commitSha?: string;
-  error?: string;
-  message?: string;
+export interface GitHandoffSignal {
+  $schemaVersion: 1;
+  action: "adopt-remote-commit";
+  status: "pending" | "completed" | "failed";
+  branch: string;
+  remoteCommitSha: string;
+  createdAt: string;
+  appliedAt: string | null;
+  lastError: string | null;
 }
 
-export type ExecFileFunction = (
-  file: string,
-  args: string[],
-  options: { cwd: string; timeout?: number; env?: Record<string, string> },
-  callback: (error: Error | null, stdout: string, stderr: string) => void
-) => void;
-
-interface ChildProcessModule {
-  execFile: ExecFileFunction;
+export interface DesktopGitHandoffResult {
+  status: "SUCCESS" | "FAILED" | "SKIPPED";
+  signal?: GitHandoffSignal;
+  error?: string;
+  message?: string;
 }
 
 /**
@@ -44,7 +44,7 @@ export function isValidCommitSha(sha: unknown): sha is string {
 }
 
 /**
- * Validates branch name to prevent any unexpected control characters or shell separators.
+ * Validates branch name to prevent any unexpected control characters or path traversal.
  */
 export function isValidBranchName(branch: unknown): branch is string {
   if (typeof branch !== "string") return false;
@@ -54,116 +54,23 @@ export function isValidBranchName(branch: unknown): branch is string {
 }
 
 /**
- * Builds process execution environment with augmented PATH on Unix/macOS
- * to ensure binaries installed in /opt/homebrew/bin or /usr/local/bin can be resolved by Electron.
+ * Resolves the path to git-handoff.json within plugin internal storage.
  */
-export function buildExecutionEnv(): Record<string, string> | undefined {
-  if (typeof process === "undefined" || !process.env) {
-    return undefined;
-  }
-
-  const env: Record<string, string> = {};
-  for (const [key, val] of Object.entries(process.env)) {
-    if (typeof val === "string") {
-      env[key] = val;
-    }
-  }
-
-  if (!Platform.isWin) {
-    const currentPath = env["PATH"] || "";
-    const additions = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
-    const segments = currentPath ? currentPath.split(":") : [];
-    for (const add of additions) {
-      if (!segments.includes(add)) {
-        segments.push(add);
-      }
-    }
-    env["PATH"] = segments.join(":");
-  }
-
-  return env;
+export function getGitHandoffFilePath(app: App): string {
+  return `${StorageManager.getPluginStorageDir(app)}/git-handoff.json`;
 }
 
 /**
- * Safely resolves the Node.js child_process module on Electron Desktop.
- * Returns null on Mobile or if Node environment is unavailable.
+ * Emits a durable git-handoff.json signal when running on Desktop.
+ * Completely pure: uses Obsidian's vault adapter, no child processes.
  */
-export function getChildProcess(): ChildProcessModule | null {
-  if (!Platform.isDesktopApp) return null;
-  const win = window as unknown as { require?: (mod: string) => ChildProcessModule };
-  if (typeof win.require === "function") {
-    try {
-      return win.require("child_process");
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-/**
- * Checks if the vault is located in a native Git repository on Desktop.
- */
-export async function isDesktopGitAvailable(app: App): Promise<boolean> {
-  if (!Platform.isDesktopApp) return false;
-  if (!(app.vault.adapter instanceof FileSystemAdapter)) return false;
-  try {
-    return await app.vault.adapter.exists(".git");
-  } catch {
-    return false;
-  }
-}
-
-export interface AdvanceDesktopGitOptions {
-  timeoutMs?: number;
-  customExecFile?: ExecFileFunction;
-}
-
-/**
- * Executes a single command safely using execFile.
- */
-function runGitCommand(
-  execFileFn: ExecFileFunction,
-  args: string[],
-  cwd: string,
-  timeoutMs: number
-): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const env = buildExecutionEnv();
-    execFileFn("git", args, { cwd, timeout: timeoutMs, env }, (error, stdout, stderr) => {
-      if (error) {
-        reject(error);
-      } else {
-        resolve({ stdout, stderr });
-      }
-    });
-  });
-}
-
-/**
- * Advances local .git repository metadata to match the remote commit SHA without re-downloading files.
- * Performs:
- * 1. git fetch origin <branch> --quiet (bounded timeout 15s)
- * 2. git cat-file -e <commitSha> (verifies object exists locally)
- * 3. git reset --mixed <commitSha> (updates HEAD & index safely)
- */
-export async function advanceDesktopGit(
+export async function emitGitHandoffSignal(
   app: App,
   branch: string,
-  commitSha: string,
-  options?: AdvanceDesktopGitOptions
-): Promise<DesktopGitAdvanceResult> {
+  commitSha: string
+): Promise<DesktopGitHandoffResult> {
   if (!Platform.isDesktopApp) {
-    return { status: "SKIPPED", message: "Desktop Git auto-advance skipped: not running on Desktop." };
-  }
-
-  if (!(app.vault.adapter instanceof FileSystemAdapter)) {
-    return { status: "SKIPPED", message: "Desktop Git auto-advance skipped: file system adapter unavailable." };
-  }
-
-  const hasGit = await app.vault.adapter.exists(".git");
-  if (!hasGit) {
-    return { status: "SKIPPED", message: "Desktop Git auto-advance skipped: .git directory not found in vault." };
+    return { status: "SKIPPED", message: "Desktop Git handoff skipped: not running on Desktop." };
   }
 
   if (!isValidCommitSha(commitSha)) {
@@ -172,42 +79,70 @@ export async function advanceDesktopGit(
 
   const safeBranch = branch && isValidBranchName(branch) ? branch.trim() : "main";
   const safeSha = commitSha.trim();
-  const cwd = app.vault.adapter.getBasePath();
-  const timeoutMs = options?.timeoutMs ?? 15000;
 
-  const execFileFn = options?.customExecFile ?? getChildProcess()?.execFile;
-  if (!execFileFn) {
-    return { status: "FAILED", error: "child_process.execFile is not available in current environment." };
-  }
+  const signal: GitHandoffSignal = {
+    $schemaVersion: 1,
+    action: "adopt-remote-commit",
+    status: "pending",
+    branch: safeBranch,
+    remoteCommitSha: safeSha,
+    createdAt: new Date().toISOString(),
+    appliedAt: null,
+    lastError: null,
+  };
 
   try {
-    // Step 1: Fetch commit object from remote
-    await runGitCommand(execFileFn, ["fetch", "origin", safeBranch, "--quiet"], cwd, timeoutMs);
+    const storageDir = StorageManager.getPluginStorageDir(app);
+    if (!(await app.vault.adapter.exists(storageDir))) {
+      await app.vault.adapter.mkdir(storageDir);
+    }
 
-    // Step 2: Verify object exists locally in object store
-    await runGitCommand(execFileFn, ["cat-file", "-e", safeSha], cwd, timeoutMs);
-
-    // Step 3: Advance HEAD and index to target commit without modifying working tree
-    await runGitCommand(execFileFn, ["reset", "--mixed", safeSha], cwd, timeoutMs);
+    const handoffPath = getGitHandoffFilePath(app);
+    await app.vault.adapter.write(handoffPath, JSON.stringify(signal, null, 2));
 
     return {
       status: "SUCCESS",
-      commitSha: safeSha,
-      message: `Local .git repository advanced to ${safeSha.slice(0, 7)}.`,
+      signal,
+      message: `Git handoff signal emitted for commit ${safeSha.slice(0, 7)}.`,
     };
   } catch (err) {
     const sanitized = sanitizeErrorMessage(err);
     return {
       status: "FAILED",
-      commitSha: safeSha,
       error: sanitized,
     };
   }
 }
 
 /**
- * Triggers background git advance if enabled in settings and running on Desktop.
- * Non-blocking, failure-tolerant (does not throw).
+ * Reads the current git-handoff.json signal if it exists.
+ */
+export async function readGitHandoffSignal(app: App): Promise<GitHandoffSignal | null> {
+  try {
+    const handoffPath = getGitHandoffFilePath(app);
+    if (!(await app.vault.adapter.exists(handoffPath))) {
+      return null;
+    }
+    const content = await app.vault.adapter.read(handoffPath);
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    if (
+      parsed &&
+      parsed.$schemaVersion === 1 &&
+      parsed.action === "adopt-remote-commit" &&
+      typeof parsed.remoteCommitSha === "string" &&
+      isValidCommitSha(parsed.remoteCommitSha)
+    ) {
+      return parsed as unknown as GitHandoffSignal;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Triggers background git handoff signal emission if enabled in settings and running on Desktop.
+ * Non-blocking, failure-tolerant.
  */
 export function triggerDesktopGitAdvanceInBackground(
   app: App,
@@ -219,12 +154,12 @@ export function triggerDesktopGitAdvanceInBackground(
 
   void (async () => {
     try {
-      const res = await advanceDesktopGit(app, settings.branch || "main", commitSha);
+      const res = await emitGitHandoffSignal(app, settings.branch || "main", commitSha);
       if (res.status === "FAILED") {
-        console.warn(`[Vault Relay] Desktop Git auto-advance warning: ${res.error ?? "unknown error"}`);
+        console.warn(`[Vault Relay] Desktop Git handoff signal error: ${res.error ?? "unknown error"}`);
       }
     } catch (err) {
-      console.warn("[Vault Relay] Desktop Git auto-advance unexpected exception:", sanitizeErrorMessage(err));
+      console.warn("[Vault Relay] Desktop Git handoff signal unexpected exception:", sanitizeErrorMessage(err));
     }
   })();
 }

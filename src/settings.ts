@@ -268,7 +268,7 @@ export class VaultRelaySettingTab extends PluginSettingTab {
           },
           {
             name: "Desktop Git integration",
-            desc: "After a successful sync on desktop, automatically run git fetch and git reset --mixed in the background to align the local .git repository with GitHub without re-downloading files.",
+            desc: "After a successful sync on desktop, writes a git-handoff.json signal in plugin storage so an external script or agent can advance local .git metadata without re-downloading files.",
             visible: () => this.showManualSetup && Platform.isDesktopApp,
             render: (setting: Setting) => {
               setting.addToggle((toggle) => {
@@ -631,8 +631,8 @@ export class VaultRelaySettingTab extends PluginSettingTab {
     const tabWithUpdate = this as unknown as Record<string, (() => void) | undefined>;
     if (typeof tabWithUpdate["update"] === "function") {
       tabWithUpdate["update"]();
-    } else {
-      this.display();
+    } else if (typeof tabWithUpdate["display"] === "function") {
+      tabWithUpdate["display"]();
     }
   }
 

@@ -3,15 +3,14 @@ import { App, Platform } from "obsidian";
 import {
   isValidCommitSha,
   isValidBranchName,
-  buildExecutionEnv,
-  isDesktopGitAvailable,
-  advanceDesktopGit,
+  getGitHandoffFilePath,
+  emitGitHandoffSignal,
+  readGitHandoffSignal,
   triggerDesktopGitAdvanceInBackground,
-  ExecFileFunction,
 } from "../src/sync/desktopGitManager";
 import { VaultRelaySettings, DEFAULT_SETTINGS } from "../src/settings";
 
-describe("Desktop Git Manager", () => {
+describe("Desktop Git Manager (Remote Commit Handoff Signal)", () => {
   let app: App;
 
   beforeEach(() => {
@@ -63,169 +62,163 @@ describe("Desktop Git Manager", () => {
       expect(isValidBranchName(null)).toBe(false);
     });
 
-    it("builds execution env with augmented Unix paths on non-Windows", () => {
-      const plat = Platform as unknown as { isWin: boolean };
-      plat.isWin = false;
-      const env = buildExecutionEnv();
-      expect(env).toBeDefined();
-      expect(env?.["PATH"]).toContain("/usr/bin");
-      expect(env?.["PATH"]).toContain("/opt/homebrew/bin");
-
-      plat.isWin = true;
-      const winEnv = buildExecutionEnv();
-      expect(winEnv).toBeDefined();
+    it("resolves git handoff file path in internal storage", () => {
+      const path = getGitHandoffFilePath(app);
+      expect(path).toContain("git-handoff.json");
+      expect(path).toContain("github-vault-relay");
     });
   });
 
-  describe("isDesktopGitAvailable", () => {
-    it("returns false if not running on Desktop", async () => {
-      Platform.isDesktopApp = false;
-      await app.vault.adapter.write(".git/HEAD", "ref: refs/heads/main\n");
-      const available = await isDesktopGitAvailable(app);
-      expect(available).toBe(false);
-    });
-
-    it("returns false if .git directory does not exist", async () => {
-      Platform.isDesktopApp = true;
-      const available = await isDesktopGitAvailable(app);
-      expect(available).toBe(false);
-    });
-
-    it("returns true on Desktop when .git directory exists", async () => {
-      Platform.isDesktopApp = true;
-      await app.vault.adapter.write(".git/HEAD", "ref: refs/heads/main\n");
-      const available = await isDesktopGitAvailable(app);
-      expect(available).toBe(true);
-    });
-  });
-
-  describe("advanceDesktopGit", () => {
+  describe("emitGitHandoffSignal", () => {
     const sampleSha = "60b77bd3e55883d29a5fc8a7b97e3f22579b6348";
 
-    it("skips execution on mobile", async () => {
+    it("skips emission when not running on Desktop", async () => {
       Platform.isDesktopApp = false;
-      await app.vault.adapter.write(".git/HEAD", "ref: refs/heads/main\n");
 
-      const result = await advanceDesktopGit(app, "main", sampleSha);
+      const result = await emitGitHandoffSignal(app, "main", sampleSha);
       expect(result.status).toBe("SKIPPED");
       expect(result.message).toContain("not running on Desktop");
+
+      const handoffPath = getGitHandoffFilePath(app);
+      expect(await app.vault.adapter.exists(handoffPath)).toBe(false);
     });
 
-    it("skips execution when .git is missing", async () => {
+    it("fails when commitSha is invalid", async () => {
       Platform.isDesktopApp = true;
 
-      const result = await advanceDesktopGit(app, "main", sampleSha);
-      expect(result.status).toBe("SKIPPED");
-      expect(result.message).toContain(".git directory not found");
-    });
-
-    it("fails cleanly when commitSha is invalid", async () => {
-      Platform.isDesktopApp = true;
-      await app.vault.adapter.write(".git/HEAD", "ref: refs/heads/main\n");
-
-      const result = await advanceDesktopGit(app, "main", "invalid-sha; echo bad");
+      const result = await emitGitHandoffSignal(app, "main", "invalid-sha; rm -rf /");
       expect(result.status).toBe("FAILED");
-      expect(result.error).toContain("Invalid commit SHA");
+      expect(result.error).toContain("Invalid commit SHA format");
+
+      const handoffPath = getGitHandoffFilePath(app);
+      expect(await app.vault.adapter.exists(handoffPath)).toBe(false);
     });
 
-    it("executes fetch, cat-file, and reset --mixed in sequence when successful", async () => {
+    it("emits a durable handoff signal on Desktop with valid commit SHA", async () => {
       Platform.isDesktopApp = true;
-      await app.vault.adapter.write(".git/HEAD", "ref: refs/heads/main\n");
 
-      const executedCommands: { file: string; args: string[]; cwd: string }[] = [];
-      const mockExecFile: ExecFileFunction = (file, args, options, callback) => {
-        executedCommands.push({ file, args, cwd: options.cwd });
-        callback(null, "", "");
-      };
-
-      const result = await advanceDesktopGit(app, "main", sampleSha, {
-        customExecFile: mockExecFile,
-      });
-
+      const result = await emitGitHandoffSignal(app, "main", sampleSha);
       expect(result.status).toBe("SUCCESS");
-      expect(result.commitSha).toBe(sampleSha);
-      expect(executedCommands).toHaveLength(3);
+      expect(result.signal).toBeDefined();
+      expect(result.signal?.$schemaVersion).toBe(1);
+      expect(result.signal?.action).toBe("adopt-remote-commit");
+      expect(result.signal?.status).toBe("pending");
+      expect(result.signal?.branch).toBe("main");
+      expect(result.signal?.remoteCommitSha).toBe(sampleSha);
+      expect(result.signal?.appliedAt).toBeNull();
+      expect(result.signal?.lastError).toBeNull();
 
-      // Command 1: fetch
-      expect(executedCommands[0].file).toBe("git");
-      expect(executedCommands[0].args).toEqual(["fetch", "origin", "main", "--quiet"]);
-      expect(executedCommands[0].cwd).toBe("/test/vault");
+      const handoffPath = getGitHandoffFilePath(app);
+      expect(await app.vault.adapter.exists(handoffPath)).toBe(true);
 
-      // Command 2: cat-file
-      expect(executedCommands[1].file).toBe("git");
-      expect(executedCommands[1].args).toEqual(["cat-file", "-e", sampleSha]);
-
-      // Command 3: reset --mixed
-      expect(executedCommands[2].file).toBe("git");
-      expect(executedCommands[2].args).toEqual(["reset", "--mixed", sampleSha]);
+      const content = await app.vault.adapter.read(handoffPath);
+      const parsed = JSON.parse(content);
+      expect(parsed.remoteCommitSha).toBe(sampleSha);
+      expect(parsed.status).toBe("pending");
     });
 
-    it("handles git fetch failure gracefully", async () => {
+    it("falls back to 'main' branch if branch name is invalid", async () => {
       Platform.isDesktopApp = true;
-      await app.vault.adapter.write(".git/HEAD", "ref: refs/heads/main\n");
 
-      const mockExecFile: ExecFileFunction = (file, args, _options, callback) => {
-        if (args[0] === "fetch") {
-          callback(new Error("fatal: unable to access repository (timed out)"), "", "");
-        } else {
-          callback(null, "", "");
-        }
-      };
-
-      const result = await advanceDesktopGit(app, "main", sampleSha, {
-        customExecFile: mockExecFile,
-      });
-
-      expect(result.status).toBe("FAILED");
-      expect(result.error).toContain("fatal: unable to access repository");
+      const result = await emitGitHandoffSignal(app, "bad;branch", sampleSha);
+      expect(result.status).toBe("SUCCESS");
+      expect(result.signal?.branch).toBe("main");
     });
 
-    it("handles commit object not found in cat-file gracefully", async () => {
+    it("handles adapter write exceptions gracefully", async () => {
       Platform.isDesktopApp = true;
-      await app.vault.adapter.write(".git/HEAD", "ref: refs/heads/main\n");
+      // Mock write failure
+      app.vault.adapter.write = () => Promise.reject(new Error("Disk write error"));
 
-      const mockExecFile: ExecFileFunction = (file, args, _options, callback) => {
-        if (args[0] === "cat-file") {
-          callback(new Error("fatal: Not a valid object name"), "", "");
-        } else {
-          callback(null, "", "");
-        }
-      };
-
-      const result = await advanceDesktopGit(app, "main", sampleSha, {
-        customExecFile: mockExecFile,
-      });
-
+      const result = await emitGitHandoffSignal(app, "main", sampleSha);
       expect(result.status).toBe("FAILED");
-      expect(result.error).toContain("Not a valid object name");
+      expect(result.error).toContain("Disk write error");
+    });
+  });
+
+  describe("readGitHandoffSignal", () => {
+    const sampleSha = "60b77bd3e55883d29a5fc8a7b97e3f22579b6348";
+
+    it("returns null when signal file does not exist", async () => {
+      const signal = await readGitHandoffSignal(app);
+      expect(signal).toBeNull();
+    });
+
+    it("returns null when signal file contains malformed JSON", async () => {
+      const handoffPath = getGitHandoffFilePath(app);
+      await app.vault.adapter.write(handoffPath, "not-json");
+
+      const signal = await readGitHandoffSignal(app);
+      expect(signal).toBeNull();
+    });
+
+    it("returns null when signal schema is unrecognized", async () => {
+      const handoffPath = getGitHandoffFilePath(app);
+      await app.vault.adapter.write(handoffPath, JSON.stringify({ $schemaVersion: 999 }));
+
+      const signal = await readGitHandoffSignal(app);
+      expect(signal).toBeNull();
+    });
+
+    it("returns parsed signal when file is valid", async () => {
+      await emitGitHandoffSignal(app, "main", sampleSha);
+      const signal = await readGitHandoffSignal(app);
+
+      expect(signal).not.toBeNull();
+      expect(signal?.remoteCommitSha).toBe(sampleSha);
+      expect(signal?.status).toBe("pending");
     });
   });
 
   describe("triggerDesktopGitAdvanceInBackground", () => {
     const sampleSha = "60b77bd3e55883d29a5fc8a7b97e3f22579b6348";
 
-    it("does nothing if autoAdvanceDesktopGit setting is disabled", () => {
+    it("does nothing if autoAdvanceDesktopGit setting is disabled", async () => {
       const settings: VaultRelaySettings = {
         ...DEFAULT_SETTINGS,
         autoAdvanceDesktopGit: false,
       };
 
-      // Should not throw or execute
-      expect(() => {
-        triggerDesktopGitAdvanceInBackground(app, settings, sampleSha);
-      }).not.toThrow();
+      triggerDesktopGitAdvanceInBackground(app, settings, sampleSha);
+
+      // Wait a tick for any async task
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const handoffPath = getGitHandoffFilePath(app);
+      expect(await app.vault.adapter.exists(handoffPath)).toBe(false);
     });
 
-    it("does nothing if commitSha is missing or invalid", () => {
+    it("does nothing if commitSha is missing or invalid", async () => {
       const settings: VaultRelaySettings = {
         ...DEFAULT_SETTINGS,
         autoAdvanceDesktopGit: true,
       };
 
-      expect(() => {
-        triggerDesktopGitAdvanceInBackground(app, settings, undefined);
-        triggerDesktopGitAdvanceInBackground(app, settings, "bad-sha");
-      }).not.toThrow();
+      triggerDesktopGitAdvanceInBackground(app, settings, undefined);
+      triggerDesktopGitAdvanceInBackground(app, settings, "bad-sha");
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const handoffPath = getGitHandoffFilePath(app);
+      expect(await app.vault.adapter.exists(handoffPath)).toBe(false);
+    });
+
+    it("emits handoff signal in background when enabled with valid sha", async () => {
+      const settings: VaultRelaySettings = {
+        ...DEFAULT_SETTINGS,
+        autoAdvanceDesktopGit: true,
+        branch: "main",
+      };
+
+      triggerDesktopGitAdvanceInBackground(app, settings, sampleSha);
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const handoffPath = getGitHandoffFilePath(app);
+      expect(await app.vault.adapter.exists(handoffPath)).toBe(true);
+
+      const signal = await readGitHandoffSignal(app);
+      expect(signal?.remoteCommitSha).toBe(sampleSha);
     });
   });
 });
