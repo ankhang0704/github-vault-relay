@@ -31,7 +31,7 @@ try {
   $Content = Get-Content -LiteralPath $HandoffFile -Raw -Encoding utf8
   $Handoff = $Content | ConvertFrom-Json
 } catch {
-  Write-Warning "[Git Handoff] Unable to parse $HandoffFile: $_"
+  Write-Warning "[Git Handoff] Unable to parse $($HandoffFile): $_"
   exit 1
 }
 
