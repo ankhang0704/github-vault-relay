@@ -30,6 +30,40 @@ The product is intentionally conservative:
 - Files larger than 25 MiB are skipped by policy.
 - **Optional Desktop Git Integration (Declarative Handoff)**: For vaults that also contain a `.git` repository on Desktop, an optional setting writes a declarative signal file (`.obsidian/github-vault-relay/git-handoff.json`) upon successful sync. Companion helper scripts (`scripts/git-handoff.ps1` for Windows, `scripts/git-handoff.sh` for macOS/Linux) consume this signal outside Obsidian to run `git fetch` and `git reset --mixed <remoteCommitSha>`, cleanly advancing local Git metadata without running any child processes inside Obsidian or re-downloading working tree files. This is strictly opt-in, non-blocking, and 100% hidden on mobile.
 
+## Recommended Architecture: Standalone Vault vs. Colocated Git Repository
+
+Vault Relay is designed to connect Obsidian directly to GitHub over HTTPS without requiring Git on the device. Understanding how your local filesystem interacts with GitHub avoids unnecessary operational complexity.
+
+```mermaid
+flowchart TD
+    subgraph ModelA["Model A: Standalone Vault (Recommended Best Practice)"]
+        PhoneA["Mobile (iPhone / Android)"] -->|HTTPS API| GHA["GitHub Repository"]
+        DesktopA["Desktop Obsidian (Pure Vault, no .git)"] -->|HTTPS API| GHA
+        GHA -.->|git pull on demand| ExternalRepo["Separate Git Clone Directory (e.g. ~/Developer/vault-backup)"]
+    end
+
+    subgraph ModelB["Model B: Colocated Vault (Vault directory contains .git)"]
+        DesktopB["Desktop Obsidian"] -->|HTTPS API Push| GHB["GitHub Repository"]
+        DesktopB -.->|git-handoff.json| Handoff["External Script: git fetch + reset --mixed"]
+        Handoff -.->|Updates metadata| LocalGit[".git Folder inside Vault"]
+    end
+```
+
+### Model A: Standalone Vault (Recommended for 99% of Users)
+- **Structure**: Your Obsidian vault folder is a pure directory containing notes and configuration—**it does not contain a `.git/` directory**.
+- **How it works**: Both your mobile device and your desktop computer use Vault Relay to communicate directly with GitHub over HTTPS.
+- **Benefits**:
+  - **Zero Git debt or desynchronization**: Because there is no native Git repository inside the vault, there is no possibility of spurious "unstaged changes", branch divergence, or missing commit objects.
+  - **Seamless cross-platform experience**: Operates identically and cleanly on Windows, macOS, Linux, iOS, and Android.
+  - **Zero shell or external dependencies**: Completely sandbox-safe; requires no Git binary installation, terminal commands, or background daemons on any device.
+- **Need a local Git repository for external automation, scripts, or backups?**
+  Simply `git clone` your GitHub repository into a **separate dedicated directory** on your computer (e.g., `~/Developer/my-vault-repo/` or `D:\GitHub\notes-repo\`). When you want to inspect history or run scripts, just run `git pull` in that directory. The two locations remain completely isolated and will never interfere with each other.
+
+### Model B: Colocated Vault & Native Git Repository (Advanced / Optional)
+- **Structure**: You opened Obsidian directly inside a folder that was cloned via native `git clone` (contains a `.git/` directory at the vault root).
+- **Why divergence occurs**: When Vault Relay pushes or pulls commits through GitHub's HTTPS API, files in your vault are updated, but your local `.git` metadata remains at the older commit until a local fetch occurs. Native `git status` may report unstaged changes.
+- **Solution**: Vault Relay provides an optional Desktop setting (`Desktop Git integration`) that writes a declarative signal file (`.obsidian/github-vault-relay/git-handoff.json`). Companion helper scripts (`scripts/git-handoff.ps1` for Windows, `scripts/git-handoff.sh` for macOS/Linux) can consume this signal to run `git fetch origin <branch> --quiet` and `git reset --mixed <remoteCommitSha>`, bringing local Git metadata in sync without re-downloading working files or compromising Obsidian's sandbox security.
+
 ## Installation
 
 For a beta or mobile install, use [BRAT](https://github.com/TfTHacker/obsidian-42-brat) with this repository URL:
