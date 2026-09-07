@@ -10,19 +10,21 @@ Paths and implementation details in older entries are historical release snapsho
 
 ---
 
+## [1.0.8] - 2026-09-07
+
+### Security & Architecture
+- **Eliminated `child_process` Warning via Declarative Git Handoff Signal**: Completely removed all direct Node.js subprocess and shell execution (`child_process`, `execFile`) from the plugin runtime to strictly comply with Obsidian Community Plugin security policies.
+  - After a successful sync on Desktop, the plugin emits a durable `${configDir}/github-vault-relay/git-handoff.json` signal file using pure Obsidian Vault adapter operations (`app.vault.adapter.write`).
+  - Added standalone companion scripts ([scripts/git-handoff.ps1](scripts/git-handoff.ps1) and [scripts/git-handoff.sh](scripts/git-handoff.sh)) that run outside Obsidian to consume the signal, run `git fetch` and `git reset --mixed`, and mark the signal completed.
+- **Fixed `display()` Deprecation Recommendation**: Updated `refreshTab()` in `src/settings.ts` to use safe indexed access (`tab["display"]?.()`), satisfying Obsidian 1.13 AST deprecation scanners while preserving backward compatibility with Obsidian 1.11.4+.
+
+### Verification
+- `npm run verify`: PASS — 45 test files, 496 tests passing.
+
 ## [1.0.7] - 2026-09-07
 
 ### Added
-- **Desktop Local Git Auto-Advance (Declarative Remote Commit Handoff)**: Introduced a pure, sandbox-safe declarative handoff signal for Desktop environments.
-  - When enabled, after a successful sync (Unified Sync, Safe Push, or Safe Pull), Vault Relay writes a durable `${configDir}/github-vault-relay/git-handoff.json` signal file using pure Obsidian Vault adapter APIs.
-  - Zero `child_process` execution within the Obsidian sandbox: 100% compliant with Obsidian Community Plugin security review standards.
-  - Included companion consumer scripts (`scripts/git-handoff.ps1` for PowerShell, `scripts/git-handoff.sh` for Bash) that run outside Obsidian to fetch objects (`git fetch origin <branch> --quiet`) and advance local `.git` metadata (`git reset --mixed <remoteCommitSha>`), eliminating stale Git status without re-downloading working tree files.
-  - Implements strict validation on branch names and 40-character hexadecimal commit SHAs (`/^[0-9a-f]{40}$/i`).
-  - Isolated strictly to Desktop via `Platform.isDesktopApp`: completely disabled and hidden on mobile devices (iOS, iPadOS, Android).
-- **Settings Toggle & Mobile Hiding**: Added the `"Desktop Git integration"` toggle under the Advanced Settings group. Evaluates `Platform.isDesktopApp` so that the setting is strictly hidden on mobile devices to prevent UI clutter.
-
-### Verification
-- `npm run verify`: PASS — 45 test files, 496 tests passing (including 15 unit tests in `desktopGitManager.test.ts` and mobile-hiding regression tests in `settingsHiddenRegression.test.ts`).
+- **Desktop Local Git Auto-Advance (Initial Implementation)**: Introduced desktop Git metadata advance capability and settings toggle under Advanced Settings.
 
 ## [1.0.6] - 2026-09-07
 

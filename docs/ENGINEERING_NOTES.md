@@ -203,3 +203,7 @@ Say exactly what the result reports: Pull may have succeeded and remains applied
 ### 48. How are diagnostic errors kept safe?
 
 Caught errors and error-like objects are converted with `sanitizeErrorMessage()` before console warnings, storage diagnostics, or user-facing notices. The sanitizer covers configured PATs, GitHub PAT patterns, bearer values, authorization headers, and token-like URL parameters. `tests/finalClosure.test.ts` also audits production diagnostic call sites for direct caught-error logging.
+
+### 49. How does the Desktop Git integration work without running shell processes?
+
+When enabled on Desktop, after a successful sync, `desktopGitManager.ts` writes a durable signal at `${configDir}/github-vault-relay/git-handoff.json` using pure `app.vault.adapter` operations. It never invokes `child_process`, `execFile`, or any shell commands inside the Obsidian application. External companion scripts (`scripts/git-handoff.ps1` or `scripts/git-handoff.sh`) or local automation tools consume this file outside Obsidian, running `git fetch origin <branch> --quiet` and `git reset --mixed <remoteCommitSha>` to reconcile local `.git` metadata with GitHub while preserving uncommitted working tree files.
