@@ -11,7 +11,6 @@ import {
   App,
   ButtonComponent,
   Notice,
-  Platform,
   PluginSettingTab,
   Setting,
   SettingDefinitionItem,
@@ -41,7 +40,6 @@ export interface VaultRelaySettings {
   branch: string;
   excludedPaths: string[];
   secretKey?: string;
-  autoAdvanceDesktopGit?: boolean;
   settingsVersion?: number;
 }
 
@@ -50,7 +48,6 @@ export const DEFAULT_SETTINGS: VaultRelaySettings = {
   repo: "",
   branch: "main",
   excludedPaths: [...DEFAULT_EXCLUSIONS],
-  autoAdvanceDesktopGit: false,
   settingsVersion: CURRENT_SETTINGS_VERSION,
 };
 
@@ -265,23 +262,6 @@ export class VaultRelaySettingTab extends PluginSettingTab {
               }
             },
             visible: () => this.showManualSetup,
-          },
-          {
-            name: "Desktop Git integration",
-            desc: "After a successful sync on desktop, writes a git-handoff.json signal in plugin storage so an external script or agent can advance local .git metadata without re-downloading files.",
-            visible: () => this.showManualSetup && Platform.isDesktopApp,
-            render: (setting: Setting) => {
-              setting.addToggle((toggle) => {
-                toggle
-                  .setValue(this.plugin.settings.autoAdvanceDesktopGit ?? false)
-                  .onChange((value) => {
-                    this.plugin.settings.autoAdvanceDesktopGit = value;
-                    void this.plugin.saveSettings().catch((err) => {
-                      console.warn("[GitHub Vault Relay] Failed to save settings:", sanitizeErrorMessage(err));
-                    });
-                  });
-              });
-            },
           },
         ],
       },

@@ -26,13 +26,6 @@ export default class VaultRelayPlugin extends Plugin {
   public async onload(): Promise<void> {
     await this.loadSettings();
 
-    // C4 Automatic Storage Migration: migrate legacy _vault-relay to hidden plugin storage
-    try {
-      await StorageManager.migrateLegacyStorage(this.app);
-    } catch (migErr) {
-      console.warn("[Vault Relay] Automatic storage migration warning:", sanitizeErrorMessage(migErr));
-    }
-
     // Recover or roll back any local Pull write interrupted before its baseline was durable.
     try {
       await StorageManager.recoverInterruptedPullWrites(this.app);

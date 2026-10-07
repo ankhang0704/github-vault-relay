@@ -5,10 +5,23 @@ All notable changes to GitHub Vault Relay will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current repository evidence is 45 test files and 496 passing tests; `npm run verify` passed locally on 2026-09-07. Test totals in older release entries are historical snapshots from those releases, not current totals.
+Current repository evidence is 42 test files and 442 passing tests; `npm run verify` passed locally on 2026-10-07. Test totals in older release entries are historical snapshots from those releases, not current totals.
 Paths and implementation details in older entries are historical release snapshots; the current internal path is `${app.vault.configDir}/github-vault-relay/`.
 
 ---
+
+## [1.0.9] - 2026-10-07
+
+### Performance & Engine
+- **Unified Sync Network Optimization**: Eliminated redundant GitHub network tree/ref fetch in `UnifiedSyncEngine` during push-only sync flows. When no files need to be pulled (`pullItems.length === 0`), the engine reuses the verified initial preview directly for the push planning phase, cutting 2 full GitHub API network roundtrips from the sync lifecycle.
+
+### Maintenance & Security Hardening
+- **Decommissioned Desktop Git Handoff Subsystem**: Completely removed the declarative Git handoff subsystem (`desktopGitManager.ts`, settings toggle, companion scripts, and associated tests). Vault Relay remains purely an HTTPS mobile-friendly bridge without external shell hooks or Git coordination clutter.
+- **Removed Pre-1.0 Legacy Storage Migration**: Decommissioned legacy checkpoint migration logic and fallback search paths (`_vault-relay/state.json`) in `StorageManager`, standardizing directly on modern canonical storage under `${configDir}/github-vault-relay/`.
+- **Streamlined Binary Asset Test Suite**: Consolidated binary synchronization tests into `tests/binarySync.test.ts`, maintaining strict end-to-end verification for media assets (PNG, PDF) while pruning obsolete internal inspection fixtures.
+
+### Verification
+- `npm run verify`: PASS — 42 test files, 442 tests passing, 0 lint warnings, clean typecheck, clean production build.
 
 ## [1.0.8] - 2026-09-07
 

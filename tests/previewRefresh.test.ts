@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { App, PluginManifest } from "obsidian";
 import VaultRelayPlugin from "../src/main";
 import { GitHubClient } from "../src/github/githubClient";
@@ -6,6 +6,7 @@ import { SyncEngine } from "../src/sync/syncEngine";
 import { PullEngine } from "../src/sync/pullEngine";
 import { setStoredPat } from "../src/security/secretStore";
 import { calculateCanonicalGitBlobSha } from "../src/sync/hashUtils";
+import { StorageManager } from "../src/sync/storageManager";
 
 describe("Sync Preview Refresh & UX Flow (tests/previewRefresh.test.ts)", () => {
   let app: App;
@@ -116,7 +117,7 @@ describe("Sync Preview Refresh & UX Flow (tests/previewRefresh.test.ts)", () => 
         "doc.md": { localSha: v1Sha, remoteSha: v1Sha, syncedAt: "2026-09-01T12:00:00.000Z" },
       },
     };
-    await app.vault.adapter.write("_vault-relay/state.json", JSON.stringify(initialBaseline));
+    await StorageManager.saveState(app, initialBaseline as unknown as import("../src/sync/syncTypes").SyncStateData);
 
     const fakeRequestFn = vi.fn(async (params: { url: string }) => {
       if (params.url.includes("/branches/main")) {
@@ -194,7 +195,7 @@ describe("Sync Preview Refresh & UX Flow (tests/previewRefresh.test.ts)", () => 
         "conflict.md": { localSha: baseSha, remoteSha: baseSha, syncedAt: "2026-09-01T12:00:00.000Z" },
       },
     };
-    await app.vault.adapter.write("_vault-relay/state.json", JSON.stringify(baseline));
+    await StorageManager.saveState(app, baseline as unknown as import("../src/sync/syncTypes").SyncStateData);
 
     const fakeRequestFn = vi.fn(async (params: { url: string }) => {
       if (params.url.includes("/branches/main")) {

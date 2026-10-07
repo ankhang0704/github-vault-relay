@@ -1,6 +1,6 @@
 # GitHub Vault Relay: System Architecture
 
-This document describes the architecture that exists in the current `1.0.8` source tree. File references are the evidence; diagrams are summaries, not a redesign proposal.
+This document describes the architecture that exists in the current `1.0.9` source tree. File references are the evidence; diagrams are summaries, not a redesign proposal.
 
 ## System context
 
@@ -34,7 +34,6 @@ flowchart TD
     Conf --> Store
     Settings[settings.ts] --> Secrets[secretStore.ts]
     Client --> Secrets
-    Unified -.->|Optional Desktop Handoff| DesktopGit[desktopGitManager]
 ```
 
 - `SyncEngine` scans local files, fetches the remote tree, and produces a preview report.
@@ -46,7 +45,6 @@ flowchart TD
 - `ConflictManager` implements reviewed content/delete conflict actions.
 - `StorageManager` owns internal state, payloads, recovery journals, migration, and atomic JSON replacement.
 - `GitHubClient` owns HTTP, endpoint construction, retries, redaction, and Git Data API primitives.
-- `desktopGitManager.ts` provides an optional, non-blocking Desktop background task that runs `git fetch` and `git reset --mixed <commitSha>` after successful syncs, reconciling local `.git` metadata with GitHub without modifying working tree files. Strictly isolated from Mobile.
 
 ## Unified Sync sequence
 

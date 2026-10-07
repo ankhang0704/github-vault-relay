@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { App, RequestUrlParam, RequestUrlResponse, TFile } from "obsidian";
-import * as fs from "fs";
-import * as path from "path";
 import { classifySyncState } from "../src/sync/syncClassifier";
 import { PushEngine } from "../src/sync/pushEngine";
 import { PullEngine } from "../src/sync/pullEngine";
@@ -9,7 +7,7 @@ import { GitHubClient } from "../src/github/githubClient";
 import { calculateCanonicalGitBlobSha, calculateRawGitBlobSha } from "../src/sync/hashUtils";
 import { DEFAULT_SETTINGS, VaultRelaySettings } from "../src/settings";
 
-describe("Removal of C4 Attachment Importer & Core Binary Sync Preservation (REMOVE-001..005)", () => {
+describe("Core Binary Sync & Media Asset Preservation (BINARY-001..003)", () => {
   const testSettings: VaultRelaySettings = {
     ...DEFAULT_SETTINGS,
     owner: "testowner",
@@ -22,38 +20,8 @@ describe("Removal of C4 Attachment Importer & Core Binary Sync Preservation (REM
     vi.restoreAllMocks();
   });
 
-  // REMOVE-001: No Import Attachment UI/action remains
-  it("REMOVE-001: No Import Attachment UI, command, or action remains in production source", () => {
-    const mainTs = fs.readFileSync(path.resolve(__dirname, "../src/main.ts"), "utf-8");
-    expect(mainTs).not.toContain("github-vault-relay-import-attachment");
-    expect(mainTs).not.toContain("Import attachment");
-    expect(mainTs).not.toContain("AttachmentImporter");
-
-    const dashboardTs = fs.readFileSync(path.resolve(__dirname, "../src/ui/syncDashboardModal.ts"), "utf-8");
-    expect(dashboardTs).not.toContain("Import Attachment");
-    expect(dashboardTs).not.toContain("AttachmentImporter");
-
-    // Scan all UI files
-    const uiDir = path.resolve(__dirname, "../src/ui");
-    const uiFiles = fs.readdirSync(uiDir).filter((f) => f.endsWith(".ts"));
-    for (const f of uiFiles) {
-      const content = fs.readFileSync(path.join(uiDir, f), "utf-8");
-      expect(content).not.toContain("AttachmentImporter");
-      expect(content).not.toContain("Import Attachment");
-    }
-  });
-
-  // REMOVE-002: No attachment-import production module remains
-  it("REMOVE-002: No attachment-import production module remains on disk", () => {
-    const importerPath = path.resolve(__dirname, "../src/sync/attachmentImporter.ts");
-    expect(fs.existsSync(importerPath)).toBe(false);
-
-    const oldTestPath = path.resolve(__dirname, "attachmentImport.test.ts");
-    expect(fs.existsSync(oldTestPath)).toBe(false);
-  });
-
-  // REMOVE-003: Existing binary file in vault still classifies correctly
-  it("REMOVE-003: Existing binary file in vault still classifies correctly", async () => {
+  // BINARY-001: Existing binary file in vault classifies correctly
+  it("BINARY-001: Existing binary file in vault classifies correctly", async () => {
     const binaryBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02]);
     const expectedSha = await calculateCanonicalGitBlobSha(binaryBytes.buffer as ArrayBuffer, "images/sample.png");
 
@@ -92,8 +60,8 @@ describe("Removal of C4 Attachment Importer & Core Binary Sync Preservation (REM
     expect(resultChanged.items[0].category).not.toBe("UNCHANGED");
   });
 
-  // REMOVE-004: Existing binary file still Safe/Unified Pushes correctly
-  it("REMOVE-004: Existing binary file still Safe/Unified Pushes correctly", async () => {
+  // BINARY-002: Existing binary file still Safe/Unified Pushes correctly
+  it("BINARY-002: Existing binary file still Safe/Unified Pushes correctly", async () => {
     const app = new App();
     const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x55, 0xaa]);
     const expectedRawSha = await calculateRawGitBlobSha(pngBytes);
@@ -207,8 +175,8 @@ describe("Removal of C4 Attachment Importer & Core Binary Sync Preservation (REM
     expect(Array.from(roundtripBinary)).toEqual(Array.from(pngBytes));
   });
 
-  // REMOVE-005: Remote binary file still Pulls correctly
-  it("REMOVE-005: Remote binary file still Pulls correctly without byte mutation", async () => {
+  // BINARY-003: Remote binary file still Pulls correctly
+  it("BINARY-003: Remote binary file still Pulls correctly without byte mutation", async () => {
     const app = new App();
     const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a, 0xff, 0xfe]);
     const pdfSha = await calculateRawGitBlobSha(pdfBytes);

@@ -7,6 +7,7 @@ import { PushEngine } from "../src/sync/pushEngine";
 import { SyncEngine } from "../src/sync/syncEngine";
 import { setStoredPat } from "../src/security/secretStore";
 import { calculateCanonicalGitBlobSha, calculateRawGitBlobSha } from "../src/sync/hashUtils";
+import { StorageManager } from "../src/sync/storageManager";
 
 describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
   let app: App;
@@ -189,7 +190,7 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
         "doc.md": { localSha: v1Sha, remoteSha: v1Sha, syncedAt: 1000 },
       },
     };
-    await app.vault.adapter.write("_vault-relay/state.json", JSON.stringify(initialBaseline));
+    await StorageManager.saveState(app, initialBaseline);
 
     let currentBranchSha = "commit_v1";
     const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
@@ -308,7 +309,7 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
         "conflict.md": { localSha: baseSha, remoteSha: baseSha, syncedAt: 1000 },
       },
     };
-    await app.vault.adapter.write("_vault-relay/state.json", JSON.stringify(baseline));
+    await StorageManager.saveState(app, baseline);
 
     let remoteWriteAttempted = false;
     const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
@@ -364,7 +365,7 @@ describe("Safe Push Engine (tests/pushEngine.test.ts)", () => {
         "unchanged.md": { localSha: normalSha, remoteSha: normalSha, syncedAt: 1000 },
       },
     };
-    await app.vault.adapter.write("_vault-relay/state.json", JSON.stringify(baseline));
+    await StorageManager.saveState(app, baseline);
 
     let remoteWriteAttempted = false;
     const fakeRequestFn = vi.fn(async (params: RequestUrlParam) => {
