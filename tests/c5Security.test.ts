@@ -255,4 +255,29 @@ describe("C5-SEC: Security Final Audit (C5-SEC-001..013)", () => {
     expect(bundle).toContain("/git/refs/heads/");
     expect(bundle).toContain("SecretStorage");
   });
+
+  it("C5-SEC-014: GitHubClient strictly rejects absolute URLs and non-relative endpoints to prevent SSRF and PAT exfiltration", async () => {
+    const client = new GitHubClient({
+      token: "github_pat_test_secret_token_1234567890",
+      owner: "owner",
+      repo: "repo",
+      branch: "main",
+      requestFn: async () => {
+        return { status: 200, headers: {}, arrayBuffer: new ArrayBuffer(0), json: {}, text: "" };
+      },
+    });
+
+    // Submitting an absolute URL must reject immediately without sending PAT
+    await expect(
+      (client as unknown as { request: (endpoint: string) => Promise<unknown> }).request("https://evil-server.com/api")
+    ).rejects.toThrow("only relative endpoints starting with '/' are permitted");
+
+    await expect(
+      (client as unknown as { request: (endpoint: string) => Promise<unknown> }).request("http://attacker.com")
+    ).rejects.toThrow("only relative endpoints starting with '/' are permitted");
+
+    await expect(
+      (client as unknown as { request: (endpoint: string) => Promise<unknown> }).request("repos/owner/repo")
+    ).rejects.toThrow("only relative endpoints starting with '/' are permitted");
+  });
 });

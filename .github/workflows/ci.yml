@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit production dependencies (0 vulnerabilities tolerated)
+        run: npm audit --omit=dev
+
       - name: Run ESLint (0 warnings tolerated)
         run: npm run lint
 

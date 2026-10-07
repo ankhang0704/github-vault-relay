@@ -268,6 +268,15 @@ export class GitHubClient {
       );
     }
 
+    if (!endpoint.startsWith("/")) {
+      throw new GitHubError(
+        `Invalid API endpoint '${endpoint}': only relative endpoints starting with '/' are permitted.`,
+        undefined,
+        undefined,
+        this.token
+      );
+    }
+
     if (!endpoint.startsWith("/user") && (!this.owner || !this.repo)) {
       throw new GitHubError(
         "Repository owner or name is not configured.",
@@ -277,7 +286,7 @@ export class GitHubClient {
       );
     }
 
-    const url = endpoint.startsWith("http") ? endpoint : `${this.baseUrl}${endpoint}`;
+    const url = `${this.baseUrl}${endpoint}`;
 
     const headers: Record<string, string> = {
       Accept: "application/vnd.github+json",

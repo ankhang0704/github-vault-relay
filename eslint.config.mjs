@@ -14,6 +14,7 @@ export default tseslint.config(
       ".obsidian/**",
       "_vault-relay/**",
       "_fit/**",
+      ".agents/**",
       "*.config.mjs",
       "*.config.ts",
     ],

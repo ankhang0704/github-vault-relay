@@ -5,10 +5,25 @@ All notable changes to GitHub Vault Relay will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current repository evidence is 42 test files and 442 passing tests; `npm run verify` passed locally on 2026-10-07. Test totals in older release entries are historical snapshots from those releases, not current totals.
+Current repository evidence is 42 test files and 443 passing tests; `npm run verify` passed locally on 2026-10-07. Test totals in older release entries are historical snapshots from those releases, not current totals.
 Paths and implementation details in older entries are historical release snapshots; the current internal path is `${app.vault.configDir}/github-vault-relay/`.
 
 ---
+
+## [1.1.0] - 2026-10-07
+
+### Security & Hardening
+- **SSRF Defense & Strict Endpoint Restriction**: Hardened `GitHubClient` to strictly disallow absolute URLs and non-relative endpoints. All network operations must use relative endpoints starting with `/`, preventing any possibility of malicious or unintended PAT transmission to third-party domains. Added automated test `C5-SEC-014`.
+- **Supply-Chain Security & CI Quality Gates**:
+  - Integrated `npm audit --omit=dev` into `.github/workflows/ci.yml` with 0 production vulnerabilities tolerated.
+  - Added automated CodeQL static analysis workflow (`.github/workflows/codeql.yml`) for JS/TS security scanning.
+  - Added Dependabot configuration (`.github/dependabot.yml`) for continuous dependency security updates.
+- **Synchronized Lockfile & Security Baseline**: Aligned `package-lock.json` and `SECURITY.md` supported release baseline with the active release.
+- **Enhanced Release Protocol Skill**: Extended the `/release` agent skill with deterministic pre-release checks (`verify-release.mjs`), lockfile synchronization, production dependency auditing, and attestation verification.
+
+### Verification
+- `npm run verify`: PASS — 42 test files, 443 tests passing, 0 lint warnings, clean typecheck, clean production build.
+- `verify-release.mjs`: PASS — All manifests, package, lockfile, and documentation files strictly synchronized.
 
 ## [1.0.9] - 2026-10-07
 
