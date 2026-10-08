@@ -96,7 +96,8 @@ export class ConflictResolutionModal extends Modal {
         text: "No active conflicts detected. All files are synchronized or safe.",
         cls: "vault-relay-empty-state-text",
       });
-      const closeBtn = contentEl.createEl("button", { text: "Close", cls: "mod-cta vault-relay-btn-lg" });
+      const actions = contentEl.createDiv({ cls: "vault-relay-action-row" });
+      const closeBtn = actions.createEl("button", { text: "Close", cls: "mod-cta vault-relay-btn-lg" });
       closeBtn.onclick = () => this.close();
       return;
     }

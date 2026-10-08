@@ -77,4 +77,24 @@ describe("C5-MOBILE: mobile-first static and accessibility audit", () => {
     expect(confirmation).toContain('setButtonText("Clear Token")');
     expect(confirmation).toContain("This action cannot be undone");
   });
+
+  it("C5-MOBILE-006: button layouts use flex containers and explicit gaps to prevent overlapping on PC and mobile", () => {
+    const css = read("styles.css");
+
+    // Base button structure
+    expect(css).toMatch(/\.vault-relay-modal button[\s\S]*display:\s*inline-flex/);
+    expect(css).toMatch(/\.vault-relay-modal button[\s\S]*box-sizing:\s*border-box/);
+    expect(css).toMatch(/\.vault-relay-modal button[\s\S]*margin:\s*0/);
+
+    // Flex container action rows with explicit gaps
+    expect(css).toMatch(/\.vault-relay-action-row\s*\{[\s\S]*display:\s*flex;[\s\S]*gap:\s*\d+px;/);
+    expect(css).toMatch(/\.vault-relay-actions-row\s*\{[\s\S]*display:\s*flex;[\s\S]*gap:\s*\d+px;/);
+    expect(css).toMatch(/\.vault-relay-filter-bar\s*\{[\s\S]*display:\s*flex;[\s\S]*gap:\s*\d+px;/);
+    expect(css).toMatch(/\.vault-relay-conflict-actions\s*\{[\s\S]*display:\s*flex;[\s\S]*gap:\s*\d+px;/);
+
+    // Mobile media query has explicit vertical gaps and responsive sizing
+    expect(css).toMatch(/@media\s*\(max-width:\s*480px\)[\s\S]*\.vault-relay-action-row\s*\{[\s\S]*flex-direction:\s*column-reverse;[\s\S]*gap:\s*\d+px;/);
+    expect(css).toMatch(/@media\s*\(max-width:\s*480px\)[\s\S]*\.vault-relay-actions-row\s*\{[\s\S]*flex-direction:\s*column;[\s\S]*gap:\s*\d+px;/);
+    expect(css).toMatch(/@media\s*\(max-width:\s*480px\)[\s\S]*\.vault-relay-filter-bar button\s*\{[\s\S]*calc\(50%/);
+  });
 });
