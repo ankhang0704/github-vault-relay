@@ -2,12 +2,12 @@
 
 > A conservative GitHub sync bridge for Obsidian mobile and desktop, without running Git on the phone.
 
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/ankhang0704/github-vault-relay/releases)
+[![Version](https://img.shields.io/badge/version-1.2.1-blue.svg)](https://github.com/ankhang0704/github-vault-relay/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Current canonical baseline
 
-- Release: `1.2.0` (manifest, package, tag, and `main` agree after release).
+- Release: `1.2.1` (manifest, package, tag, and `main` agree after release).
 - Minimum Obsidian version: `1.11.4`.
 - Mobile support: enabled (`isDesktopOnly: false`).
 - Automated evidence: 44 Vitest test files and 483 passing tests in the current tree.

@@ -10,6 +10,16 @@ Paths and implementation details in older entries are historical release snapsho
 
 ---
 
+## [1.2.1] - 2026-10-08
+
+### Bug Fixes & UI Layout Hardening
+- **Button Overlap & Collision Fix**: Fixed a CSS issue where modal action buttons and dashboard filter chips overlapped horizontally and vertically on both desktop and mobile viewports.
+- **Robust Flexbox Container Architecture**: Upgraded `.vault-relay-action-row`, `.vault-relay-actions-row`, `.vault-relay-filter-bar`, and `.vault-relay-conflict-actions` to explicit Flexbox containers with defined `gap` spacing (8px–12px) and margins, preventing line box collapse when wrapping.
+- **Standardized Button Box Model**: Configured base button styling with `display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; margin: 0; white-space: nowrap;` for clean vertical centering and typography.
+- **Mobile Touch Layout Refinements**: On narrow screens (`@media (max-width: 480px)`), action buttons stack vertically with guaranteed 10px spacing, filter tabs adapt into an ergonomic 2-column chip grid (`flex: 1 1 calc(50% - 6px)`), and conflict warning banners cleanly stack full-width review buttons.
+- **Preview Modal Header Alignment**: Fixed desktop `SyncPreviewModal` header action row width to prevent unwanted line-breaks on wide screens.
+- **Regression Guard**: Added automated static test `C5-MOBILE-006` in `tests/c5MobileAccessibility.test.ts` to strictly enforce button flex containers, gaps, and responsive rules.
+
 ## [1.2.0] - 2026-10-08
 
 ### UI Modernization & Architecture Consolidation
