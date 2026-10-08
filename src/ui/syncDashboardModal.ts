@@ -95,7 +95,8 @@ export class SyncDashboardModal extends Modal {
       cls: "vault-relay-notice-box",
     });
 
-    const btn = contentEl.createEl("button", { text: "Close", cls: "mod-cta vault-relay-btn-lg" });
+    const actions = contentEl.createDiv({ cls: "vault-relay-action-row" });
+    const btn = actions.createEl("button", { text: "Close", cls: "mod-cta vault-relay-btn-lg" });
     btn.onclick = () => this.close();
   }
 

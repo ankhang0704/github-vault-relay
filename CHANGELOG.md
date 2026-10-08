@@ -5,7 +5,7 @@ All notable changes to GitHub Vault Relay will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current repository evidence is 44 test files and 482 passing tests; `npm run verify` passed locally on 2026-10-08. Test totals in older release entries are historical snapshots from those releases, not current totals.
+Current repository evidence is 44 test files and 483 passing tests; `npm run verify` passed locally on 2026-10-08. Test totals in older release entries are historical snapshots from those releases, not current totals.
 Paths and implementation details in older entries are historical release snapshots; the current internal path is `${app.vault.configDir}/github-vault-relay/`.
 
 ---
@@ -15,12 +15,12 @@ Paths and implementation details in older entries are historical release snapsho
 ### UI Modernization & Architecture Consolidation
 - **Unified Modal Architectures**: Consolidated duplicate Pull/Push modal pairs into parameter-driven `SyncConfirmModal` and `SyncResultModal`. Pruned 4 redundant legacy modal files (`pullConfirmModal.ts`, `pushConfirmModal.ts`, `pullResultModal.ts`, `pushResultModal.ts`), eliminating over 930 lines of boilerplate while maintaining 100% feature and telemetry parity.
 - **Embedded Dashboard File Inspection**: Integrated interactive, expandable change inspection directly within `SyncDashboardModal`. Vault changes can now be filtered by category (*All, Local Only, Remote Only, Local Changed, Remote Changed, Conflicts, Deletes*) and inspected without opening separate stacking modal dialogs on mobile devices.
-- **Mobile-First Stylesheet & Responsive Touch UX**: Eliminated all inline style string attributes across UI components in favor of clean semantic classes in `styles.css`. Modernized action buttons for small viewports (`@media (max-width: 480px)`) into full-width stacked layouts, preventing button line-breaks while guaranteeing minimum 44px tap targets and `safe-area-inset-bottom` padding.
+- **Mobile-First Stylesheet & Responsive Touch UX**: Eliminated all inline style string attributes across UI components in favor of clean semantic classes in `styles.css`. Modernized action buttons with flex layouts, explicit gaps, and inline-flex vertical centering, preventing button overlap across both PC and mobile viewports. On small viewports (`@media (max-width: 480px)`), buttons adapt into full-width stacked layouts and two-column filter chips while guaranteeing minimum 44px tap targets and `safe-area-inset-bottom` padding.
 - **SettingsTab Declarative Consolidation**: Replaced duplicate imperative DOM creation in `VaultRelaySettingTab.display()` with an iterator over `getSettingDefinitions()`, cutting ~250 lines of duplicate settings logic and strongly typing setting definitions with 0 ESLint warnings.
 
 ### Verification & Test Suite Hardening
 - **Empirical Challenger & Stress Suites**: Added comprehensive adversarial stress suites (`tests/empiricalChallengerM1.test.ts` and `tests/m1ChallengerStress.test.ts`) covering 39 edge-case, reentrancy, and execution lifecycle scenarios.
-- `npm run verify`: PASS — 44 test files, 482 tests passing, 0 lint warnings, clean typecheck, clean production build.
+- `npm run verify`: PASS — 44 test files, 483 tests passing, 0 lint warnings, clean typecheck, clean production build.
 - `verify-release.mjs`: PASS — All manifests, package, lockfile, and documentation files strictly synchronized.
 
 ## [1.1.0] - 2026-10-07
