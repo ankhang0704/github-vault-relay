@@ -1,6 +1,6 @@
 # GitHub Vault Relay: System Architecture
 
-This document describes the architecture that exists in the current `1.0.9` source tree. File references are the evidence; diagrams are summaries, not a redesign proposal.
+This document describes the architecture that exists in the current `1.2.0` source tree. File references are the evidence; diagrams are summaries, not a redesign proposal.
 
 ## System context
 

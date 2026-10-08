@@ -51,6 +51,24 @@ export const DEFAULT_SETTINGS: VaultRelaySettings = {
   settingsVersion: CURRENT_SETTINGS_VERSION,
 };
 
+interface SettingItemDef {
+  name: string;
+  desc?: string;
+  visible?: () => boolean;
+  render?: (setting: Setting, group: unknown) => void;
+  control?: {
+    type: string;
+    key: string;
+    placeholder?: string;
+  };
+}
+
+interface SettingGroupDef {
+  type: "group";
+  heading: string;
+  items: SettingItemDef[];
+}
+
 export class VaultRelaySettingTab extends PluginSettingTab {
   private plugin: VaultRelayPlugin;
   private tokenInputVal = "";
@@ -75,6 +93,10 @@ export class VaultRelaySettingTab extends PluginSettingTab {
    * Performs ZERO I/O in definitions and enables global settings search indexing.
    */
   public override getSettingDefinitions(): SettingDefinitionItem[] {
+    return this.getSettingGroups() as unknown as SettingDefinitionItem[];
+  }
+
+  private getSettingGroups(): SettingGroupDef[] {
     const keyName = getSecretKeyForRepo(
       this.plugin.settings.owner,
       this.plugin.settings.repo
@@ -261,7 +283,6 @@ export class VaultRelaySettingTab extends PluginSettingTab {
                 });
               }
             },
-            visible: () => this.showManualSetup,
           },
         ],
       },
@@ -343,15 +364,11 @@ export class VaultRelaySettingTab extends PluginSettingTab {
     // Security & Scope Notice Box
     const noticeBox = containerEl.createDiv({
       cls: "vault-relay-notice-box",
-      attr: {
-        style:
-          "background-color: var(--background-secondary); border-left: 4px solid var(--interactive-accent); padding: 12px 16px; margin-bottom: 20px; border-radius: 4px;",
-      },
     });
 
     noticeBox.createEl("strong", { text: "🔒 Token Security & Storage Guarantee:" });
     const noticeList = noticeBox.createEl("ul", {
-      attr: { style: "margin: 6px 0 0 18px; font-size: 0.9em; line-height: 1.5;" },
+      cls: "vault-relay-notice-list",
     });
     noticeList.createEl("li", {
       text: `Tokens are stored exclusively in Obsidian SecretStorage (${backendLabel}) and NEVER written to plugin data.json or localStorage.`,
@@ -369,239 +386,29 @@ export class VaultRelaySettingTab extends PluginSettingTab {
     } else if (this.plugin.settings.secretKey) {
       this.tokenExists = true;
     }
-    const tokenExists = this.tokenExists;
-    const keyName = getSecretKeyForRepo(
-      this.plugin.settings.owner,
-      this.plugin.settings.repo
-    );
-
-    // Section 1: GitHub Connection Wizard (Primary Connection Flow: ONE primary CTA only)
-    new Setting(containerEl).setName("Connection Wizard").setHeading();
-
-    const tokenSetting = new Setting(containerEl)
-      .setName("GitHub Fine-Grained PAT")
-      .setDesc(
-        tokenExists
-          ? `Status: Stored securely (${keyName}). Enter a new token below to replace.`
-          : "Personal Access Token with Read/Write access to Contents on your vault repository."
-      );
-
-    tokenSetting.addText((text) => {
-      text.setPlaceholder(tokenExists ? "••••••••••••••••••••" : "github_pat_...");
-      text.onChange((value) => {
-        this.tokenInputVal = value.trim();
-      });
-      text.inputEl.type = "password";
-      text.inputEl.addClass("vault-relay-token-input");
-    });
-
-    tokenSetting.addButton((button) => {
-      button
-        .setButtonText("Save & Connect")
-        .setCta()
-        .onClick(() => {
-          void this.handleSaveAndConnect(button);
-        });
-      button.buttonEl.addClass("vault-relay-btn-lg");
-    });
-
-    // Repository Dropdown (if repos discovered or discovered previously)
-    if (this.discoveredRepos.length > 0) {
-      const repoSetting = new Setting(containerEl)
-        .setName("Select Repository")
-        .setDesc("Choose which repository to sync with this vault.");
-
-      repoSetting.addDropdown((dropdown) => {
-        const currentFullName =
-          this.plugin.settings.owner && this.plugin.settings.repo
-            ? `${this.plugin.settings.owner}/${this.plugin.settings.repo}`
-            : "";
-
-        for (const r of this.discoveredRepos) {
-          dropdown.addOption(r.fullName, `${r.fullName} ${r.isPrivate ? "🔒" : "🌐"}`);
-        }
-
-        if (currentFullName) {
-          dropdown.setValue(currentFullName);
-        }
-
-        dropdown.onChange((val) => {
-          void (async () => {
-            const selected = this.discoveredRepos.find((r) => r.fullName === val);
-            if (selected) {
-              this.plugin.settings.owner = selected.owner;
-              this.plugin.settings.repo = selected.name;
-              this.plugin.settings.branch = selected.defaultBranch || "main";
-              await this.plugin.saveSettings();
-              await this.discoverBranches(selected.owner, selected.name);
-              this.refreshTab();
-            }
-          })();
-        });
-      });
-    }
-
-    // Branch Dropdown (if branches discovered)
-    if (this.discoveredBranches.length > 0) {
-      const branchSetting = new Setting(containerEl)
-        .setName("Select Branch")
-        .setDesc("Target Git branch for synchronization.");
-
-      branchSetting.addDropdown((dropdown) => {
-        for (const b of this.discoveredBranches) {
-          dropdown.addOption(b.name, b.name);
-        }
-        dropdown.setValue(this.plugin.settings.branch || "main");
-        dropdown.onChange((val) => {
-          void (async () => {
-            this.plugin.settings.branch = val;
-            await this.plugin.saveSettings();
-          })();
-        });
-      });
-    }
-
-    // Section 2: Advanced / Security
-    new Setting(containerEl).setName("Advanced / Security").setHeading();
-
-    // Stored Credential Setting (Clear Token moved out of primary flow into Advanced / Security)
-    const credSetting = new Setting(containerEl)
-      .setName("Stored Credential")
-      .setDesc(
-        tokenExists
-          ? `Active in Obsidian SecretStorage (${keyName}).`
-          : "No token currently stored in SecretStorage."
-      );
-
-    if (tokenExists) {
-      credSetting.addButton((button) => {
-        button.setButtonText("Clear Token");
-        const btn = button as unknown as Record<string, (() => ButtonComponent) | undefined>;
-        if (typeof btn["setDestructive"] === "function") {
-          btn["setDestructive"]();
-        } else {
-          button.buttonEl.addClass("mod-warning");
-        }
-        button.onClick(() => {
-          this.handleClearToken();
-        });
-        button.buttonEl.addClass("vault-relay-btn-lg");
-      });
-    }
-
-    // Manual Repository Configuration (Collapsible)
-    const advToggleSetting = new Setting(containerEl)
-      .setName("Manual Configuration")
-      .setDesc("Manually configure repository details, custom branches, and exclusion rules.");
-
-    advToggleSetting.addButton((btn) => {
-      btn.setButtonText(this.showManualSetup ? "Hide Manual Setup" : "Show Manual Setup");
-      btn.buttonEl.addClass("vault-relay-btn-lg");
-      btn.onClick(() => {
-        this.showManualSetup = !this.showManualSetup;
-        this.refreshTab();
-      });
-    });
-
-    if (this.showManualSetup) {
-      // Repository Owner Setting
-      new Setting(containerEl)
-        .setName("Repository Owner")
-        .setDesc("GitHub username or organization that owns the repository (e.g. 'octocat').")
-        .addText((text) =>
-          text
-            .setPlaceholder("octocat")
-            .setValue(this.plugin.settings.owner)
-            .onChange((value) => {
-              void (async () => {
-                const norm = normalizeRepoConfig(value, this.plugin.settings.repo);
-                this.plugin.settings.owner = norm.owner;
-                this.plugin.settings.repo = norm.repo;
-                await this.plugin.saveSettings();
-              })();
-            })
-        );
-
-      // Repository Name Setting
-      new Setting(containerEl)
-        .setName("Repository Name")
-        .setDesc("Name of the GitHub repository (e.g. 'my-notes').")
-        .addText((text) =>
-          text
-            .setPlaceholder("my-notes")
-            .setValue(this.plugin.settings.repo)
-            .onChange((value) => {
-              void (async () => {
-                const norm = normalizeRepoConfig(this.plugin.settings.owner, value);
-                this.plugin.settings.owner = norm.owner;
-                this.plugin.settings.repo = norm.repo;
-                await this.plugin.saveSettings();
-              })();
-            })
-        );
-
-      // Branch Setting
-      new Setting(containerEl)
-        .setName("Branch")
-        .setDesc("Target Git branch (default: 'main').")
-        .addText((text) =>
-          text
-            .setPlaceholder("main")
-            .setValue(this.plugin.settings.branch || "main")
-            .onChange((value) => {
-              void (async () => {
-                this.plugin.settings.branch = value.trim() || "main";
-                await this.plugin.saveSettings();
-              })();
-            })
-        );
-
-      // Excluded Paths Setting
-      new Setting(containerEl)
-        .setName("Excluded Paths")
-        .setDesc(
-          "Directories or file paths excluded from scanning and syncing (one per line). Trailing slash indicates directory prefix."
-        )
-        .addTextArea((textArea) => {
-          textArea
-            .setPlaceholder(`${this.app.vault.configDir}/\n.git/\n_fit/`)
-            .setValue(this.plugin.settings.excludedPaths.join("\n"))
-            .onChange((value) => {
-              void (async () => {
-                this.plugin.settings.excludedPaths = parseExclusionRules(value, this.app.vault.configDir);
-                await this.plugin.saveSettings();
-              })();
+    const defs = this.getSettingGroups();
+    for (const group of defs) {
+      if (group.type === "group" && group.heading) {
+        new Setting(containerEl).setName(group.heading).setHeading();
+      }
+      for (const item of group.items) {
+        if (typeof item.visible === "function" && !item.visible()) continue;
+        const s = new Setting(containerEl).setName(item.name).setDesc(item.desc || "");
+        if (typeof item.render === "function") {
+          item.render(s, group);
+        } else if (item.control && item.control.type === "text") {
+          const controlKey = item.control.key;
+          const placeholder = item.control.placeholder || "";
+          s.addText((text) => {
+            text.setPlaceholder(placeholder);
+            text.setValue(String(this.getControlValue(controlKey) || ""));
+            text.onChange((val) => {
+              void this.setControlValue(controlKey, val);
             });
-          textArea.inputEl.rows = 4;
-          textArea.inputEl.addClass("vault-relay-textarea");
-        });
+          });
+        }
+      }
     }
-
-    // Section 3: Connection Diagnostics & Sync Actions
-    new Setting(containerEl).setName("Diagnostics & Sync").setHeading();
-
-    const actionsSetting = new Setting(containerEl)
-      .setName("Sync Operations")
-      .setDesc("Open the primary sync dashboard or run individual safe pull/push operations.");
-
-    actionsSetting.addButton((button) => {
-      button
-        .setButtonText("Open Sync Dashboard")
-        .setCta()
-        .onClick(() => {
-          new SyncDashboardModal(this.app, this.plugin).open();
-        });
-      button.buttonEl.addClass("vault-relay-btn-lg");
-    });
-
-    actionsSetting.addButton((button) => {
-      button
-        .setButtonText("Test Connection")
-        .onClick(() => {
-          void this.handleTestConnection(button);
-        });
-      button.buttonEl.addClass("vault-relay-btn-lg");
-    });
 
     // Refresh token status asynchronously if not already up to date
     void this.refreshTokenStatus();

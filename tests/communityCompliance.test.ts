@@ -49,10 +49,8 @@ describe("Obsidian Community Directory Compliance Suite (COMMUNITY-001..010)", (
       "src/settings.ts",
       "src/ui/clearTokenConfirmModal.ts",
       "src/ui/conflictResolutionModal.ts",
-      "src/ui/pullConfirmModal.ts",
-      "src/ui/pullResultModal.ts",
-      "src/ui/pushConfirmModal.ts",
-      "src/ui/pushResultModal.ts",
+      "src/ui/syncConfirmModal.ts",
+      "src/ui/syncResultModal.ts",
       "src/ui/syncDashboardModal.ts",
       "src/ui/syncPreviewModal.ts",
     ];
@@ -151,8 +149,7 @@ describe("Obsidian Community Directory Compliance Suite (COMMUNITY-001..010)", (
 
   it("COMMUNITY-016: async UI modal callbacks explicitly handle rejection", () => {
     const modalFiles = [
-      "src/ui/pullConfirmModal.ts",
-      "src/ui/pushConfirmModal.ts",
+      "src/ui/syncConfirmModal.ts",
       "src/ui/syncPreviewModal.ts",
       "src/ui/syncDashboardModal.ts",
     ];
@@ -212,8 +209,8 @@ describe("Obsidian Community Directory Compliance Suite (COMMUNITY-001..010)", (
       "src/settings.ts",
       "src/ui/clearTokenConfirmModal.ts",
       "src/ui/conflictResolutionModal.ts",
-      "src/ui/pullConfirmModal.ts",
-      "src/ui/pushConfirmModal.ts",
+      "src/ui/syncConfirmModal.ts",
+      "src/ui/syncResultModal.ts",
       "src/ui/syncDashboardModal.ts",
       "src/ui/syncPreviewModal.ts",
     ];

@@ -12,8 +12,7 @@ import {
 } from "./settings";
 import { SyncDashboardModal } from "./ui/syncDashboardModal";
 import { SyncPreviewModal } from "./ui/syncPreviewModal";
-import { PullConfirmModal } from "./ui/pullConfirmModal";
-import { PushConfirmModal } from "./ui/pushConfirmModal";
+import { SyncConfirmModal } from "./ui/syncConfirmModal";
 import { GitHubClient } from "./github/githubClient";
 import { sanitizeErrorMessage } from "./security/redact";
 import { CANONICAL_SECRET_KEY, getStoredPat } from "./security/secretStore";
@@ -79,7 +78,7 @@ export default class VaultRelayPlugin extends Plugin {
       id: "pull-safe-changes",
       name: "Pull safe remote changes (GitHub -> Local)",
       callback: () => {
-        new PullConfirmModal(this.app, this).open();
+        new SyncConfirmModal(this.app, this, "pull").open();
       },
     });
 
@@ -88,7 +87,7 @@ export default class VaultRelayPlugin extends Plugin {
       id: "push-safe-changes",
       name: "Push safe local changes (Local -> GitHub)",
       callback: () => {
-        new PushConfirmModal(this.app, this).open();
+        new SyncConfirmModal(this.app, this, "push").open();
       },
     });
 

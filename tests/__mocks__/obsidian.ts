@@ -417,11 +417,15 @@ export class MockElement {
   }
 
   addClass(cls: string): void {
-    this.classes.add(cls);
+    for (const c of cls.split(/\s+/)) {
+      if (c) this.classes.add(c);
+    }
   }
 
   removeClass(cls: string): void {
-    this.classes.delete(cls);
+    for (const c of cls.split(/\s+/)) {
+      if (c) this.classes.delete(c);
+    }
   }
 
   hasClass(cls: string): boolean {

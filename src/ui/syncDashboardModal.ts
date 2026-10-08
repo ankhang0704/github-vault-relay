@@ -20,8 +20,7 @@ import { sanitizeErrorMessage } from "../security/redact";
 import { getPhaseLabel, SyncProgressEvent } from "../sync/progressTypes";
 import { computeSemanticPreview } from "../sync/semanticSummary";
 import { ConflictResolutionModal } from "./conflictResolutionModal";
-import { PullConfirmModal } from "./pullConfirmModal";
-import { PushConfirmModal } from "./pushConfirmModal";
+import { SyncConfirmModal } from "./syncConfirmModal";
 import { SyncPreviewModal } from "./syncPreviewModal";
 
 export class SyncDashboardModal extends Modal {
@@ -33,6 +32,7 @@ export class SyncDashboardModal extends Modal {
   private progressEvent: SyncProgressEvent | null = null;
   private showAdvanced = false;
   private activeFilter: SyncCategory | "ALL" = "ALL";
+  private showFileInspection = false;
   public isModalOpen = false;
 
   constructor(app: App, plugin: VaultRelayPlugin) {
@@ -92,10 +92,10 @@ export class SyncDashboardModal extends Modal {
     contentEl.createEl("h2", { text: "GitHub Vault Relay" });
     contentEl.createDiv({
       text: "Connection setup required. Please configure your GitHub Personal Access Token, Repository, and Branch in settings.",
-      attr: { style: "padding: 16px; background-color: var(--background-secondary); border-radius: 6px; margin: 16px 0;" },
+      cls: "vault-relay-notice-box",
     });
 
-    const btn = contentEl.createEl("button", { text: "Close", cls: "mod-cta" });
+    const btn = contentEl.createEl("button", { text: "Close", cls: "mod-cta vault-relay-btn-lg" });
     btn.onclick = () => this.close();
   }
 
@@ -106,16 +106,16 @@ export class SyncDashboardModal extends Modal {
 
     // 1. Header with Repository info
     const header = contentEl.createDiv({
-      attr: { style: "display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px;" },
+      cls: "vault-relay-dashboard-header",
     });
     const titleCol = header.createDiv();
-    titleCol.createEl("h2", { text: "GitHub Vault Relay", attr: { style: "margin: 0 0 4px 0;" } });
+    titleCol.createEl("h2", { text: "GitHub Vault Relay", cls: "vault-relay-dashboard-title" });
     titleCol.createDiv({
       text: `${this.plugin.settings.owner}/${this.plugin.settings.repo} (${this.plugin.settings.branch || "main"})`,
-      attr: { style: "font-size: 0.85em; color: var(--text-muted); font-family: var(--font-monospace);" },
+      cls: "vault-relay-repo-info",
     });
 
-    const refreshBtn = header.createEl("button", { text: "↻ Refresh" });
+    const refreshBtn = header.createEl("button", { text: "↻ Refresh", cls: "vault-relay-btn-lg" });
     refreshBtn.disabled = this.isLoading || this.isSyncing;
     refreshBtn.onclick = () => {
       void this.runScanAndRender().catch((err) => {
@@ -125,7 +125,7 @@ export class SyncDashboardModal extends Modal {
 
     if (this.isLoading) {
       const loadingBox = contentEl.createDiv({
-        attr: { style: "padding: 40px; text-align: center; color: var(--text-muted);" },
+        cls: "vault-relay-loading-box",
       });
       loadingBox.setText("Scanning repository and local notes...");
       return;
@@ -153,27 +153,19 @@ export class SyncDashboardModal extends Modal {
     if (!hasActionableChanges) {
       const zeroStateCard = contentEl.createDiv({
         cls: "vault-relay-zero-state",
-        attr: {
-          style:
-            "padding: 28px 16px; text-align: center; background-color: var(--background-secondary); border-radius: 8px; border: 1px solid var(--background-modifier-border); margin-bottom: 14px;",
-        },
       });
       zeroStateCard.createDiv({
         text: "✓ Everything is in sync",
-        attr: { style: "font-size: 1.15em; font-weight: 600; color: var(--color-green, #2ecc71); margin-bottom: 6px;" },
+        cls: "vault-relay-zero-state-title",
       });
       zeroStateCard.createDiv({
         text: `${unchangedCount} files synchronized`,
-        attr: { style: "font-size: 0.9em; color: var(--text-muted);" },
+        cls: "vault-relay-zero-state-desc",
       });
     } else {
       // 4. Compact Summary Cards (Max 3 cards: Changes, Moves, Conflicts)
       const summaryGrid = contentEl.createDiv({
         cls: "vault-relay-summary-cards",
-        attr: {
-          style:
-            "display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px;",
-        },
       });
 
       // Card 1: Changes (combines Create + Update)
@@ -192,7 +184,7 @@ export class SyncDashboardModal extends Modal {
           "Changes",
           totalChanges,
           secondaryText,
-          "var(--interactive-accent)"
+          "changes"
         );
       }
 
@@ -203,7 +195,7 @@ export class SyncDashboardModal extends Modal {
           "Moves",
           totalMoves,
           "",
-          "var(--color-purple, #9b59b6)"
+          "moves"
         );
       }
 
@@ -223,7 +215,7 @@ export class SyncDashboardModal extends Modal {
           "Conflicts",
           totalConflicts,
           secondaryText,
-          "var(--color-red, #e74c3c)",
+          "conflicts",
           true
         );
       }
@@ -233,14 +225,10 @@ export class SyncDashboardModal extends Modal {
     if (hasDeletions) {
       const delBanner = contentEl.createDiv({
         cls: "vault-relay-destructive-banner",
-        attr: {
-          style:
-            "margin-bottom: 14px; padding: 10px 14px; border-radius: 6px; background-color: rgba(231, 76, 60, 0.08); border: 1px solid var(--color-red, #e74c3c); font-size: 0.88em; line-height: 1.4;",
-        },
       });
       delBanner.createDiv({
         text: "⚠ Destructive changes",
-        attr: { style: "font-weight: 600; color: var(--color-red, #e74c3c); margin-bottom: 3px;" },
+        cls: "vault-relay-destructive-title",
       });
 
       const delParts: string[] = [];
@@ -253,7 +241,7 @@ export class SyncDashboardModal extends Modal {
 
       delBanner.createDiv({
         text: delParts.join(" · "),
-        attr: { style: "color: var(--text-normal);" },
+        cls: "vault-relay-destructive-desc",
       });
     }
 
@@ -261,10 +249,6 @@ export class SyncDashboardModal extends Modal {
     if (sem.totalConflicts > 0) {
       const banner = contentEl.createDiv({
         cls: "vault-relay-conflict-banner",
-        attr: {
-          style:
-            "display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; background-color: rgba(231, 76, 60, 0.12); border: 1px solid var(--color-red, #e74c3c); border-radius: 6px; padding: 10px 14px; margin-bottom: 14px;",
-        },
       });
       const conflictText =
         sem.deleteConflicts > 0 && sem.contentConflicts > 0
@@ -275,12 +259,11 @@ export class SyncDashboardModal extends Modal {
 
       banner.createDiv({
         text: conflictText,
-        attr: { style: "font-weight: 600; font-size: 0.9em; color: var(--color-red, #e74c3c);" },
+        cls: "vault-relay-conflict-title",
       });
       const reviewBtn = banner.createEl("button", {
         text: "Review Conflicts",
-        cls: "mod-warning",
-        attr: { style: "min-height: 44px; min-width: 44px;" },
+        cls: "mod-warning vault-relay-btn-lg",
       });
       reviewBtn.onclick = () => {
         new ConflictResolutionModal(
@@ -299,35 +282,30 @@ export class SyncDashboardModal extends Modal {
     // 7. Primary Sync Action Area
     const syncCard = contentEl.createDiv({
       cls: "vault-relay-sync-action-area",
-      attr: {
-        style:
-          "padding: 14px; border-radius: 8px; background-color: var(--background-secondary); border: 1px solid var(--background-modifier-border); margin-bottom: 14px; text-align: center;",
-      },
     });
 
     if (this.isSyncing && this.progressEvent) {
       const prog = this.progressEvent;
       syncCard.createDiv({
         text: getPhaseLabel(prog.phase),
-        attr: { style: "font-weight: 600; font-size: 0.95em; margin-bottom: 6px; color: var(--text-normal);" },
+        cls: "vault-relay-sync-phase",
       });
       if (prog.total > 0 && prog.completed > 0) {
         syncCard.createDiv({
           text: `${prog.completed} / ${prog.total} file(s)`,
-          attr: { style: "font-size: 0.85em; color: var(--text-muted); margin-bottom: 4px;" },
+          cls: "vault-relay-sync-count",
         });
       }
       if (prog.currentPath) {
         syncCard.createDiv({
           text: prog.currentPath,
-          attr: { style: "font-size: 0.8em; font-family: var(--font-monospace); color: var(--text-muted); word-break: break-all;" },
+          cls: "vault-relay-sync-path",
         });
       }
     } else {
       const syncBtn = syncCard.createEl("button", {
         text: "Sync Now",
-        cls: "mod-cta",
-        attr: { style: "width: 100%; min-height: 44px; font-size: 1.05em; font-weight: 600; cursor: pointer;" },
+        cls: "mod-cta vault-relay-btn-lg vault-relay-sync-btn",
       });
 
       if (!hasActionableChanges) {
@@ -349,21 +327,21 @@ export class SyncDashboardModal extends Modal {
 
     // 8. Utility Actions: Preview Details + Advanced Toggle
     const actionsRow = contentEl.createDiv({
-      cls: "vault-relay-actions-row",
-      attr: { style: "display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;" },
+      cls: "vault-relay-action-row vault-relay-actions-row",
     });
 
     const previewBtn = actionsRow.createEl("button", {
-      text: "🔍 Preview Details",
-      attr: { style: "min-height: 44px; min-width: 44px;" },
+      text: this.showFileInspection ? "Hide File Details ▲" : "🔍 Preview Details ▼",
+      cls: "vault-relay-btn-lg",
     });
     previewBtn.onclick = () => {
-      new SyncPreviewModal(this.app, this.plugin).open();
+      this.showFileInspection = !this.showFileInspection;
+      this.render();
     };
 
     const advancedToggle = actionsRow.createEl("button", {
       text: this.showAdvanced ? "Hide Advanced Details ▲" : "View Advanced Details ▼",
-      attr: { style: "min-height: 44px; min-width: 44px; background: transparent; border: none; font-size: 0.82em; color: var(--text-muted); cursor: pointer;" },
+      cls: "vault-relay-advanced-toggle vault-relay-btn-lg",
     });
     advancedToggle.onclick = () => {
       this.showAdvanced = !this.showAdvanced;
@@ -373,11 +351,15 @@ export class SyncDashboardModal extends Modal {
     // 9. Lightweight Footer (Unchanged presentation)
     const footer = contentEl.createDiv({
       cls: "vault-relay-dashboard-footer",
-      attr: { style: "text-align: center; padding: 4px 0 2px 0; font-size: 0.82em; color: var(--text-muted);" },
     });
     footer.setText(`${unchangedCount} files already in sync`);
 
-    // 10. Collapsible Advanced Section
+    // 10. Embedded File Inspection Section (Task 3)
+    if (this.showFileInspection) {
+      this.renderFileInspectionSection(contentEl);
+    }
+
+    // 11. Collapsible Advanced Section
     if (this.showAdvanced) {
       this.renderAdvancedSection(contentEl);
     }
@@ -392,33 +374,35 @@ export class SyncDashboardModal extends Modal {
     isWarning?: boolean
   ): void {
     const card = container.createDiv({
-      attr: {
-        style: `padding: 12px 14px; border-radius: 8px; background-color: ${
-          isWarning ? "rgba(231, 76, 60, 0.08)" : "var(--background-secondary)"
-        }; border: 1px solid ${
-          isWarning ? "var(--color-red, #e74c3c)" : "var(--background-modifier-border)"
-        }; display: flex; flex-direction: column; justify-content: center; min-height: 64px; text-align: left;`,
-      },
+      cls: "vault-relay-summary-card",
     });
-    card.addClass("vault-relay-summary-card");
     if (isWarning) {
       card.addClass("vault-relay-summary-card-warning");
     }
 
     card.createDiv({
       text: title,
-      attr: { style: "font-size: 0.78em; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;" },
+      cls: "vault-relay-card-title",
     });
+
+    const countCls =
+      color === "changes"
+        ? "vault-relay-card-count-changes"
+        : color === "moves"
+        ? "vault-relay-card-count-moves"
+        : color === "conflicts"
+        ? "vault-relay-card-count-conflicts"
+        : "";
 
     card.createDiv({
       text: `${primaryCount} ${primaryCount === 1 ? "file" : "files"}`,
-      attr: { style: `font-size: 1.22em; font-weight: 700; color: ${color}; line-height: 1.2; margin-bottom: 2px;` },
+      cls: `vault-relay-card-count ${countCls}`.trim(),
     });
 
     if (secondaryText) {
       card.createDiv({
         text: secondaryText,
-        attr: { style: "font-size: 0.75em; color: var(--text-muted); line-height: 1.2; word-break: break-word;" },
+        cls: "vault-relay-card-desc",
       });
     }
   }
@@ -455,28 +439,25 @@ export class SyncDashboardModal extends Modal {
 
   private renderAdvancedSection(container: HTMLElement): void {
     const adv = container.createDiv({
-      attr: {
-        style:
-          "border-top: 1px solid var(--background-modifier-border); padding-top: 14px; margin-top: 10px;",
-      },
+      cls: "vault-relay-advanced-section",
     });
 
-    adv.createEl("h3", { text: "Engineering Diagnostics & Individual Operations", attr: { style: "font-size: 0.95em; margin-bottom: 8px;" } });
+    adv.createEl("h3", { text: "Engineering Diagnostics & Individual Operations", cls: "vault-relay-advanced-title" });
 
     // Buttons for manual Safe Pull / Safe Push
-    const opBtns = adv.createDiv({ attr: { style: "display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;" } });
-    const pullBtn = opBtns.createEl("button", { text: "Safe Pull Only", attr: { style: "min-height: 44px; min-width: 44px;" } });
+    const opBtns = adv.createDiv({ cls: "vault-relay-action-row" });
+    const pullBtn = opBtns.createEl("button", { text: "Safe Pull Only", cls: "vault-relay-btn-lg" });
     pullBtn.onclick = () => {
-      new PullConfirmModal(this.app, this.plugin, () => {
+      new SyncConfirmModal(this.app, this.plugin, "pull", () => {
         void this.runScanAndRender().catch((err) => {
           new Notice(sanitizeErrorMessage(err));
         });
       }).open();
     };
 
-    const pushBtn = opBtns.createEl("button", { text: "Safe Push Only", attr: { style: "min-height: 44px; min-width: 44px;" } });
+    const pushBtn = opBtns.createEl("button", { text: "Safe Push Only", cls: "vault-relay-btn-lg" });
     pushBtn.onclick = () => {
-      new PushConfirmModal(this.app, this.plugin, () => {
+      new SyncConfirmModal(this.app, this.plugin, "push", () => {
         void this.runScanAndRender().catch((err) => {
           new Notice(sanitizeErrorMessage(err));
         });
@@ -486,19 +467,93 @@ export class SyncDashboardModal extends Modal {
     // Item List
     if (this.report) {
       const itemsList = adv.createDiv({
-        attr: { style: "max-height: 240px; overflow-y: auto; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 6px;" },
+        cls: "vault-relay-file-list",
       });
       for (const item of this.report.items) {
         const row = itemsList.createDiv({
-          attr: { style: "display: flex; justify-content: space-between; font-size: 0.8em; padding: 4px 6px; border-bottom: 1px solid var(--background-modifier-border);" },
+          cls: "vault-relay-file-row",
         });
         const label = item.isMove && item.movedTo
           ? `Move → ${item.movedTo}`
           : item.isMove && item.movedFrom
           ? `Move ← ${item.movedFrom}`
           : item.category;
-        row.createDiv({ text: item.path, attr: { style: "word-break: break-all; font-family: var(--font-monospace);" } });
-        row.createDiv({ text: label, attr: { style: "font-weight: 600; color: var(--text-muted);" } });
+        row.createDiv({ text: item.path, cls: "vault-relay-file-path" });
+        row.createDiv({ text: label, cls: "vault-relay-file-label" });
+      }
+    }
+  }
+
+  private renderFileInspectionSection(container: HTMLElement): void {
+    if (!this.report) return;
+
+    const section = container.createDiv({
+      cls: "vault-relay-advanced-section",
+    });
+
+    const headerRow = section.createDiv({
+      cls: "vault-relay-action-row",
+    });
+    headerRow.createEl("h3", { text: "Detailed File Inspection", cls: "vault-relay-advanced-title" });
+
+    const openSeparateBtn = headerRow.createEl("button", {
+      text: "Open Standalone Window ↗",
+      cls: "vault-relay-btn-lg",
+    });
+    openSeparateBtn.onclick = () => {
+      new SyncPreviewModal(this.app, this.plugin).open();
+    };
+
+    // Filter bar
+    const filterBar = section.createDiv({ cls: "vault-relay-action-row" });
+    const filters: Array<{ label: string; value: SyncCategory | "ALL" }> = [
+      { label: "All", value: "ALL" },
+      { label: "Local Only", value: "LOCAL_ONLY" },
+      { label: "Remote Only", value: "REMOTE_ONLY" },
+      { label: "Local Changed", value: "LOCAL_CHANGED" },
+      { label: "Remote Changed", value: "REMOTE_CHANGED" },
+      { label: "Conflicts", value: "POTENTIAL_CONFLICT" },
+      { label: "Deletes", value: "LOCAL_DELETED" },
+    ];
+
+    for (const f of filters) {
+      const btn = filterBar.createEl("button", {
+        text: f.label,
+        cls: `vault-relay-btn-lg ${this.activeFilter === f.value ? "mod-cta" : ""}`.trim(),
+      });
+      btn.onclick = () => {
+        this.activeFilter = f.value;
+        this.render();
+      };
+    }
+
+    const items = this.report.items.filter((item) => {
+      if (this.activeFilter === "ALL") return item.category !== "UNCHANGED";
+      if (this.activeFilter === "LOCAL_DELETED") {
+        return item.category === "LOCAL_DELETED" || item.category === "REMOTE_DELETED";
+      }
+      return item.category === this.activeFilter;
+    });
+
+    const itemsList = section.createDiv({
+      cls: "vault-relay-file-list",
+    });
+
+    if (items.length === 0) {
+      const emptyEl = itemsList.createDiv({ cls: "vault-relay-zero-state" });
+      emptyEl.createDiv({ text: "No files match the selected filter.", cls: "vault-relay-zero-state-desc" });
+    } else {
+      for (const item of items) {
+        const row = itemsList.createDiv({
+          cls: "vault-relay-file-row",
+        });
+        const label = item.isMove && item.movedTo
+          ? `Move → ${item.movedTo}`
+          : item.isMove && item.movedFrom
+          ? `Move ← ${item.movedFrom}`
+          : item.category;
+        row.createDiv({ text: item.path, cls: "vault-relay-file-path" });
+        row.createDiv({ text: label, cls: "vault-relay-file-label" });
       }
     }
   }

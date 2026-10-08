@@ -13,10 +13,8 @@ describe("C5-MOBILE: mobile-first static and accessibility audit", () => {
     const modalFiles = [
       "src/ui/clearTokenConfirmModal.ts",
       "src/ui/conflictResolutionModal.ts",
-      "src/ui/pullConfirmModal.ts",
-      "src/ui/pullResultModal.ts",
-      "src/ui/pushConfirmModal.ts",
-      "src/ui/pushResultModal.ts",
+      "src/ui/syncConfirmModal.ts",
+      "src/ui/syncResultModal.ts",
       "src/ui/syncDashboardModal.ts",
       "src/ui/syncPreviewModal.ts",
     ];
@@ -44,15 +42,14 @@ describe("C5-MOBILE: mobile-first static and accessibility audit", () => {
   it("C5-MOBILE-003: disabled and loading states remain visible and plainly labeled", () => {
     const css = read("styles.css");
     const conflictUi = read("src/ui/conflictResolutionModal.ts");
-    const pullUi = read("src/ui/pullConfirmModal.ts");
-    const pushUi = read("src/ui/pushConfirmModal.ts");
+    const syncConfirmUi = read("src/ui/syncConfirmModal.ts");
 
     expect(css).toMatch(/button:disabled[\s\S]*opacity:\s*0\.55/);
     expect(conflictUi).toContain("Pushing local version...");
     expect(conflictUi).toContain("Pulling remote version...");
     expect(conflictUi).toContain("Saving remote copy...");
-    expect(pullUi).toContain('confirmBtn.textContent = "Pulling..."');
-    expect(pushUi).toContain('confirmBtn.textContent = "Pushing..."');
+    expect(syncConfirmUi).toContain('"Pulling..."');
+    expect(syncConfirmUi).toContain('"Pushing..."');
   });
 
   it("C5-MOBILE-004: primary conflict UX uses clear choices without SHA jargon", () => {
