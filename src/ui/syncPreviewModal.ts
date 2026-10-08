@@ -13,8 +13,7 @@ import { SyncCategory, SyncPreviewItem, SyncPreviewReport } from "../sync/syncTy
 import { computeSemanticPreview } from "../sync/semanticSummary";
 import { getStoredPat } from "../security/secretStore";
 import { sanitizeErrorMessage } from "../security/redact";
-import { PullConfirmModal } from "./pullConfirmModal";
-import { PushConfirmModal } from "./pushConfirmModal";
+import { SyncConfirmModal } from "./syncConfirmModal";
 
 export class SyncPreviewModal extends Modal {
   private plugin: VaultRelayPlugin;
@@ -83,20 +82,17 @@ export class SyncPreviewModal extends Modal {
     contentEl.empty();
 
     const container = contentEl.createDiv({
-      attr: {
-        style:
-          "display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px;",
-      },
+      cls: "vault-relay-loading-box",
     });
 
-    const iconDiv = container.createDiv({ attr: { style: "margin-bottom: 16px;" } });
+    const iconDiv = container.createDiv({ cls: "vault-relay-loading-icon" });
     setIcon(iconDiv, "refresh-cw");
     iconDiv.addClass("vault-relay-spin");
 
     container.createEl("h3", { text: "Scanning Vault & GitHub Repository..." });
     container.createEl("p", {
       text: "Calculating canonical Git blob hashes and fetching remote tree from api.github.com...",
-      attr: { style: "color: var(--text-muted); font-size: 0.9em;" },
+      cls: "vault-relay-loading-subtitle",
     });
   }
 
@@ -107,33 +103,30 @@ export class SyncPreviewModal extends Modal {
     contentEl.createEl("h2", { text: "GitHub Vault Relay - Sync Preview" });
 
     const errBox = contentEl.createDiv({
-      attr: {
-        style:
-          "padding: 16px; border-radius: 6px; border-left: 4px solid var(--color-red, #e74c3c); background-color: var(--background-secondary); margin: 20px 0;",
-      },
+      cls: "vault-relay-error-box",
     });
 
     errBox.createEl("h4", {
       text: "Failed to load sync preview",
-      attr: { style: "margin: 0 0 8px 0; color: var(--text-error, #e74c3c);" },
+      cls: "vault-relay-error-title",
     });
     errBox.createEl("p", {
       text: message,
-      attr: { style: "margin: 0; color: var(--text-muted); font-size: 0.95em;" },
+      cls: "vault-relay-error-desc",
     });
 
     const actions = contentEl.createDiv({
-      attr: { style: "display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;" },
+      cls: "vault-relay-action-row",
     });
 
-    const retryBtn = actions.createEl("button", { text: "Retry Scan" });
+    const retryBtn = actions.createEl("button", { text: "Retry Scan", cls: "vault-relay-btn-lg" });
     retryBtn.onclick = () => {
       void this.runScanAndRender().catch((err) => {
         this.renderError(sanitizeErrorMessage(err));
       });
     };
 
-    const closeBtn = actions.createEl("button", { text: "Close" });
+    const closeBtn = actions.createEl("button", { text: "Close", cls: "vault-relay-btn-lg" });
     closeBtn.onclick = () => this.close();
   }
 
@@ -144,33 +137,28 @@ export class SyncPreviewModal extends Modal {
 
     // Header
     const headerEl = contentEl.createDiv({
-      attr: {
-        style:
-          "display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;",
-      },
+      cls: "vault-relay-preview-header",
     });
 
     const titleArea = headerEl.createDiv();
-    titleArea.createEl("h2", { text: "GitHub Vault Relay - Sync Preview", attr: { style: "margin: 0 0 4px 0;" } });
+    titleArea.createEl("h2", { text: "GitHub Vault Relay - Sync Preview", cls: "vault-relay-preview-title" });
     titleArea.createDiv({
       text: `Repository: ${this.plugin.settings.owner}/${this.plugin.settings.repo} | Branch: ${this.report.branch} (${
         this.report.remoteCommitSha ? this.report.remoteCommitSha.substring(0, 7) : "HEAD"
       })`,
-      attr: { style: "color: var(--text-muted); font-size: 0.85em;" },
+      cls: "vault-relay-repo-info",
     });
 
     const actionArea = headerEl.createDiv({
       cls: "vault-relay-action-row",
-      attr: { style: "display: flex; gap: 8px; flex-wrap: wrap;" },
     });
 
     const pullBtn = actionArea.createEl("button", {
       text: "Pull Safe Changes",
-      cls: "mod-cta",
-      attr: { style: "min-height: 44px; min-width: 44px; padding: 10px 16px;" },
+      cls: "mod-cta vault-relay-btn-lg",
     });
     pullBtn.onclick = () => {
-      new PullConfirmModal(this.app, this.plugin, async () => {
+      new SyncConfirmModal(this.app, this.plugin, "pull", async () => {
         if (this.isModalOpen) {
           await this.runScanAndRender();
         }
@@ -179,10 +167,10 @@ export class SyncPreviewModal extends Modal {
 
     const pushBtn = actionArea.createEl("button", {
       text: "Push Safe Changes",
-      attr: { style: "min-height: 44px; min-width: 44px; padding: 10px 16px;" },
+      cls: "vault-relay-btn-lg",
     });
     pushBtn.onclick = () => {
-      new PushConfirmModal(this.app, this.plugin, async () => {
+      new SyncConfirmModal(this.app, this.plugin, "push", async () => {
         if (this.isModalOpen) {
           await this.runScanAndRender();
         }
@@ -191,7 +179,7 @@ export class SyncPreviewModal extends Modal {
 
     const refreshBtn = actionArea.createEl("button", {
       text: "Refresh",
-      attr: { style: "min-height: 44px; min-width: 44px; padding: 10px 16px;" },
+      cls: "vault-relay-btn-lg",
     });
     refreshBtn.onclick = () => {
       void this.runScanAndRender().catch((err) => {
@@ -202,14 +190,11 @@ export class SyncPreviewModal extends Modal {
     // Truncated tree warning banner (TRUNCATED_TREE_POLICY)
     if (this.report.truncatedRemoteTree) {
       const truncBox = contentEl.createDiv({
-        attr: {
-          style:
-            "padding: 10px 14px; border-radius: 4px; border-left: 4px solid var(--color-red, #e74c3c); background-color: var(--background-secondary); margin-bottom: 12px; font-size: 0.88em;",
-        },
+        cls: "vault-relay-warning-box",
       });
       truncBox.createEl("strong", {
         text: "⚠️ Remote Tree Truncated (>100,000 objects): ",
-        attr: { style: "color: var(--text-error, #e74c3c);" },
+        cls: "vault-relay-warning-title",
       });
       truncBox.createSpan({
         text: "GitHub API truncated the remote tree. Safe Pull is blocked to prevent partial synchronization.",
@@ -219,10 +204,7 @@ export class SyncPreviewModal extends Modal {
     // Case collisions alert banner
     if (this.report.caseCollisions && this.report.caseCollisions.length > 0) {
       const caseBox = contentEl.createDiv({
-        attr: {
-          style:
-            "padding: 10px 14px; border-radius: 4px; border-left: 4px solid var(--color-orange, #e67e22); background-color: var(--background-secondary); margin-bottom: 12px; font-size: 0.88em;",
-        },
+        cls: "vault-relay-warning-box vault-relay-warning-box-orange",
       });
       caseBox.createEl("strong", { text: "⚠️ Case Collisions Detected: " });
       caseBox.createSpan({
@@ -233,10 +215,7 @@ export class SyncPreviewModal extends Modal {
     // Semantic Summary Badges Grid
     const semantic = computeSemanticPreview(this.report.items);
     const statsGrid = contentEl.createDiv({
-      attr: {
-        style:
-          "display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 16px;",
-      },
+      cls: "vault-relay-stat-grid",
     });
 
     this.createStatBadge(statsGrid, "Local Only", semantic.pushCreate, "var(--color-cyan, #00b4d8)", "LOCAL_ONLY");
@@ -254,10 +233,6 @@ export class SyncPreviewModal extends Modal {
     // Filter Bar
     const filterBar = contentEl.createDiv({
       cls: "vault-relay-filter-bar",
-      attr: {
-        style:
-          "display: flex; gap: 6px; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--background-modifier-border); overflow-x: auto;",
-      },
     });
 
     const displayTotalCount = this.report.items.filter((it) => !(it.isMove && it.movedFrom)).length;
@@ -292,15 +267,12 @@ export class SyncPreviewModal extends Modal {
     }
 
     const listContainer = contentEl.createDiv({
-      attr: {
-        style:
-          "max-height: 380px; overflow-y: auto; border: 1px solid var(--background-modifier-border); border-radius: 4px; background-color: var(--background-primary);",
-      },
+      cls: "vault-relay-file-list",
     });
 
     if (filteredItems.length === 0) {
       const emptyBox = listContainer.createDiv({
-        attr: { style: "padding: 30px; text-align: center; color: var(--text-muted); font-size: 0.9em;" },
+        cls: "vault-relay-empty-state-text",
       });
       emptyBox.setText("No items match the selected category.");
     } else {
@@ -314,16 +286,12 @@ export class SyncPreviewModal extends Modal {
     parent: HTMLElement,
     label: string,
     count: number,
-    color: string,
+    _color: string,
     category: SyncCategory | "MOVES"
   ): void {
     const isSelected = this.activeCategoryFilter === category;
     const card = parent.createDiv({
-      attr: {
-        style: `padding: 8px 10px; border-radius: 6px; background-color: var(--background-secondary); border: 1px solid ${
-          isSelected ? color : "var(--background-modifier-border)"
-        }; cursor: pointer; text-align: center; transition: all 0.15s ease;`,
-      },
+      cls: `vault-relay-stat-badge ${isSelected ? "vault-relay-stat-badge-selected" : ""}`.trim(),
     });
 
     card.onclick = () => {
@@ -333,11 +301,11 @@ export class SyncPreviewModal extends Modal {
 
     card.createDiv({
       text: String(count),
-      attr: { style: `font-size: 1.3em; font-weight: bold; color: ${count > 0 ? color : "var(--text-muted)"};` },
+      cls: "vault-relay-stat-count",
     });
     card.createDiv({
       text: label,
-      attr: { style: "font-size: 0.75em; color: var(--text-muted); white-space: nowrap; margin-top: 2px;" },
+      cls: "vault-relay-stat-label",
     });
   }
 
@@ -345,12 +313,7 @@ export class SyncPreviewModal extends Modal {
     const isSelected = this.activeCategoryFilter === filter;
     const tab = parent.createEl("button", {
       text: label,
-      cls: isSelected ? "mod-cta" : "",
-      attr: {
-        style: `font-size: 0.78em; padding: 4px 8px; border-radius: 4px; white-space: nowrap; ${
-          isSelected ? "" : "background: transparent; border: none; color: var(--text-muted);"
-        }`,
-      },
+      cls: isSelected ? "mod-cta vault-relay-filter-tab" : "vault-relay-filter-tab",
     });
 
     tab.onclick = () => {
@@ -361,34 +324,28 @@ export class SyncPreviewModal extends Modal {
 
   private renderItemRow(parent: HTMLElement, item: SyncPreviewItem): void {
     const row = parent.createDiv({
-      attr: {
-        style:
-          "display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--background-modifier-border); font-size: 0.85em; gap: 8px;",
-      },
+      cls: "vault-relay-file-row",
     });
 
-    const left = row.createDiv({ attr: { style: "overflow: hidden; text-overflow: ellipsis; flex: 1;" } });
+    const left = row.createDiv({ cls: "vault-relay-file-info" });
     if (item.isMove && item.movedTo) {
       const moveTitle = left.createDiv({
-        attr: {
-          style:
-            "font-weight: 500; word-break: break-all; overflow-wrap: anywhere; color: var(--text-normal); display: flex; flex-wrap: wrap; align-items: center; gap: 4px;",
-        },
+        cls: "vault-relay-move-title",
       });
-      moveTitle.createSpan({ text: item.path, attr: { style: "text-decoration: line-through; opacity: 0.75;" } });
-      moveTitle.createSpan({ text: " → ", attr: { style: "font-weight: bold; color: var(--color-purple, #9b59b6);" } });
-      moveTitle.createSpan({ text: item.movedTo, attr: { style: "font-weight: 600;" } });
+      moveTitle.createSpan({ text: item.path, cls: "vault-relay-strikethrough" });
+      moveTitle.createSpan({ text: " → ", cls: "vault-relay-move-highlight" });
+      moveTitle.createSpan({ text: item.movedTo, cls: "vault-relay-file-path" });
     } else {
       left.createDiv({
         text: item.path,
-        attr: { style: "font-weight: 500; word-break: break-all; overflow-wrap: anywhere; color: var(--text-normal);" },
+        cls: "vault-relay-file-path",
       });
     }
 
     if (item.isMove && !item.movedTo && item.movedFrom) {
       left.createDiv({
         text: `📦 Move destination from: ${item.movedFrom}`,
-        attr: { style: "font-size: 0.8em; color: var(--color-purple, #9b59b6); margin-top: 2px; font-weight: 500;" },
+        cls: "vault-relay-move-dest",
       });
     }
 
@@ -399,42 +356,38 @@ export class SyncPreviewModal extends Modal {
             ? "deleted locally, modified remotely"
             : "deleted remotely, modified locally"
         }`,
-        attr: { style: "font-size: 0.8em; color: var(--color-red, #e74c3c); margin-top: 2px; font-weight: 500;" },
+        cls: "vault-relay-delete-conflict-text",
       });
     }
 
     if (item.details) {
       left.createDiv({
         text: item.details,
-        attr: { style: "font-size: 0.8em; color: var(--text-muted); margin-top: 2px;" },
+        cls: "vault-relay-file-details",
       });
     }
 
     if (item.isOversized) {
       left.createDiv({
         text: "⚠️ Oversized (>25 MiB mobile safety ceiling). Will be skipped during pull.",
-        attr: { style: "font-size: 0.78em; color: var(--color-orange, #e67e22); margin-top: 2px;" },
+        cls: "vault-relay-oversized-text",
       });
     }
 
     if (item.unsafeReason) {
       left.createDiv({
         text: `🚫 Path unsafe: ${item.unsafeReason}`,
-        attr: { style: "font-size: 0.78em; color: var(--color-red, #e74c3c); margin-top: 2px;" },
+        cls: "vault-relay-unsafe-text",
       });
     }
 
-    const right = row.createDiv({ attr: { style: "display: flex; align-items: center; gap: 8px; flex-shrink: 0;" } });
+    const right = row.createDiv({ cls: "vault-relay-file-actions" });
 
     // Category badge
+    const badgeCategoryCls = item.isMove ? "vault-relay-badge-MOVES" : `vault-relay-badge-${item.category}`;
     right.createSpan({
       text: this.getCategoryLabel(item.category, item.isMove),
-      attr: {
-        style: `padding: 2px 6px; border-radius: 3px; font-size: 0.75em; font-weight: 600; background-color: ${this.getCategoryBg(
-          item.category,
-          item.isMove
-        )}; color: ${this.getCategoryFg(item.category, item.isMove)};`,
-      },
+      cls: `vault-relay-badge ${badgeCategoryCls}`,
     });
 
     // Hash indicator
@@ -443,9 +396,7 @@ export class SyncPreviewModal extends Modal {
         text: `L:${item.localSha ? item.localSha.substring(0, 6) : "-"} R:${
           item.remoteSha ? item.remoteSha.substring(0, 6) : "-"
         }`,
-        attr: {
-          style: "font-family: var(--font-monospace); font-size: 0.75em; color: var(--text-muted);",
-        },
+        cls: "vault-relay-hash-indicator",
       });
     }
   }

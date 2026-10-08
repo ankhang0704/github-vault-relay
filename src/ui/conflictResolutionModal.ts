@@ -94,22 +94,22 @@ export class ConflictResolutionModal extends Modal {
     if (this.conflicts.length === 0) {
       contentEl.createDiv({
         text: "No active conflicts detected. All files are synchronized or safe.",
-        attr: { style: "padding: 20px 0; color: var(--text-muted); font-size: 0.95em;" },
+        cls: "vault-relay-empty-state-text",
       });
-      const closeBtn = contentEl.createEl("button", { text: "Close", cls: "mod-cta" });
+      const closeBtn = contentEl.createEl("button", { text: "Close", cls: "mod-cta vault-relay-btn-lg" });
       closeBtn.onclick = () => this.close();
       return;
     }
 
     const desc = contentEl.createDiv({
-      attr: { style: "margin-bottom: 16px; font-size: 0.88em; color: var(--text-muted); line-height: 1.4;" },
+      cls: "vault-relay-conflict-intro",
     });
     desc.setText(
       "The following notes have been modified both locally and on GitHub. Choose how you would like to resolve each conflict:"
     );
 
     const listContainer = contentEl.createDiv({
-      attr: { style: "max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;" },
+      cls: "vault-relay-conflict-list",
     });
 
     for (const conflict of this.conflicts) {
@@ -119,14 +119,11 @@ export class ConflictResolutionModal extends Modal {
 
   private renderConflictCard(container: HTMLElement, conflict: ConflictRecord): void {
     const card = container.createDiv({
-      attr: {
-        style:
-          "border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 14px; background-color: var(--background-secondary);",
-      },
+      cls: "vault-relay-conflict-card",
     });
 
     const header = card.createDiv({
-      attr: { style: "font-weight: 600; word-break: break-all; margin-bottom: 6px; font-size: 0.95em; color: var(--text-normal);" },
+      cls: "vault-relay-conflict-path",
     });
     header.setText(conflict.path);
 
@@ -137,53 +134,49 @@ export class ConflictResolutionModal extends Modal {
     if (isDeleteConflict) {
       const isLocalDel = conflict.conflictType === "DELETE_LOCAL_REMOTE_MODIFIED";
       const statusDesc = card.createDiv({
-        attr: { style: "margin-bottom: 8px; font-size: 0.85em; line-height: 1.4;" },
+        cls: "vault-relay-conflict-delete-desc",
       });
       statusDesc.createDiv({
         text: isLocalDel
           ? "Deleted on this device, modified on GitHub."
           : "Modified on this device, deleted on GitHub.",
-        attr: { style: "color: var(--color-red, #e74c3c); font-weight: 600; margin-bottom: 4px;" },
+        cls: "vault-relay-conflict-delete-badge",
       });
       const explanation = isLocalDel
         ? "• Keep File: Restore the GitHub version locally.\n• Delete File: Delete the GitHub version in a new commit."
         : "• Keep File: Push local modifications to GitHub in a new commit.\n• Delete File: Move the local file to Obsidian trash.";
       statusDesc.createDiv({
         text: explanation,
-        attr: { style: "color: var(--text-muted); font-size: 0.85em; white-space: pre-line;" },
+        cls: "vault-relay-conflict-explanation",
       });
     } else {
       card.createDiv({
         text: "Both versions are preserved until you choose an action.",
-        attr: { style: "font-size: 0.8em; color: var(--text-muted); margin-bottom: 10px;" },
+        cls: "vault-relay-conflict-note",
       });
     }
 
     // Status / Progress indicator area
     const statusDiv = card.createDiv({
-      attr: {
-        style: "display: none; font-size: 0.85em; margin-bottom: 10px; padding: 6px 10px; border-radius: 4px; background-color: var(--background-primary);",
-      },
+      cls: "vault-relay-conflict-status",
     });
 
     const btnRow = card.createDiv({
-      attr: { style: "display: flex; flex-wrap: wrap; gap: 8px;" },
+      cls: "vault-relay-conflict-actions",
     });
 
     if (isDeleteConflict) {
       const keepFileBtn = btnRow.createEl("button", {
         text: "Keep File",
-        cls: "mod-cta",
-        attr: { style: "min-height: 44px; min-width: 44px;" },
+        cls: "mod-cta vault-relay-btn-lg",
       });
       const deleteFileBtn = btnRow.createEl("button", {
         text: "Delete File",
-        cls: "mod-warning",
-        attr: { style: "min-height: 44px; min-width: 44px;" },
+        cls: "mod-warning vault-relay-btn-lg",
       });
       const cancelBtn = btnRow.createEl("button", {
         text: "Cancel",
-        attr: { style: "min-height: 44px; min-width: 44px;" },
+        cls: "vault-relay-btn-lg",
       });
       cancelBtn.onclick = () => this.close();
 
@@ -246,20 +239,19 @@ export class ConflictResolutionModal extends Modal {
     } else {
       const keepBothBtn = btnRow.createEl("button", {
         text: "Keep Both",
-        cls: "mod-cta",
-        attr: { style: "min-height: 44px; min-width: 44px;" },
+        cls: "mod-cta vault-relay-btn-lg",
       });
       const keepLocalBtn = btnRow.createEl("button", {
         text: "Keep Local",
-        attr: { style: "min-height: 44px; min-width: 44px;" },
+        cls: "vault-relay-btn-lg",
       });
       const useRemoteBtn = btnRow.createEl("button", {
         text: "Use Remote",
-        attr: { style: "min-height: 44px; min-width: 44px;" },
+        cls: "vault-relay-btn-lg",
       });
       const cancelBtn = btnRow.createEl("button", {
         text: "Cancel",
-        attr: { style: "min-height: 44px; min-width: 44px;" },
+        cls: "vault-relay-btn-lg",
       });
       cancelBtn.onclick = () => this.close();
 

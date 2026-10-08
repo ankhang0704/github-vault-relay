@@ -25,12 +25,12 @@ export class ClearTokenConfirmModal extends Modal {
 
     contentEl.createEl("p", {
       text: "Are you sure you want to remove your GitHub Personal Access Token from Obsidian SecretStorage?",
-      attr: { style: "line-height: 1.5; margin-bottom: 12px;" },
+      cls: "vault-relay-dialog-desc",
     });
 
     contentEl.createEl("p", {
       text: "This action cannot be undone. Your repository and branch settings will remain, but synchronization will require you to re-enter a token.",
-      attr: { style: "color: var(--text-muted); font-size: 0.9em; margin-bottom: 20px;" },
+      cls: "vault-relay-dialog-subtext",
     });
 
     const buttonRow = new Setting(contentEl);

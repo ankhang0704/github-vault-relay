@@ -10,10 +10,8 @@ import { App } from "obsidian";
 import fs from "node:fs";
 import path from "node:path";
 import VaultRelayPlugin from "../src/main";
-import { PullConfirmModal } from "../src/ui/pullConfirmModal";
-import { PushConfirmModal } from "../src/ui/pushConfirmModal";
-import { PullResultModal } from "../src/ui/pullResultModal";
-import { PushResultModal } from "../src/ui/pushResultModal";
+import { SyncConfirmModal } from "../src/ui/syncConfirmModal";
+import { SyncResultModal } from "../src/ui/syncResultModal";
 import { SyncDashboardModal } from "../src/ui/syncDashboardModal";
 import { ConflictResolutionModal } from "../src/ui/conflictResolutionModal";
 import { SyncPreviewModal } from "../src/ui/syncPreviewModal";
@@ -120,7 +118,7 @@ describe("C6 — Runtime UI Tests (C6-UI-DEL-001..006, C6-UI-MOVE-001..003, C6-U
       { REMOTE_DELETED: 2 }
     );
 
-    const modal = new PullConfirmModal(app, plugin);
+    const modal = new SyncConfirmModal(app, plugin, "pull");
     const internal = modal as unknown as ModalInternalWithPreview;
     internal.previewReport = report;
     internal.isLoading = false;
@@ -143,7 +141,7 @@ describe("C6 — Runtime UI Tests (C6-UI-DEL-001..006, C6-UI-MOVE-001..003, C6-U
       { LOCAL_DELETED: 3 }
     );
 
-    const modal = new PushConfirmModal(app, plugin);
+    const modal = new SyncConfirmModal(app, plugin, "push");
     const internal = modal as unknown as ModalInternalWithPreview;
     internal.previewReport = report;
     internal.isLoading = false;
@@ -182,7 +180,7 @@ describe("C6 — Runtime UI Tests (C6-UI-DEL-001..006, C6-UI-MOVE-001..003, C6-U
       ],
     };
 
-    const modal = new PullResultModal(app, report);
+    const modal = new SyncResultModal(app, report, "pull");
     modal.onOpen();
 
     const text = getAllText(modal.contentEl as unknown as MockElement);
@@ -214,7 +212,7 @@ describe("C6 — Runtime UI Tests (C6-UI-DEL-001..006, C6-UI-MOVE-001..003, C6-U
       results: [{ path: "oldFile.md", action: "PUSH_DELETE", status: "SUCCESS" }],
     };
 
-    const modal = new PushResultModal(app, report);
+    const modal = new SyncResultModal(app, report, "push");
     modal.onOpen();
 
     const text = getAllText(modal.contentEl as unknown as MockElement);
@@ -368,14 +366,14 @@ describe("C6 — Runtime UI Tests (C6-UI-DEL-001..006, C6-UI-MOVE-001..003, C6-U
     expect(css).toMatch(/min-height:\s*44px/);
     expect(css).toMatch(/min-width:\s*44px/);
 
-    const pullModal = new PullConfirmModal(app, plugin);
+    const pullModal = new SyncConfirmModal(app, plugin, "pull");
     pullModal.onOpen();
     const pullButtons = (pullModal.contentEl as unknown as MockElement).findAll((el: MockElement) => el.tag === "button");
     for (const b of pullButtons) {
       expect(b.attributes.style || "").toMatch(/min-height:\s*44px/);
     }
 
-    const pushModal = new PushConfirmModal(app, plugin);
+    const pushModal = new SyncConfirmModal(app, plugin, "push");
     pushModal.onOpen();
     const pushButtons = (pushModal.contentEl as unknown as MockElement).findAll((el: MockElement) => el.tag === "button");
     for (const b of pushButtons) {
@@ -401,7 +399,7 @@ describe("C6 — Runtime UI Tests (C6-UI-DEL-001..006, C6-UI-MOVE-001..003, C6-U
     );
 
     // 1. Pull Confirm: no destructive warning section
-    const pullModal = new PullConfirmModal(app, plugin);
+    const pullModal = new SyncConfirmModal(app, plugin, "pull");
     const pullInternal = pullModal as unknown as ModalInternalWithPreview;
     pullInternal.previewReport = normalReport;
     pullInternal.isLoading = false;
@@ -409,7 +407,7 @@ describe("C6 — Runtime UI Tests (C6-UI-DEL-001..006, C6-UI-MOVE-001..003, C6-U
     expect(getAllText(pullModal.contentEl as unknown as MockElement)).not.toContain("Files to remove locally");
 
     // 2. Push Confirm: no destructive warning section
-    const pushModal = new PushConfirmModal(app, plugin);
+    const pushModal = new SyncConfirmModal(app, plugin, "push");
     const pushInternal = pushModal as unknown as ModalInternalWithPreview;
     pushInternal.previewReport = normalReport;
     pushInternal.isLoading = false;
@@ -417,7 +415,7 @@ describe("C6 — Runtime UI Tests (C6-UI-DEL-001..006, C6-UI-MOVE-001..003, C6-U
     expect(getAllText(pushModal.contentEl as unknown as MockElement)).not.toContain("Files to delete from GitHub");
 
     // 3. Pull Result with 0 deletes: no "Removed locally" badge
-    const pullResModal = new PullResultModal(app, {
+    const pullResModal = new SyncResultModal(app, {
       status: "PASS",
       branch: "main",
       timestamp: Date.now(),
@@ -436,12 +434,12 @@ describe("C6 — Runtime UI Tests (C6-UI-DEL-001..006, C6-UI-MOVE-001..003, C6-U
         failed: 0,
       },
       results: [],
-    });
+    }, "pull");
     pullResModal.onOpen();
     expect(getAllText(pullResModal.contentEl as unknown as MockElement)).not.toContain("Removed locally");
 
     // 4. Push Result with 0 deletes: no "Deleted from GitHub" badge
-    const pushResModal = new PushResultModal(app, {
+    const pushResModal = new SyncResultModal(app, {
       status: "PASS",
       branch: "main",
       newCommitSha: "c2",
@@ -461,7 +459,7 @@ describe("C6 — Runtime UI Tests (C6-UI-DEL-001..006, C6-UI-MOVE-001..003, C6-U
         failed: 0,
       },
       results: [],
-    });
+    }, "push");
     pushResModal.onOpen();
     expect(getAllText(pushResModal.contentEl as unknown as MockElement)).not.toContain("Deleted from GitHub");
 
